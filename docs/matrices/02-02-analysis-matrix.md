@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -41,7 +41,7 @@ Implemented as `AnalysisMatrix` (`crates/core-domain/src/analysis.rs`), produced
 | `structure_assessment` | `StructureAssessment` | Structural-integrity classification (§3.5). |
 | `volatility_assessment` | `VolatilityAssessment` | Volatility-state classification (§3.6). |
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
-| `market_quality` | `QualityLevel` | Aggregate environment quality. Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
+| `market_quality` | `QualityLevel` | Aggregate environment quality. Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT` — wire PascalCase: `Poor` / `Weak` / `Average` / `Good` / `Excellent`) used by Decision Matrix `MarketStance` derivation and the GUI. |
 | `market_quality_score` | `f64` | Raw numeric mean of the per-dimension scores (trend, momentum, structure, volume) in `[0, 100]`. The numeric companion to `market_quality`, consumed by the Layer 6 `confluence_score` formula and other downstream numeric aggregations. When unavailable at the L3 boundary, callers must map `QualityLevel → f64` via the §3.8 numeric bands. |
 | `trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` | `f64?` | **v6.12 numeric companions.** The exact 0-100 alignment dimension scores each qualitative assessment is bucketed from — the disaggregated siblings of `market_quality_score`, rendered as badges on the Analysis panel (see §3.4.1–3.7.1). L3-owned, derived from L2 during `derive_analysis`; `Some` whenever `timeframes_present ≥ 1`, `None` on the empty sentinel (omitted from the wire, §6). The label can never disagree with its score — the label IS the band the score falls into (§4.2). |
 | `representative_bbwp` / `representative_adx` | `f64?` | **v6.10.21 traceability.** The exact L3 regime-input raw values (representative first-TF-wins `bbwp` / `adx`) that the `rationale` quotes. The pair-level matrix mirror is per-slot last-writer-wins, so the exporting slot's own indicator map can differ from the matrix's provenance — these fields pin the exact inputs used. |
@@ -70,6 +70,8 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 | `BEARISH` | `≥ -40 AND < -20` | Moderate bearish lean. |
 | `STRONG_BEARISH` | `< -40` | Dominant bearish conviction. |
 
+**Wire values (PascalCase):** `StrongBullish` / `Bullish` / `Neutral` / `Bearish` / `StrongBearish` (the `MarketBias` enum derives serde without `rename_all`; the SCREAMING form above is the human-facing `Display` vocabulary).
+
 > **Half-open intervals.** The bands are pinned to half-open intervals to keep `score = 20.0`, `40.0`, etc. from double-mapping: `STRONG_BULLISH = (40, 100]`, `BULLISH = (20, 40]`, `NEUTRAL = [-20, 20]`, `BEARISH = [-40, -20)`, `STRONG_BEARISH = [-100, -40)`. The same score never maps to two bands.
 
 > **v6.10.16 grace band (sensitivity lever).** A composite inside `(15, 20]` (or `[-20, -15)`) is upgraded from `NEUTRAL` to `BULLISH`/`BEARISH` — **never** `STRONG` — when the per-timeframe vote is directionally coherent: ≥ 3 of 4 `timeframe_alignments` decisive on the dominant side (`|overall_score| > 10`, `COMPRESSION` windows excluded), `trend_agreement_pct ≥ 75`, and `signal_cross_tf_count ≥ 3`. The vote requirement is pinned to ≥3/4 of `timeframes_present` (minimum 3) so a 2-TF warmup window can never grace. The graced read carries a `×0.9` confidence haircut because the raw math did not confirm the direction — the haircut flows into `confidence_assessment` (L6) and the L5 dimension confidences, not into the probability split (which runs off the signed confluence score). Rationale (professional-trading view): a 4:0 TF vote with 100% agreement is a market telling you to lean, not a rounding artifact to HOLD — the readiness gate (WATCH/STAND_ASIDE) still governs execution. Constants: `BIAS_GRACE_*` in `crates/core-domain/src/analysis.rs`.
@@ -92,17 +94,21 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 | 1 | `bbwp ≤ 10` | `CONTRACTION` |
 | 2 | `adx ≥ 25` AND `score > +20` | `TRENDING_BULL` |
 | 2 | `adx ≥ 25` AND `score < -20` | `TRENDING_BEAR` |
-| 3 | Rising score (positive 3-bar slope) AND `score ≥ 0` AND not in priority 1 | `ACCUMULATION` |
-| 4 | Falling score (negative 3-bar slope) AND `score ≤ 0` AND not in priority 1 | `DISTRIBUTION` |
-| 5 | `adx < 25` AND `bbwp ∈ (10, 85)` AND regime shifted within last **3** bars | `TRANSITION` |
+| 3 | 1-bar score delta `score − previous_score > 0` AND `score ≥ 0` AND not in priority 1 | `ACCUMULATION` |
+| 4 | 1-bar score delta `score − previous_score < 0` AND `score ≤ 0` AND not in priority 1 | `DISTRIBUTION` |
+| 5 | `adx < 25` AND `bbwp ∈ (10, 85)` AND `previous_regime != RANGE` (previous **1** bar) | `TRANSITION` |
 | 6 | default (none of the above) | `RANGE` |
 
 The decision tree deterministically produces all 8 variants. Empty/initial state defaults to `TRANSITION` (§6).
 
+> **Delta & shift semantics.** `ACCUMULATION` / `DISTRIBUTION` fire on the **single-bar score delta** (`previous_score.map(|prev| score - prev)` — the previous bar's `mtf_overall_score`, not a 3-bar slope), and `TRANSITION` fires when the **previous bar's** regime was not `RANGE` (a 1-bar shift, not a 3-bar window). `score` here is `mtf_overall_score ∈ [-100, 100]`, `adx` = the ADX indicator value on the instance's **macro timeframe** (L1 Metrics, `[0, 100]`), `bbwp` = the BBWP indicator's raw percentile output on the macro timeframe (L1 Metrics, `[0, 100]`), and `previous_score` / `previous_regime` = the prior Assessment Layer outputs (see [03-02-04-mme-layer3-analysis.md §3](../engines/market-monitoring-engine/03-02-04-mme-layer3-analysis.md)).
+
+**Wire values (PascalCase):** `TrendingBull` / `TrendingBear` / `Range` / `Accumulation` / `Distribution` / `Expansion` / `Contraction` / `Transition` (the SCREAMING form above is the `Display` vocabulary).
+
 > **Layer-specific BBWP thresholds (intentional divergence).** This L3 decision tree uses `bbwp ≤ 10` for `CONTRACTION` and `bbwp ≥ 85` for `EXPANSION`. The Layer 1 local 4-state regime in [03-02-02-mme-layer1-metrics.md §6](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) uses looser thresholds (`bbwp ≤ 15` for `COMPRESSION`, `bbwp ≥ 85` for `EXPANSION`). A value in `[10, 15]` therefore classifies as `COMPRESSION` at Layer 1 but as `RANGE` (or `TRANSITION`) at Layer 3 — both states are valid for their respective layers. This document is authoritative for the L3 classifier; Layer 1's looser threshold is documented in the layer 1 spec.
 
 ### 3.3 TrendAssessment
-`WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED`, `UNKNOWN` — derived from alignment dimension 0 (trend).
+`WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED` — derived from alignment dimension 0 (trend). **No `UNKNOWN` variant.** Wire values (PascalCase): `Weak` / `Developing` / `Healthy` / `Strong` / `Exhausted`.
 
 #### 3.3.1 Removed numeric field: `trend_stability_sharpe` (v6.11 → v6.14)
 
@@ -111,16 +117,16 @@ The v6.11 **Trend Stability Sharpe** (annualized EMA-50 log-return Sharpe over t
 $$\text{Trend Stability Sharpe} = \frac{\text{mean}\left(\ln\frac{\text{EMA}_{50,t}}{\text{EMA}_{50,t-1}}\right)}{\sigma\left(\ln\frac{\text{EMA}_{50,t}}{\text{EMA}_{50,t-1}}\right)} \times \sqrt{\frac{86\,400}{\text{timeframe\_secs}} \times 365}$$
 
 ### 3.4 MomentumAssessment
-`INCREASING`, `STABLE`, `WEAKENING`, `REVERSING`, `UNKNOWN` — derived from alignment dimension 1 (momentum).
+`INCREASING`, `STABLE`, `WEAKENING`, `EXHAUSTED`, `REVERSING` — derived from alignment dimension 1 (momentum). **No `UNKNOWN` variant.** Wire values (PascalCase): `Increasing` / `Stable` / `Weakening` / `Exhausted` / `Reversing`. (`Exhausted` is a declared variant but is not produced by the current §4.2 banding, which emits only `Increasing` / `Stable` / `Weakening` / `Reversing`.)
 
 ### 3.5 StructureAssessment
-`STRONG`, `HEALTHY`, `WEAK`, `BROKEN`, `UNKNOWN` — derived from alignment dimension 4 (structure). *(Renamed from `UNCLEAR` — the canonical empty-state sentinel for every assessment/phase enum is `UNKNOWN`.)*
+`STRONG`, `HEALTHY`, `WEAK`, `BROKEN`, `UNKNOWN` — derived from alignment dimension 4 (structure). *(Renamed from `UNCLEAR` — the canonical empty-state sentinel for the structure/phase enums is `UNKNOWN`.)* Wire values (PascalCase): `Strong` / `Healthy` / `Weak` / `Broken` / `Unknown`.
 
 ### 3.6 VolatilityAssessment
-`COMPRESSED`, `NORMAL`, `EXPANDING`, `EXTREME`, `UNSTABLE`, `UNKNOWN` — derived from alignment dimension 3 (volatility).
+`COMPRESSED`, `NORMAL`, `EXPANDING`, `EXTREME`, `UNSTABLE` — derived from alignment dimension 3 (volatility). **No `UNKNOWN` variant.** Wire values (PascalCase): `Compressed` / `Normal` / `Expanding` / `Extreme` / `Unstable`.
 
 ### 3.7 VolumeAssessment
-`WEAK`, `NORMAL`, `STRONG`, `EXCEPTIONAL`, `UNKNOWN` — derived from alignment dimension 2 (volume).
+`WEAK`, `NORMAL`, `STRONG`, `EXCEPTIONAL` — derived from alignment dimension 2 (volume). **No `UNKNOWN` variant.** Wire values (PascalCase): `Weak` / `Normal` / `Strong` / `Exceptional`.
 
 #### 3.4.1–3.7.1 Supporting numeric fields: the per-assessment dimension scores (v6.12)
 
@@ -130,10 +136,10 @@ The Analysis panel renders each as a high-contrast monospace badge on the qualit
 
 > **Layer note.** The dimension scores live on the **Alignment Matrix** (L2, §2.2). Stamping them onto the Analysis Matrix is the same allowed `L3 ← L2` derivation as `market_quality_score` (see [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md) §2.3).
 
-> **`UNKNOWN` sentinel.** Every assessment enum admits `UNKNOWN` as its empty-state value (§6). For Structure, `UNKNOWN` is also the §4.2 fall-through band (score `< 20`); for the other four enums it is reachable only via the empty state. Enum values serialize as `SCREAMING_SNAKE_CASE`.
+> **`UNKNOWN` sentinel.** Only `StructureAssessment` and `MarketPhase` admit `UNKNOWN`; the other four assessment enums have **no** `UNKNOWN` variant (their fall-through bands are `Exhausted` / `Reversing` / `Unstable` / `Weak` respectively — see §4.2). Enum values serialize as **PascalCase** on the wire (e.g. `"TrendingBull"`, `"Healthy"`, `"Compressed"`) — the SCREAMING_SNAKE forms above are the `Display` vocabulary.
 
 ### 3.8 QualityLevel
-`POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT` — computed as the mean of the trend, momentum, structure, and volume dimension scores. Numeric bands:
+`POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT` — computed as the mean of the trend, momentum, structure, and volume dimension scores. Wire values (PascalCase): `Poor` / `Weak` / `Average` / `Good` / `Excellent`. Numeric bands:
 
 | QualityLevel | `mean(0,1,2,4)` Score |
 |--------------|------------------------|
@@ -144,7 +150,7 @@ The Analysis panel renders each as a high-contrast monospace badge on the qualit
 | `EXCELLENT` | **≥ 85** |
 
 ### 3.9 MarketPhase
-Four phases — `ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN` — plus the `UNKNOWN` empty-state sentinel (§6). Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
+Four phases — `ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN` — plus the `UNKNOWN` empty-state sentinel (§6). Wire values (PascalCase): `Accumulation` / `Markup` / `Distribution` / `Markdown` / `Unknown`. Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
 
 > **Enum disambiguation.** `MarketPhase.ACCUMULATION/DISTRIBUTION` and `MarketRegime.ACCUMULATION/DISTRIBUTION` (§3.2) are different enums with different derivations; context determines which is meant. `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope; `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction.
 
@@ -171,11 +177,11 @@ IF timeframes_present ≤ 1    → state_confidence  = min(state_confidence, 0.5
 state_confidence = clamp(state_confidence, 0, 1)
 ```
 
-> ⚠️ `signal_cross_tf_count` is a breadth heuristic (`round(0.3 × total
-> signals)`, see `02-01-alignment-matrix.md` §4.4) — not a distinct-key
-> count. In practice it exceeds 3 whenever ≥2 timeframes contribute any
-> signals, so this `+0.10` branch fires almost always; treat it as
-> documentation of the current engine behavior, not a discriminative rule.
+> ⚠️ `signal_cross_tf_count` is the honest distinct cross-TF agreement count
+> (`02-01-alignment-matrix.md` §4.4 — not a `0.3 × total` heuristic since
+> AUDIT-H1). This `+0.10` branch fires when ≥3 distinct signal identities are
+> genuinely shared across timeframes — a discriminative rule that only fires
+> on real multi-TF signal agreement.
 
 ### 4.2 Assessment Thresholds
 
@@ -204,15 +210,15 @@ The `rationale` and `market_interpretation` strings are generated deterministica
 ```json
 {
   "symbol": "BTC-USDT",
-  "bias": "BULLISH",
+  "bias": "Bullish",
   "state_confidence": 0.65,
-  "market_regime": "TRENDING_BULL",
-  "trend_assessment": "HEALTHY",
-  "momentum_assessment": "STABLE",
-  "structure_assessment": "HEALTHY",
-  "volatility_assessment": "EXPANDING",
-  "volume_assessment": "STRONG",
-  "market_quality": "GOOD",
+  "market_regime": "TrendingBull",
+  "trend_assessment": "Healthy",
+  "momentum_assessment": "Stable",
+  "structure_assessment": "Healthy",
+  "volatility_assessment": "Expanding",
+  "volume_assessment": "Strong",
+  "market_quality": "Good",
   "market_quality_score": 72.0,
   "trend_score": 76.5,
   "momentum_score": 83.2,
@@ -227,13 +233,13 @@ The `rationale` and `market_interpretation` strings are generated deterministica
 }
 ```
 
-Enum values serialize as `SCREAMING_SNAKE_CASE`.
+Enum values serialize as **PascalCase** on the wire (as shown above); the SCREAMING_SNAKE form is the human-facing `Display` vocabulary.
 
 ---
 
 ## 6. Empty State
 
-When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty()`. All defaults:
+When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty()`. All defaults (empty-state values serialize as their PascalCase wire forms — `Weak`, `Stable`, `Unknown`, `Normal`):
 
 | Field | Empty-state value |
 |-------|-------------------|
@@ -244,11 +250,11 @@ When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty
 | `market_quality_score` | `0.0` |
 | `trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` | absent (`Option::None` omitted from the wire) |
 | `market_phase` | `UNKNOWN` |
-| `trend_assessment` | `UNKNOWN` |
-| `momentum_assessment` | `UNKNOWN` |
+| `trend_assessment` | `WEAK` |
+| `momentum_assessment` | `STABLE` |
 | `structure_assessment` | `UNKNOWN` |
-| `volatility_assessment` | `UNKNOWN` |
-| `volume_assessment` | `UNKNOWN` |
+| `volatility_assessment` | `NORMAL` |
+| `volume_assessment` | `NORMAL` |
 | `market_interpretation` | `"No data available — no candles have been completed."` |
 | `supporting_signals` | `[]` |
 | `contradicting_signals` | `[]` |

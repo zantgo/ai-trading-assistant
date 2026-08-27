@@ -130,14 +130,48 @@ pub async fn add_key(
 
     let is_active_int = if req.is_active { 1 } else { 0 };
 
+    // AUDIT-H10: the documented contract (§2.10 / 06-02 §3.5) requires
+    // AES-256-GCM at rest. The old code INSERTed the raw secret —
+    // contradicting `verify_encryption_or_panic` at daemon boot, which
+    // asserts every existing row is encrypted. Refuse to store plaintext
+    // when no master key is provisioned.
+    let master_key_ok = database_storage::crypto::master_key_available();
+    let encrypted_secret = if master_key_ok {
+        database_storage::crypto::encrypt_field(&req.api_secret)
+    } else {
+        Err("EXCHANGE_SECRET_KEY is not set".to_string())
+    };
+    let encrypted_passphrase = if req.passphrase.is_empty() {
+        Ok(String::new())
+    } else if master_key_ok {
+        database_storage::crypto::encrypt_field(&req.passphrase)
+    } else {
+        Err("EXCHANGE_SECRET_KEY is not set".to_string())
+    };
+    let (secret, passphrase) = match (encrypted_secret, encrypted_passphrase) {
+        (Ok(s), Ok(p)) => (s, p),
+        (Err(e), _) | (_, Err(e)) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "Cannot store exchange credentials: {} — set EXCHANGE_SECRET_KEY in the environment to enable encrypted storage",
+                        e
+                    )
+                })),
+            )
+                .into_response();
+        }
+    };
+
     let result = sqlx::query(
         "INSERT INTO exchange_keys (exchange, account_name, api_key, api_secret, passphrase, referred_uid, is_active, last_sync_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
     )
     .bind(&req.exchange)
     .bind(&req.account_name)
     .bind(&req.api_key)
-    .bind(&req.api_secret)
-    .bind(&req.passphrase)
+    .bind(&secret)
+    .bind(&passphrase)
     .bind(&req.referred_uid)
     .bind(is_active_int)
     .execute(&state.pool)
@@ -206,4 +240,222 @@ pub async fn delete_key(
         )
             .into_response(),
     }
+}
+
+// ─── Rotation & backup (AUDIT-V6-077) ────────────────────────────────
+
+/// POST /api/keys/rotate — in-process re-encryption of all stored
+/// credentials under a new master key (no daemon restart).
+#[derive(Deserialize)]
+pub struct RotateKeysRequest {
+    pub new_master_secret: String,
+}
+
+pub async fn rotate_keys(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RotateKeysRequest>,
+) -> impl IntoResponse {
+    if req.new_master_secret.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "new_master_secret required" })),
+        )
+            .into_response();
+    }
+
+    // 1. Decrypt every stored secret with the CURRENT master key.
+    let rows: Vec<(i64, String, String)> =
+        match sqlx::query_as("SELECT id, api_secret, COALESCE(passphrase, '') FROM exchange_keys")
+            .fetch_all(&state.pool)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("Read failed: {}", e) })),
+                )
+                    .into_response();
+            }
+        };
+
+    let old_key = match database_storage::crypto::get_master_key() {
+        Some(k) => k,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "EXCHANGE_SECRET_KEY is not set" })),
+            )
+                .into_response();
+        }
+    };
+
+    let mut decrypted: Vec<(i64, String, String)> = Vec::with_capacity(rows.len());
+    for (id, secret, passphrase) in rows {
+        let secret_plain = match database_storage::crypto::decrypt_with_key(&secret, &old_key) {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": format!("Row {} cannot be decrypted with the current key: {}", id, e)
+                    })),
+                )
+                    .into_response();
+            }
+        };
+        let pass_plain = if passphrase.is_empty() {
+            String::new()
+        } else {
+            match database_storage::crypto::decrypt_with_key(&passphrase, &old_key) {
+                Ok(s) => s,
+                Err(e) => {
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(serde_json::json!({
+                            "error": format!("Row {} passphrase cannot be decrypted: {}", id, e)
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        };
+        decrypted.push((id, secret_plain, pass_plain));
+    }
+
+    // 2. Swap the in-process master key.
+    let new_key = match database_storage::crypto::rotate_master_key(&req.new_master_secret) {
+        Some(k) => k,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to install the new master key" })),
+            )
+                .into_response();
+        }
+    };
+
+    // 3. Re-encrypt everything under the new key.
+    for (id, secret_plain, pass_plain) in &decrypted {
+        let new_secret = database_storage::crypto::encrypt_with_key(secret_plain, &new_key);
+        let new_pass = if pass_plain.is_empty() {
+            String::new()
+        } else {
+            database_storage::crypto::encrypt_with_key(pass_plain, &new_key).unwrap_or_default()
+        };
+        let new_secret = match new_secret {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("Re-encrypt failed: {}", e) })),
+                )
+                    .into_response();
+            }
+        };
+        if let Err(e) =
+            sqlx::query("UPDATE exchange_keys SET api_secret = ?, passphrase = ? WHERE id = ?")
+                .bind(&new_secret)
+                .bind(&new_pass)
+                .bind(id)
+                .execute(&state.pool)
+                .await
+        {
+            eprintln!("DB persist failed: {e}");
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": true,
+        "rotated": decrypted.len(),
+        "message": "All stored credentials re-encrypted under the new master key"
+    }))
+    .into_response()
+}
+
+/// GET /api/keys/backup?passphrase= — encrypted-backup export (legacy, query-param).
+/// Prefer POST /api/keys/backup with JSON body `{"passphrase": "..."}` to avoid
+/// logging the secret in access logs. GET is retained for backward compat.
+#[derive(Deserialize)]
+pub struct BackupKeyQuery {
+    pub passphrase: String,
+}
+
+#[derive(Deserialize)]
+pub struct BackupKeyRequest {
+    pub passphrase: String,
+}
+
+async fn backup_keys_internal(
+    state: Arc<AppState>,
+    passphrase: String,
+) -> axum::response::Response {
+    if passphrase.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "passphrase required" })),
+        )
+            .into_response();
+    }
+
+    type KeyRow = (i64, String, String, String, String, i32, Option<i64>);
+    let rows: Vec<KeyRow> = match sqlx::query_as(
+        "SELECT id, exchange, account_name, api_key, api_secret, is_active, last_sync_timestamp FROM exchange_keys ORDER BY id",
+    )
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Read failed: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let backup_key = database_storage::crypto::backup_key_from_passphrase(&passphrase);
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(
+            |(id, exchange, account_name, api_key, api_secret, is_active, last_sync)| {
+                // Decrypt with the master key, then re-encrypt with the backup key.
+                let plain =
+                    database_storage::crypto::decrypt_field(&api_secret).unwrap_or_default();
+                let secret_enc = database_storage::crypto::encrypt_with_key(&plain, &backup_key)
+                    .unwrap_or_default();
+                serde_json::json!({
+                    "id": id,
+                    "exchange": exchange,
+                    "account_name": account_name,
+                    "api_key": api_key,
+                    "api_secret_encrypted": secret_enc,
+                    "is_active": is_active,
+                    "last_sync_timestamp": last_sync,
+                })
+            },
+        )
+        .collect();
+
+    Json(serde_json::json!({
+        "items": items,
+        "note": "api_secret_encrypted is AES-256-GCM encrypted with the passphrase-derived key; restore with the same passphrase"
+    }))
+    .into_response()
+}
+
+pub async fn backup_keys(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<BackupKeyQuery>,
+) -> impl IntoResponse {
+    eprintln!("WARN: GET /api/keys/backup via query param is deprecated — use POST with JSON body to avoid logging the passphrase");
+    backup_keys_internal(state, query.passphrase).await
+}
+
+pub async fn backup_keys_post(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<BackupKeyRequest>,
+) -> impl IntoResponse {
+    backup_keys_internal(state, body.passphrase).await
 }

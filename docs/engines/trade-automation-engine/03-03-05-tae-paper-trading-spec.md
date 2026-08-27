@@ -1,101 +1,104 @@
-# TAE — Paper Trading Specification
+# TAE — Simulation Backend & Persistence (v7)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; the paper trading engine (`crates/portfolio-supervisor/src/paper_trading.rs`) is the **default and only execution path** today. Dashboard surface is a placeholder. See [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
+**Version:** 10.1 (2026-08-24) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
+**Status:** Specified — v7 implementation in progress.
 **Engine:** Trade Automation Engine (TAE)
-**Purpose:** This document specifies the internal paper trading engine — a simulated matching engine that mirrors live exchange order lifecycles for strategy development, backtesting, and zero-risk validation without external API dependencies.
+**Purpose:** This document specifies the simulated execution backend (`PaperSimulation`), the shared cost model, the canonical persistence contract (trades, telemetry, equity, activity log), and the restart-recovery contract that keeps the trader's account intact across daemon restarts.
 
 ---
 
-## 1. Purpose
+## 1. Role
 
-The Paper Trading Engine is a **simulated execution venue** embedded within the TAE. It intercepts orders routed by the [Execution Layer](03-03-03-tae-layer2-execution.md) and processes them against real-time market data (prices from the DIE) to produce synthetic fills, rejections, and cancellations — all logged to the same Execution Matrix as live trades.
-
----
-
-## 2. Operational Principle
+`PaperSimulation` is the default `ExecutionBackend` of the [unified ExecutionEngine](03-03-03-tae-layer2-execution.md). It intercepts order packets and processes them against the live mid-price (from the DIE) to produce synthetic fills, rejections, and cancellations — with the same fee/slippage/funding accounting the live path will use.
 
 ```
-[Execution Layer] ──► [Paper Trading Engine] ──► [Execution Matrix] ──► [PME]
-                          │
-                          └── consumes live mid-price from DIE
+[Setup Executor] ──► [ExecutionEngine] ──► [PaperSimulation] ──► ledgers + persistence
 ```
 
-The engine applies the same Position Sizing Protocol, order state machine, and audit logging. The difference is the fill engine:
+---
 
-| Aspect | Live Exchange | Paper Engine |
-|--------|--------------|--------------|
-| Fill price source | Exchange order book | DIE mid-price + spread simulation |
-| Slippage model | Actual exchange slippage | Configurable simulated slippage |
-| Rejection sources | Exchange API errors | Pre-flight validation only |
-| Latency | Real network latency | Near-zero (local) |
+## 2. Fill Simulation
 
-> **Lifecycle parity.** The paper engine honors the same `LifecycleState` axis as the live engine: Gate 0 admission, instance-lifecycle `PAUSED` (lifecycle `PAUSED`) entry-gate closure, and `STOPPING → STOPPED` flatten (cancel-all + market-close with `is_emergency_liquidation = true`, `reduce_only = true`) are evaluated identically. Automation conditions on `at_price_above/below` fire on the same DIE mid-price ticks in both modes. See [03-03-06-tae-instance-lifecycle-spec.md](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) (canonical).
+| Order | Rule |
+|-------|------|
+| Market | Fill immediately at `mid ± spread/2`, slippage bps applied. |
+| Limit Buy | Fill when `mid ≤ limit`; fills at mid (price or better). Already marketable → **instant fill** at mid. |
+| Limit Sell | Fill when `mid ≥ limit`; instant when already marketable. |
+| Stop Sell | Trigger when `mid ≤ stop`, then market fill. |
+| Stop Buy | Trigger when `mid ≥ stop`, then market fill. |
+| Gap | Stop triggers with mid already beyond → market fill at current mid. |
 
 ---
 
-## 3. Fill Simulation
+## 3. Simulated Costs (shared model)
 
-### 3.1 Market Orders
-Filled immediately at the current DIE mid-price, adjusted by the simulated spread:
-- `fill_price = mid_price + (spread / 2)` for buys
-- `fill_price = mid_price - (spread / 2)` for sells
+| Cost | Source | Applied |
+|------|--------|---------|
+| Maker fee | `[workspace.fees] maker_fee_pct` (0.02%) | Maker-side fills |
+| Taker fee | `[workspace.fees] taker_fee_pct` (0.06%) | Taker-side fills |
+| Funding | `[workspace.fees] funding_rate_8h` (0.01%) | Every 8h on open positions |
+| Slippage | per-fill bps | Market fills and stop triggers |
 
-### 3.2 Limit Orders
-Filled when the DIE mid-price crosses the limit price:
-- Buy limit: filled when `mid_price ≤ limit_price`
-- Sell limit: filled when `mid_price ≥ limit_price`
-
-### 3.3 Stop Orders
-Triggered when the DIE mid-price crosses the stop level:
-- Stop (sell): triggers when `mid_price ≤ stop_price`
-- Stop (buy): triggers when `mid_price ≥ stop_price`
-Once triggered, the order becomes a market order and fills per §3.1.
+Fees are deducted from realized PnL on each fill. **The same model runs in live mode** — live fills carry the exchange's real prices, but the accounting is identical.
 
 ---
 
-## 4. Simulated Costs
+## 4. Persistence (canonical write path)
 
-| Cost | Default | Config Source |
-|------|---------|---------------|
-| Maker fee | 0.02% | `config.toml` `fees.maker_fee_pct` |
-| Taker fee | 0.06% | `config.toml` `fees.taker_fee_pct` |
-| Funding rate (8h) | 0.01% | `config.toml` `fees.funding_rate_8h` |
-| Simulated spread | 0.01% | `config.toml` `fees` or per-instance |
+One canonical write path per event, all through `database_storage` query functions:
 
-Fees are deducted from the realized PnL on each fill.
+| Table | Written On | Content |
+|-------|-----------|---------|
+| `trade_telemetry_history` | Position close | Entry/exit, fees, realized PnL, `trigger_source` = setup type (e.g. `TrendContinuation`), exit reason |
+| `paper_trades` | Position close | Closed trade record with PnL |
+| `portfolio_equity_history` | Periodic + close | Equity time-series for PAE drawdown/Sharpe |
+| `paper_balances` | Close + session | Peak equity, initial, session equity (via SafetyManager) |
+| `automation_activity` | Every executor event | Audit trail: setup accepted, order placed, filled, invalidated (level/signal/replaced), re-priced, adopted, ratcheted, setup-gone, confidence drop, closed, blocked |
 
----
+**v10 activity events (added to the vocabulary):** `reprice_pending` (pending
+entry moved to a fresh same-direction geometry), `replaced_adopted`
+(replacement adopted same tick), `setup_gone_cancel` / `setup_gone_close`
+(strict posture), `bracket_refresh` (asymmetric ratchet — SL tighten-only /
+TP RR-improvement), `confidence_drop` (confidence-fall exit), `chase_entry`
+(chase-mode market order), `expired` (pending-entry bar expiry).
+`cancelled_replaced` remains for `replace_policy = "cancel"`.
 
-## 5. Persistence
-
-Paper trades are written to the same database tables as live trades:
-
-| Table | Content |
-|-------|---------|
-| `paper_trades` | Closed paper-trade records with PnL. |
-| `trade_telemetry_history` | Automated trade telemetry (entry/exit, fees, PnL, ROI). |
-| `paper_balances` | Per-symbol capital tracking. |
-| `portfolio_equity_history` | Equity time-series for drawdown/Sharpe computation. |
-
-See [Database Schema](../../integration-and-api/06-02-database-schema-spec.md).
+`trigger_source` carrying the setup type is what powers PAE's strategy stats regrouped by setup type/direction/timeframe.
 
 ---
 
-## 6. Replay & Reproducibility
+## 5. Restart Recovery Contract
 
-The paper engine supports **deterministic replay**: feeding a historical sequence of market data through the same policy set and sizing protocol reproduces identical trades. This is essential for:
-- Backtesting strategy modifications
-- Validating policy changes against historical data
-- Auditing execution logic without live market risk
+The trader's account and open positions must survive a daemon restart:
+
+- **Equity:** persisted (paper_balances + periodic equity snapshots); restored at boot — **never** silently re-seeded to `initial_capital_usd` when a persisted balance exists.
+- **Open state:** on graceful shutdown, the engine persists the open position + pending/bracket orders + setup fingerprint + timestamp. On boot, the executor restores them: position re-armed with live mark, bracket orders re-armed, pending entry restored (subject to re-validation against the current top setup).
+- **Stale state:** if the persisted state is older than a configurable staleness window (or a crash interrupted persistence), recovery **flattens** at the last known mark — the trader is never left with phantom positions.
+- **Activity log:** persisted to `automation_activity`; the in-memory ring buffer is a cache of the same events.
+
+---
+
+## 6. Deterministic Replay (backtest support)
+
+Feeding a historical sequence of `MarketSnapshot`s through `extract_top_setup` + the executor + the simulation backend reproduces identical trades. This is the engine the Backtesting Engine (BTE) replays. The executor logic is pure over (snapshot, state) → effects, so replay has no wall-clock dependencies.
+
+**v8.2 parity guarantees (paper = backtest by construction).** The historical runner drives the identical `run_tick` session body with these additions so the replay behaves exactly like a paper session:
+
+| Guarantee | Paper behavior | Backtest behavior (v8.2) |
+|---|---|---|
+| Safety ladder | `SafetyManager` per instance fed by live equity; soft gate blocks new entries in `DRAWDOWN_STOP`/`SUSPENDED` | Same: a simulated `SafetyManager` per instance fed by replayed equity |
+| Funding | Settled every 8h of wall-clock on open positions | Settled at simulated 8h boundaries of replay time |
+| End-of-run | N/A (session keeps running) | Open positions force-closed at the final replayed candle close, `exit_reason = "end_of_backtest"` |
+| Sizing | `equity × allocation_pct / 100` | Identical (shared engine ledger) |
+| Tick granularity | 1s executor ticks reading the latest snapshot per TF | One tick per completed candle of each symbol's smallest ladder TF (documented boundary) |
+| Strategy dials (v10) | The instance's bound strategy drives the executor tick | The run's bound strategy drives the identical tick — historical and recorded replays resolve the run's strategy JSON and pass it into the executor (recorded previously used defaults; v10 parity fix) |
+| Strategy gates (v10) | The daemon evaluates the breadth/systemic intake gates + PME portfolio gates and feeds `market_filter_allows_entry` | Historical replay evaluates the same `strategy_gates` functions on the simulated portfolio (breadth = cross-symbol bias share; systemic veto inert — no L7 in replay); recorded replay keeps gates off (replay parity) |
 
 ---
 
 ## 7. Cross-References
 
-- [TAE Overview](03-03-01-tae-overview-spec.md) — Operational modes and boundaries.
-- [TAE Layer 2 — Execution](03-03-03-tae-layer2-execution.md) — Order construction and sizing protocol.
-- [TAE Layer 1 — Policy](03-03-02-tae-layer1-policy.md) — Trigger source.
-- [TAE Instance Lifecycle & Programmable State Control](03-03-06-tae-instance-lifecycle-spec.md) — Lifecycle parity between live and paper engines.
-- [Database Schema](../../integration-and-api/06-02-database-schema-spec.md) — Persistent state.
-- [Systemic Data Flow — Sequence B](../../conceptual-foundations/01-03-systemic-data-flow.md) — Entry loop.
+- [TAE Overview](03-03-01-tae-overview-spec.md) — layers, lifecycle, invalidation.
+- [TAE Layer ④ — Execution](03-03-03-tae-layer2-execution.md) — unified engine, mode split.
+- [TAE Instance Lifecycle](03-03-06-tae-instance-lifecycle-spec.md) — pause/stop behavior.
+- [Database Schema](../../integration-and-api/06-02-database-schema-spec.md) — table contracts.

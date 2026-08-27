@@ -1,0 +1,50 @@
+.wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #000;
+}
+
+.content {
+    padding: 1rem 1.25rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    overflow-y: auto;
+}
+
+.row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.confirm-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+}
+
+.kpi-value {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #e5e7eb;
+}

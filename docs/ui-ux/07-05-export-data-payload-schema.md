@@ -7,7 +7,7 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -107,7 +107,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
   "meta": { },
   "header": { },
   "market_context": {
-    "regime": "TRENDING_BULL",
+    "regime": "TRENDING",
     "overall_score": 0.62,
     "overall_label": "STRONG_BULLISH",
     "trend":      { "score": 0.7, "confidence": 80, "label": "BULLISH" },
@@ -155,7 +155,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "cascade_state_label": "SUSTAINED",
       "cascade_asymmetry": 0.35, "cascade_asymmetry_sign": "+",
       "cascade_asymmetry_magnitude_pct": 35.0,
-      "cascade_asymmetry_description": "long_squeeze_risk",
+      "cascade_asymmetry_description": "short_squeeze_risk",
       "estimation_confidence": 0.85, "estimation_confidence_pct": 85,
       "total_short_clusters": 4, "total_long_clusters": 4,
       "top_short": [
@@ -300,13 +300,14 @@ Notes:
 ### 3.2 MTF Tab — `source_tab: "mtf"`
 
 Mirrors `MtfView.svelte` (4 × N grid with per-row agreement). The meta block
-carries `timesframes: ["Micro","Fast","Slow","Macro"]` and
-`timeframe_secs: 0` (multi-TF sentinel).
+carries `timeframes: ["Micro","Fast","Slow","Macro"]` (renamed from the
+historical `timesframes` typo, 2026-08-17) and `timeframe_secs: 0`
+(multi-TF sentinel).
 
 ```json
 {
   "source_tab": "mtf",
-  "meta": { "timesframes": ["Micro", "Fast", "Slow", "Macro"] },
+  "meta": { "timeframes": ["Micro", "Fast", "Slow", "Macro"] },
   "header": { },
   "groups": [
     { "key": "Momentum", "label": "Momentum", "accent": "#a78bfa", "indicator_count": 2, "total_indicator_count": 2 }
@@ -318,10 +319,10 @@ carries `timesframes: ["Micro","Fast","Slow","Macro"]` and
       "directional": true, "visible": true,
       "normalized_available": true, "confidence_pct": 70,
       "values": [
-        { "timeframe": "Micro", "normalized": 0.31, "normalized_display": "+0.31", "active": true },
-        { "timeframe": "Fast",  "normalized": 0.31, "normalized_display": "+0.31", "active": true },
-        { "timeframe": "Slow",  "normalized": 0.31, "normalized_display": "+0.31", "active": true },
-        { "timeframe": "Macro", "normalized": 0.31, "normalized_display": "+0.31", "active": true }
+        { "timeframe": "Micro", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "Fast",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "Slow",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "Macro", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false }
       ],
       "agreement": 0.31, "agreement_display": "+0.31", "agreement_label": "BULL"
     }
@@ -331,6 +332,31 @@ carries `timesframes: ["Micro","Fast","Slow","Macro"]` and
   "divergences": [ ],
   "levels": [ ],
   "liquidity_panel": { "flow": null, "cluster": null, "context": { "available": true, "signals": [] } },
+  "cross_tf_tables": {
+    "signals": [
+      { "kind": "Threshold",
+        "per_timeframe": [
+          { "timeframe": "Micro", "bull": 1, "bear": 0, "neutral": 0,
+            "entries": [ { "display_name": "RSI (14)", "label": "OVERSOLD", "direction": "Bullish", "status": "Active", "strength": 0.5, "age_bars": 2 } ] },
+          { "timeframe": "Fast", "bull": 1, "bear": 0, "neutral": 0, "entries": [] },
+          { "timeframe": "Slow", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
+          { "timeframe": "Macro", "bull": 0, "bear": 1, "neutral": 0, "entries": [] }
+        ],
+        "totals": { "bull": 2, "bear": 2, "neutral": 0 } }
+    ],
+    "divergences": [
+      { "key": "rsi", "display_name": "RSI (14)",
+        "per_timeframe": [ { "timeframe": "Micro", "sub": "RegularBull", "strength": 0.7 }, { "timeframe": "Fast", "sub": null, "strength": 0 } ],
+        "bull_count": 1, "bear_count": 0, "unknown_count": 0, "row_count": 1, "direction_label": "BULL" }
+    ],
+    "levels": [
+      { "kind": "SupportResistance",
+        "per_timeframe": [ { "timeframe": "Micro", "chips": [ { "name": "Support", "role": "support", "count": 1, "price_text": "$63,200" } ], "bull": 1, "bear": 0, "neutral": 0, "support": 1, "resistance": 0 } ] }
+    ],
+    "totals": { "signal_count": 4, "divergence_count": 1,
+      "global_signal_lean": { "bull": 2, "bear": 2, "neutral": 0 },
+      "global_divergence_lean": "BULL" }
+  },
   "timeframes": [
     {
       "label": "Micro", "duration_seconds": 60, "mark_price": 63390,
@@ -371,6 +397,23 @@ Notes:
   `total_indicator_count`. The per-row `visible` flag (always `true`
   under the defaults) is retained for schema stability;
   `filter_state` is gone.
+- **Cell semantics (2026-08-17, audit G-4).** `values[].active` mirrors
+  `MtfView` — a WARMING placeholder (`state_label === "WARMING"`) or a
+  non-Directional (gated) indicator is inactive: `normalized` is zeroed,
+  `normalized_display` is `"—"` (never a fabricated `+0.00`), and the
+  per-cell `warming` / `gated` flags identify the cause. The agreement
+  average excludes inactive cells.
+- **Cross-TF tables (2026-08-17, audit G-3).** `cross_tf_tables` mirrors
+  the three screen tables 1:1: `signals[].per_timeframe[].{bull,bear,
+  neutral,entries}` are the kind × TF direction tallies (entries carry the
+  badge tooltip data — display name, label, direction, status, strength,
+  age); `divergences[]` rows are the divergence-capable indicators with
+  the per-TF strongest sub-type (`RegularBull`/`RegularBear`/
+  `HiddenBull`/`HiddenBear`/`null`) and bull/bear/unknown counts;
+  `levels[].per_timeframe[].chips[]` are the actual level chips
+  (name/role/count/price text) with direction and S/R splits. The
+  flattened `signals_by_kind` / `divergences` / `levels` aggregates above
+  remain for single-TF-style consumers.
 
 ### 3.3 Alignment Tab — `source_tab: "alignment"`
 
@@ -402,7 +445,7 @@ Notes:
     { "timeframe": "MICRO", "trend_score": 0.70, "trend_score_display": "0.70",
       "momentum_score": 0.60, "momentum_score_display": "0.60",
       "overall_score": 1.0, "overall_score_display": "1.0",
-      "regime": "TRENDING_BULL", "active_signals": 5 }
+      "regime": "TRENDING", "active_signals": 5 }
   ],
   "score_calculation": {
     "weights": [
@@ -463,6 +506,13 @@ Notes:
     "expected_rr_available": true, "expected_rr_value": 2.5, "expected_rr_reason": null,
     "gross_rr_value": 2.52, "time_horizon": "SWING"
   },
+  "confluent_rr": {
+    "sides": [
+      { "side": "LONG", "entry_avg": 63330, "target_avg": 66000, "invalidation_avg": 62800,
+        "risk_basis": "invalidation", "rr": 2.5, "rr_display": "2.5R", "reason": null }
+    ],
+    "reason": null
+  },
   "invalidation_note": "A close below 62800 on the completed candle invalidates the Trend Continuation thesis.",
   "evaluated_setups": [
     { "opportunity_type": "Trend Continuation", "viability": "Actionable", "score": 78,
@@ -473,13 +523,18 @@ Notes:
     { "price": 63330, "sources": ["FIB", "VP", "PP"], "strength": 78, "strength_label": "STRONG", "side": "SHORT" }
   ],
   "confluent_target_levels": [ ],
-  "market_position": { "bias": "Bullish", "regime": "TRENDING_BULL", "trend": "Healthy", "quality": "Good" },
-  "environment": { "timeframes_considered": 4, "timeframes_considered_display": "4/4 TFs considered", "confidence_pct": 72, "confidence_display": "72%" }
+  "market_position": { "bias": "Bullish", "regime": "TRENDING", "trend": "Healthy", "quality": "Good" },
+  "environment": { "timeframes_considered": 4, "timeframes_considered_display": "4/4 TFs considered", "confidence_pct": 72, "confidence_display": "72%" },
+  "summary": "Trend continuation setup: entry 63.3K, targets 66K/66.5K, invalidation 62.8K, R:R 2.5",
+  "summary_display": "Trend continuation setup: <strong>entry 63.3K</strong>, targets 66K/66.5K, invalidation 62.8K, R:R 2.5",
+  "summary_label": "OPPORTUNITY SUMMARY"
 }
 ```
 
 Notes:
 - `trade_setups` mirrors the panel's full leaderboard **one card per qualifying profile** — NEUTRAL-side cards (`side: "NEUTRAL"`, `RANGE · NEUTRAL`) and reference-bracket rows included. v6.10.19c: the dedicated empty-state fields were removed — the NEUTRAL/BULL/BEAR sections are the container for the empty state (they always render, with empty lists allowed).
+- **`summary` / `summary_display` / `summary_label` (v7.0/v7.2)** — the shared OPPORTUNITY SUMMARY card parity block: `summary` is the plain-text paragraph the panel renders (shared generator with the card), `summary_display` is the keyword-highlighted HTML variant, `summary_label` is the card's heading.
+- **`confluent_rr` (2026-08-17, audit C2; v7.3 bracket-geometry fallback)** — the per-side "Expected Reward-to-Risk Ratio" section the panel renders via `computeConfluentRr`: one row per side with a complete entry+target level set (`entry_avg`/`target_avg`/`invalidation_avg` means of the confluent levels, `risk_basis: "invalidation" | "market_distance"`, `rr` rounded to 2 decimals or `null` with a `reason` like `"degenerate geometry"`, `rr_display` the exact magnitude label — `"1.5R"`, `"10R+"`, or `"N/A"`). **v7.3:** a side whose confluent set is incomplete (no entry or no target levels — e.g. the LONG side of a NoClear state with only SHORT-tagged confluent levels) falls back to the matrix's per-side bracket zones (the reference-bracket geometry): `entry_avg`/`target_avg` become the zone midpoints, `invalidation_avg` the zone invalidation, and `risk_basis: "bracket_geometry"` flags the synthesized row. The fallback only fires while at least one side-tagged confluent level exists somewhere, so the `"no confluent levels"` / `"incomplete confluent levels"` empty-states never fabricate rows from zones alone. `reason` at block level reports the global no-row cause (`"no confluent levels"` / `"incomplete confluent levels"`). Distinct from `rr_internal` (the resolved active-side R:R from the decision chain).
 - **`trade_setup_sections` (v6.10.19b C2, v6.10.19c naming; v7.1 ranked order)** — the nested view mirroring the sectioned panel 1:1 — always present (empty lists allowed), top-ranked first within each. **v7.1:** the three folders render in **RANKED order** — the folder with the most content (setups + reference bracket) first, then by its top setup's score — the same relevance ordering as the directional conviction bars (a lone BEARISH setup puts the BEARISH folder first). The fixed RANGE → BULLISH → BEARISH fallback applies only to empty ties:
 
 ```json
@@ -604,7 +659,7 @@ Notes:
   "header": { },
   "body": {
     "bias": "Bullish", "confidence_pct": 72, "state_confidence": 0.72,
-    "market_regime": "TRENDING_BULL", "market_quality": "Good", "cycle_phase": "MARKUP"
+    "market_regime": "TrendingBull", "market_quality": "Good", "cycle_phase": "Markup"
   },
   "signal_lean_hero": {
     "label_html": "Net bullish (2↑ vs 1↓)",
@@ -614,14 +669,14 @@ Notes:
   "signals": {
     "supporting": [
       { "key": "rsi", "period": 14, "display_name": "RSI 14", "timeframe": "MICRO",
-        "score": 62, "score_display": "+62", "regime": "TRENDING_BULL",
+        "score": 62, "score_display": "+62", "regime": "TRENDING",
         "signals_count": 3, "signals_count_display": "3",
-        "raw": "MICRO (bullish): rsi_14 score +62, TRENDING_BULL regime, 3 signals" }
+        "raw": "MICRO (bullish): rsi_14 score +62, TRENDING regime, 3 signals" }
     ],
     "contradicting": [ ],
     "list": [
       { "key": "rsi", "period": 14, "display_name": "RSI 14", "timeframe": "MICRO",
-        "score": 62, "score_display": "+62", "regime": "TRENDING_BULL",
+        "score": 62, "score_display": "+62", "regime": "TRENDING",
         "signals_count": 3, "signals_count_display": "3",
         "raw": "…", "bucket": "supporting" }
     ],
@@ -629,7 +684,7 @@ Notes:
   },
   "qualitative_assessment": {
     "trend": "Healthy", "momentum": "Increasing", "structure": "Strong",
-    "volatility": "Normal", "volume": "Strong", "cycle_phase": "MARKUP",
+    "volatility": "Normal", "volume": "Strong", "cycle_phase": "Markup",
     "trend_score": 76.5, "trend_score_display": "76.50",
     "momentum_score": 83.2, "momentum_score_display": "83.20",
     "structure_score": 81.4, "structure_score_display": "81.40",
@@ -639,7 +694,7 @@ Notes:
   "per_timeframe_alignment": [
     { "name": "MICRO", "active": true, "trend": 0.45, "trend_display": "+0.45",
       "momentum": 0.3, "momentum_display": "+0.30",
-      "overall": 1.0, "overall_display": "+1.0", "regime": "TRENDING_BULL" },
+      "overall": 1.0, "overall_display": "+1.0", "regime": "TRENDING" },
     { "name": "MACRO", "active": true, "trend": -0.1, "trend_display": "-0.10",
       "momentum": -0.05, "momentum_display": "-0.05",
       "overall": -0.2, "overall_display": "-0.2", "regime": "RANGE" }
@@ -648,7 +703,13 @@ Notes:
   "interpretation_display": "Price is making <strong>higher</strong> highs and higher lows on <strong>strong</strong> volume. Momentum is <strong>increasing</strong> and structure remains intact.",
   "rationale": "The market is in a healthy uptrend with broad participation across timeframes.",
   "representative_bbwp": 83.3,
-  "representative_adx": 33.0
+  "representative_adx": 33.0,
+  "key_metrics": {
+    "mtf_overall_score": 75,
+    "trend_agreement_pct": 75,
+    "timeframes_present": 4,
+    "signal_cross_tf_count": 3
+  }
 }
 ```
 
@@ -668,6 +729,7 @@ Notes:
 - **Per-card dimension scores (v6.12).** `qualitative_assessment.trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` are the exact 0-100 alignment dimension scores each qualitative label is bucketed from (the badges on the Analysis cards; see [02-02-analysis-matrix.md §3.4.1–3.7.1](../matrices/02-02-analysis-matrix.md)). Each `_display` is the verbatim screen string — **v6.13:** the rounded integer + `%` form (e.g. `"77%"`; the `%` makes the cross-timeframe agreement semantics explicit), `"\u2014"` when the field is absent (`null`, empty sentinel). Raw and display always agree with the emitted label — the label IS the band.
 - **Trend Stability Sharpe removed (v6.14).** The v6.11 `qualitative_assessment.trend_stability_sharpe` pair was **removed** with the L1→L3 traceability-evidence stamp (the Trend card badge and the `AnalysisMatrix` field are gone). The L1 `price_trend_sharpe` indicator remains the sole Sharpe family member (Metrics tab, per-TF — see [04-02-52](../engines/market-monitoring-engine/indicators/04-02-52-price-trend-sharpe.md)).
 - **Representative traceability (v6.10.21).** `representative_bbwp` / `representative_adx` now come from the AnalysisMatrix's own pinned `representative_bbwp`/`representative_adx` fields (the exact inputs the rationale quotes — the matrix mirror is per-slot last-writer-wins, so the exporting slot's indicator map can differ); the micro-map fallback applies only to older frames that lack the pins.
+- **KEY METRICS parity (2026-08-17, audit C2).** `key_metrics` mirrors the panel's KEY METRICS row — Overall Score (`alignment.mtf_overall_score`), Timeframe Agreement (`trend_agreement_pct`), Timeframes present (`alignment.timeframes_present`, falling back to `analysis.timeframes_considered`), Total Signals (`signal_cross_tf_count`). Any field is `null` when the alignment is absent.
 - The Interpretation's opportunity sentence follows the L3 `opportunity_analysis` chain, which is synced with the L4 §4 tree (v6.10.8) — the prose can no longer claim "Favors trend continuation" under an L4 NO CLEAR SETUP verdict.
 
 ### 3.7 Recommendation Tab — `source_tab: "recommendation"`
@@ -734,9 +796,19 @@ Notes:
     "protection": "ATR-Based", "target": "Resistance-Based"
   },
   "final_verdict": "LONG 60% — Ready (readiness: Ready).",
-  "final_verdict_guidance": "Environment guidance: Bullish market bias with 60% confidence, Long on pullback toward the 63200-63400 entry zone with invalidation below 62800."
+  "final_verdict_guidance": "Environment guidance: Bullish market bias with 60% confidence, Long on pullback toward the 63200-63400 entry zone with invalidation below 62800.",
+  "projection": {
+    "configured": true,
+    "capital": 10000, "leverage": 20, "direction": "LONG",
+    "entry_price": 63300, "stop_loss": 62800, "take_profit": 66000,
+    "position_size_units": 1.58, "position_notional_usd": 10000,
+    "entry_fee_usd": 6.0, "exit_fee_usd": 8.5, "total_fees_usd": 14.5,
+    "liquidation_price": 62010, "net_profit_usd": 347.6, "roi_pct": 3.48
+  }
 }
 ```
+
+> **`projection` (v6.10.4+).** Mirrors the Project Risk and Return drawer grid — `configured: false` with all-null numerics until a calculation runs (the drawer's `margin_required` cell has no export counterpart).
 
 Notes:
 - `rr_display` in `top_setup` derives from the canonical wire `rr_value`
@@ -825,3 +897,16 @@ The v7.0 payload shapes are **not** backwards compatible with the legacy kitchen
 | **Total** | | **111** |
 
 The harness (`ui/src/tests/exportConsistency/`) is the enforcement mechanism for the "export == screen" contract: it renders every Market Monitoring panel with a rich synthetic store state, captures the clipboard JSON, and asserts both directions — every displayed number/string/word is present in the JSON, and every exported display string maps back to the screen.
+
+---
+
+## 6. Engine dashboard exports (v7.3)
+
+The four engine dashboards (DIE / TAE / PME / PAE) extend the same "export == screen" principle with a shared envelope defined in `ui/src/lib/engineExport.ts` and specified in [07-07 Engine Dashboard Vocabulary §4](07-07-engine-dashboard-vocabulary.md#4-export-data-contract-v73):
+
+- DIE — every panel exports its fetched state (platform config, quality report, pipelines, distribution, clock runtime, data quality, exchange status).
+- TAE / PME — one context-aware button in the dashboard header exports the current tab's visible state (mode-aware payloads: radar vs lab vs cockpit; readiness vs accounting).
+- PAE — the shell exports Overview / Trades / Strategy / Risk / Performance / Methodology; the Backtesting and History tabs export their own local state (form + result; run list + selected run).
+
+The envelope fields (`schema`, `engine`, `tab`, `mode`, `exported_at`, `data`) are not part of the MME per-tab contracts above — they are documented in 07-07 and enforced by `ui/src/lib/engineExport.test.ts`.
+

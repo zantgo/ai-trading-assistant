@@ -9,6 +9,99 @@ use axum::{
 };
 use std::sync::Arc;
 
+/// GET /api/system/platform-config — the serialized `PlatformConfig`
+/// (exchange endpoints, clock monitor, quality, reconnect, candle buffer,
+/// snapshot export). DIE Settings renders these real values; the endpoint
+/// exists because `GET /api/config` intentionally returns only workspace
+/// fields and the platform block lives in `AppState.platform`.
+pub async fn serve_platform_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let platform = state.platform.read().await;
+    Json(platform.clone())
+}
+
+/// GET /api/system/pipelines — per-instance × slot candle-pipeline state
+/// (DIE L2 Market Data tab). Reads the live pipeline handles the registry
+/// already maintains: state, buffer depth, last completed close, and the
+/// reconstructed-candle count for the buffer window.
+pub async fn serve_system_pipelines(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    use core_domain::models::TimeframeSlot;
+
+    let instances = state.get_all_instances().await;
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+
+    for inst in &instances {
+        let pair = inst.pair_key();
+        let pipelines: Vec<(String, &market_analyzer::analyzer::TimeframePipeline)> = {
+            let ap = &inst.active_pair;
+            vec![
+                ("micro".to_string(), &ap.micro),
+                ("fast".to_string(), &ap.fast),
+                ("slow".to_string(), &ap.slow),
+                ("macro".to_string(), &ap.r#macro),
+            ]
+        };
+        for (slot_label, pipeline) in pipelines {
+            let state_str = {
+                let s = pipeline.pipeline_state.read().await;
+                format!("{:?}", *s)
+            };
+            let (buffer_depth, last_close, last_close_ts, reconstructed) = {
+                let hist = pipeline.history.read().await;
+                let depth = hist.len();
+                let mut last: Option<rust_decimal::Decimal> = None;
+                let mut last_ts: Option<i64> = None;
+                let mut recon: u32 = 0;
+                for c in hist.iter() {
+                    if c.reconstructed.is_some() {
+                        recon += 1;
+                    }
+                    last = Some(c.close);
+                    last_ts = Some(c.start_time_ms as i64);
+                }
+                (
+                    depth,
+                    last.map(|d| d.to_string()).unwrap_or_default(),
+                    last_ts.unwrap_or(0),
+                    recon,
+                )
+            };
+            let slot_key = match pipeline.slot {
+                TimeframeSlot::Micro => "micro",
+                TimeframeSlot::Fast => "fast",
+                TimeframeSlot::Slow => "slow",
+                TimeframeSlot::Macro => "macro",
+                _ => slot_label.as_str(),
+            };
+            rows.push(serde_json::json!({
+                "pair": pair,
+                "slot": slot_key,
+                "timeframe_secs": pipeline.timeframe_secs,
+                "pipeline_state": state_str.to_uppercase(),
+                "buffer_depth": buffer_depth,
+                "buffer_size": pipeline.buffer_size,
+                "last_completed_close": last_close,
+                "last_completed_ts": last_close_ts,
+                "reconstructed_candles": reconstructed,
+            }));
+        }
+    }
+
+    Json(serde_json::json!({ "pipelines": rows }))
+}
+
+/// GET /api/system/distribution — DIE L4 egress telemetry: the latency
+/// snapshot (already computed by `LatencyTracker`) plus the connected
+/// WebSocket client count maintained by the ws module.
+pub async fn serve_system_distribution(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let lat = state.latency_tracker.snapshot();
+    Json(serde_json::json!({
+        "observation_loop_latency_ms": lat.observation_loop_latency_ms,
+        "ingest_skew_ms": lat.ingest_skew_ms,
+        "system_heartbeat_latency_ms": lat.system_heartbeat_latency_ms,
+        "ws_clients_connected": crate::ws::connected_client_count(),
+    }))
+}
+
 pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let active_pairs_count = state.instance_count().await;
     let lat = state.latency_tracker.snapshot();
@@ -21,9 +114,10 @@ pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl Int
         )
     });
 
-    let capital = state.execution_engine.capital.read().await;
-    let total_allocated_margin = capital
-        .reserved_margin
+    let total_allocated_margin = state
+        .execution_engine
+        .committed_margin()
+        .await
         .to_string()
         .parse::<f64>()
         .unwrap_or(0.0);

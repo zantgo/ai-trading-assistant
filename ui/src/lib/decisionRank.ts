@@ -698,15 +698,15 @@ export function selectProfileSide(
     const isBullish = macroBias === 'Bullish' || macroBias === 'StrongBullish';
     const isBearish = macroBias === 'Bearish' || macroBias === 'StrongBearish';
     switch (family) {
-        case 'TrendRiding':
+        case 'TREND_RIDING':
             if (isBullish) return 'LONG';
             if (isBearish) return 'SHORT';
             return 'NEUTRAL';
-        case 'CounterTrend':
+        case 'COUNTER_TREND':
             if (isBullish) return 'SHORT';
             if (isBearish) return 'LONG';
             return 'NEUTRAL';
-        case 'Neutral':
+        case 'NEUTRAL':
         case null:
         case undefined:
             return 'NEUTRAL';

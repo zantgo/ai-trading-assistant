@@ -74,7 +74,7 @@ mod tests {
         let mut fi = ForceIndex::new(13);
         fi.update(100.0, 1000.0);
         let out = fi.update(105.0, 1000.0).unwrap();
-        assert!(out > Decimal::from_f64_retain(0.0).unwrap());
+        assert!(out > Decimal::from_f64_retain(0.0).unwrap_or_default());
     }
 
     #[test]
@@ -82,6 +82,6 @@ mod tests {
         let mut fi = ForceIndex::new(13);
         fi.update(100.0, 1000.0);
         let out = fi.update(95.0, 1000.0).unwrap();
-        assert!(out < Decimal::from_f64_retain(0.0).unwrap());
+        assert!(out < Decimal::from_f64_retain(0.0).unwrap_or_default());
     }
 }

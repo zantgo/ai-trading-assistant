@@ -200,9 +200,8 @@ fn collect(root: &str) -> Vec<Sample> {
                     let Ok(text) = std::fs::read_to_string(&p) else {
                         continue;
                     };
-                    let Ok(envelope) = serde_json::from_str::<
-                        SnapshotEnvelope<serde_json::Value>,
-                    >(&text)
+                    let Ok(envelope) =
+                        serde_json::from_str::<SnapshotEnvelope<serde_json::Value>>(&text)
                     else {
                         continue;
                     };
@@ -253,8 +252,16 @@ fn collect(root: &str) -> Vec<Sample> {
         for s in &out {
             eprintln!(
                 "DEBUG {} {} score={:.1} votes=({},{},{}) aggr={:.0} sig={} bias={:?} price={:.0}",
-                s.symbol, s.timestamp_ms, s.score, s.votes_bull, s.votes_bear, s.votes_flat,
-                s.agreement, s.signals, s.engine_bias, s.price
+                s.symbol,
+                s.timestamp_ms,
+                s.score,
+                s.votes_bull,
+                s.votes_bear,
+                s.votes_flat,
+                s.agreement,
+                s.signals,
+                s.engine_bias,
+                s.price
             );
         }
     }
@@ -290,7 +297,13 @@ fn main() {
     let mut rows = Vec::new();
     for (label, band_min, vote_ratio, agreement, signals) in [
         ("plain ±20", 15.0, 0.75, 75.0, 3),
-        ("band (15,20] · 3/4 · 75 · 3  [SHIPPED]", 15.0, 0.75, 75.0, 3),
+        (
+            "band (15,20] · 3/4 · 75 · 3  [SHIPPED]",
+            15.0,
+            0.75,
+            75.0,
+            3,
+        ),
         ("band (10,20] · 3/4 · 75 · 3", 10.0, 0.75, 75.0, 3),
         ("band (12,20] · 3/4 · 75 · 3", 12.0, 0.75, 75.0, 3),
         ("band (18,20] · 3/4 · 75 · 3", 18.0, 0.75, 75.0, 3),
@@ -300,7 +313,12 @@ fn main() {
         ("band (15,20] · 3/4 · 90 · 3", 15.0, 0.75, 90.0, 3),
         ("band (15,20] · 3/4 · 75 · 2", 15.0, 0.75, 75.0, 2),
     ] {
-        let mut r = evaluate(&samples, |s| swept_bias(s, band_min, vote_ratio, agreement, signals), 1, false);
+        let mut r = evaluate(
+            &samples,
+            |s| swept_bias(s, band_min, vote_ratio, agreement, signals),
+            1,
+            false,
+        );
         r.label = label.to_string();
         rows.push(r);
     }
@@ -328,13 +346,13 @@ fn main() {
     // Horizon sensitivity on the shipped fire rule.
     println!("\nshipped rule (15,20]·3/4·75·3 — horizon sensitivity:");
     for h in [1usize, 3, 6, 12] {
-        let r = evaluate(
-            &samples,
-            |s| swept_bias(s, 15.0, 0.75, 75.0, 3),
+        let r = evaluate(&samples, |s| swept_bias(s, 15.0, 0.75, 75.0, 3), h, false);
+        println!(
+            "  horizon {} samples: acc {:.1}% over {} directional samples",
             h,
-            false,
+            r.accuracy * 100.0,
+            r.directional_samples
         );
-        println!("  horizon {} samples: acc {:.1}% over {} directional samples", h, r.accuracy * 100.0, r.directional_samples);
     }
 
     // Flip rate: shipped-with-hysteresis vs no-hysteresis (approximation:

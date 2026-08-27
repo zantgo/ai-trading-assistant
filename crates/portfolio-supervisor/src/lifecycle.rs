@@ -3,7 +3,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub struct AutomationConditions {
     pub start_at_price_above: Option<f64>,
     pub start_at_price_below: Option<f64>,
@@ -15,23 +15,6 @@ pub struct AutomationConditions {
     pub stop_at_price_above: Option<f64>,
     pub stop_at_price_below: Option<f64>,
     pub stop_after_duration_secs: Option<u64>,
-}
-
-impl Default for AutomationConditions {
-    fn default() -> Self {
-        Self {
-            start_at_price_above: None,
-            start_at_price_below: None,
-            start_at_time: None,
-            pause_at_price_below: None,
-            pause_at_price_above: None,
-            pause_at_time: None,
-            pause_after_duration_secs: None,
-            stop_at_price_above: None,
-            stop_at_price_below: None,
-            stop_after_duration_secs: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,15 +63,37 @@ pub struct LifecycleManager {
 
 impl LifecycleManager {
     pub fn new(automation: Option<AutomationState>) -> Self {
+        Self::new_for_mode(automation, None)
+    }
+
+    /// v10.1 boot policy — the initial state follows the instance's
+    /// execution mode:
+    ///   - `Observe` → RUNNING (ghost radar always evaluates; the mode
+    ///     itself forbids dispatch).
+    ///   - `Paper`/`Live` → PAUSED (close-only: the instance runs but the
+    ///     TAE does not open new setups until the operator starts it —
+    ///     "never start trading unless explicitly activated").
+    ///   - automation with start-at triggers → STOPPED (waits for the
+    ///     trigger; unchanged legacy rule).
+    /// `mode = None` keeps the legacy RUNNING default (tests, ad-hoc).
+    pub fn new_for_mode(
+        automation: Option<AutomationState>,
+        mode: Option<config_models::ExecutionMode>,
+    ) -> Self {
         let now = current_time_ms();
         let initial_state = match &automation {
-            Some(auto) if auto.conditions.start_at_time.is_some()
-                || auto.conditions.start_at_price_above.is_some()
-                || auto.conditions.start_at_price_below.is_some() =>
+            Some(auto)
+                if auto.conditions.start_at_time.is_some()
+                    || auto.conditions.start_at_price_above.is_some()
+                    || auto.conditions.start_at_price_below.is_some() =>
             {
                 LifecycleState::Stopped
             }
-            _ => LifecycleState::Running,
+            _ => match mode {
+                Some(config_models::ExecutionMode::Observe) => LifecycleState::Running,
+                Some(_) => LifecycleState::LifecyclePaused,
+                None => LifecycleState::Running,
+            },
         };
 
         Self {
@@ -106,6 +111,11 @@ impl LifecycleManager {
         self.pool = Some(pool);
     }
 
+    /// Current lifecycle state (clone — the enum is `Copy`-free by design).
+    pub fn current(&self) -> LifecycleState {
+        self.state
+    }
+
     pub async fn persist_lifecycle(&self) {
         if let Some(ref pool) = self.pool {
             let now = current_time_ms();
@@ -115,7 +125,7 @@ impl LifecycleManager {
                 LifecycleState::Stopping => "STOPPING",
                 LifecycleState::Stopped => "STOPPED",
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT OR REPLACE INTO instance_lifecycle (instance_id, lifecycle_state, entered_state_at_ms, updated_at_ms) VALUES (?, ?, ?, ?)"
             )
             .bind(&self.instance_id)
@@ -123,7 +133,10 @@ impl LifecycleManager {
             .bind(self.entered_state_at_ms as i64)
             .bind(now as i64)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist lifecycle failed for {}: {e}", self.instance_id);
+            }
         }
     }
 
@@ -141,7 +154,7 @@ impl LifecycleManager {
                 LifecycleState::Stopping => "STOPPING",
                 LifecycleState::Stopped => "STOPPED",
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO instance_lifecycle_events (instance_id, from_state, to_state, actor, reason_json, timestamp_ms) VALUES (?, ?, ?, ?, ?, ?)"
             )
             .bind(&self.instance_id)
@@ -151,7 +164,10 @@ impl LifecycleManager {
             .bind(&event.reason)
             .bind(event.timestamp_ms as i64)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist lifecycle event failed for {}: {e}", self.instance_id);
+            }
         }
     }
 
@@ -203,7 +219,13 @@ impl LifecycleManager {
         Ok(())
     }
 
-    fn make_event(&self, from: LifecycleState, to: LifecycleState, actor: &str, reason: Option<String>) -> LifecycleEvent {
+    fn make_event(
+        &self,
+        from: LifecycleState,
+        to: LifecycleState,
+        actor: &str,
+        reason: Option<String>,
+    ) -> LifecycleEvent {
         LifecycleEvent {
             instance_id: self.instance_id.clone(),
             from_state: Some(from),
@@ -265,28 +287,26 @@ impl LifecycleManager {
         };
 
         match self.state {
-            LifecycleState::Stopped => {
-                if !auto.start_fired {
-                    if let Some(price) = current_price {
-                        if let Some(above) = auto.conditions.start_at_price_above {
-                            if price >= above {
+            LifecycleState::Stopped if !auto.start_fired => {
+                if let Some(price) = current_price {
+                    if let Some(above) = auto.conditions.start_at_price_above {
+                        if price >= above {
+                            auto.start_fired = true;
+                            actions.push(AutomationAction::Start);
+                        }
+                    }
+                    if !auto.start_fired {
+                        if let Some(below) = auto.conditions.start_at_price_below {
+                            if price <= below {
                                 auto.start_fired = true;
                                 actions.push(AutomationAction::Start);
                             }
                         }
-                        if !auto.start_fired {
-                            if let Some(below) = auto.conditions.start_at_price_below {
-                                if price <= below {
-                                    auto.start_fired = true;
-                                    actions.push(AutomationAction::Start);
-                                }
-                            }
-                        }
                     }
-                    if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
-                        auto.start_fired = true;
-                        actions.push(AutomationAction::Start);
-                    }
+                }
+                if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
+                    auto.start_fired = true;
+                    actions.push(AutomationAction::Start);
                 }
             }
             LifecycleState::Running => {
@@ -357,20 +377,18 @@ impl LifecycleManager {
                     actions.push(AutomationAction::Pause);
                 }
             }
-            LifecycleState::LifecyclePaused => {
-                if !auto.start_fired {
-                    if let Some(price) = current_price {
-                        if let Some(above) = auto.conditions.start_at_price_above {
-                            if price >= above {
-                                auto.start_fired = true;
-                                actions.push(AutomationAction::Start);
-                            }
+            LifecycleState::LifecyclePaused if !auto.start_fired => {
+                if let Some(price) = current_price {
+                    if let Some(above) = auto.conditions.start_at_price_above {
+                        if price >= above {
+                            auto.start_fired = true;
+                            actions.push(AutomationAction::Start);
                         }
                     }
-                    if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
-                        auto.start_fired = true;
-                        actions.push(AutomationAction::Start);
-                    }
+                }
+                if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
+                    auto.start_fired = true;
+                    actions.push(AutomationAction::Start);
                 }
             }
             _ => {}
@@ -378,7 +396,6 @@ impl LifecycleManager {
 
         actions
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -391,6 +408,48 @@ pub enum AutomationAction {
 fn current_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boot_policy_is_mode_aware() {
+        // v10.1: paper/live boot PAUSED (TAE not activated), observe boots
+        // RUNNING (ghost radar), legacy None stays RUNNING.
+        let paper = LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Paper));
+        assert_eq!(paper.state, LifecycleState::LifecyclePaused);
+
+        let live = LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Live));
+        assert_eq!(live.state, LifecycleState::LifecyclePaused);
+
+        let observe =
+            LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Observe));
+        assert_eq!(observe.state, LifecycleState::Running);
+
+        let legacy = LifecycleManager::new(None);
+        assert_eq!(legacy.state, LifecycleState::Running);
+    }
+
+    #[test]
+    fn automation_start_triggers_boot_stopped_regardless_of_mode() {
+        let mut cond = AutomationConditions::default();
+        cond.start_at_time = Some("2026-01-01T00:00:00Z".to_string());
+        let mgr = LifecycleManager::new_for_mode(
+            Some(AutomationState::new(cond)),
+            Some(config_models::ExecutionMode::Paper),
+        );
+        assert_eq!(mgr.state, LifecycleState::Stopped);
+    }
+
+    #[test]
+    fn paused_can_start_and_stop() {
+        let mgr = LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Paper));
+        assert!(mgr.can_start().is_ok());
+        assert!(mgr.can_stop().is_ok());
+        assert!(mgr.can_pause().is_err(), "cannot pause from PAUSED");
+    }
 }

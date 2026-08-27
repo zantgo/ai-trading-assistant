@@ -13,7 +13,7 @@
     // value is genuinely zero.
     import { useAppStore } from '../state.svelte';
     import styles from './DerivativeRibbon.module.css';
-    import { iRaw, fmt, fmtPrice } from '../lib/telemetry';
+    import { iRaw, iNorm, fmt, fmtPrice } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
 
     const app = useAppStore();
@@ -36,18 +36,28 @@
     const ofiRaw = $derived<number | null>(iRaw(indicators, 'order_flow_imbalance'));
     const spreadRaw = $derived<number | null>(iRaw(indicators, 'spread'));
     const depthRaw = $derived<number | null>(iRaw(indicators, 'depth_bias'));
+    // `depth_bias` raw is the bid/ask depth RATIO centered at 1.0 (e.g.
+    // 1.2 = bid-side heavy). Classification must use the signed
+    // `normalized` reading `(r−1)/(r+1) ∈ [−1,1]` — comparing the raw
+    // ratio against ±0.15 mislabeled every ask-heavy book as "BID HEAVY"
+    // and made the bearish branch unreachable.
+    const depthNorm = $derived<number>(iNorm(indicators, 'depth_bias'));
 
     /// Tri-state feed status logic:
     /// - CONNECTING: no value ever received → expected during cold start.
-    /// - LIVE:       value present and `now - lastUpdate < STALE_THRESHOLD_MS`.
+    /// - LIVE:       value present and `now - lastUpdate < STALE_THRESHOLD_SECS`.
     /// - STALE:      value present but broadcast cadence stalled.
     type FeedStatus = 'CONNECTING' | 'LIVE' | 'STALE';
-    const STALE_THRESHOLD_MS = 30_000;
+    const STALE_THRESHOLD_SECS = 30;
 
     function computeStatus(raw: number | null | undefined, lastUpdate: number | null): FeedStatus {
         if (raw == null) return 'CONNECTING';
         if (lastUpdate == null) return 'CONNECTING';
-        if (Date.now() - lastUpdate > STALE_THRESHOLD_MS) return 'STALE';
+        // Audit fix (M1): `lastUpdate` is the wire `snapshot.timestamp` —
+        // epoch SECONDS (candle.start_time_ms / 1000). Comparing against
+        // `Date.now()` (milliseconds) made every badge permanently STALE
+        // (delta ≈ 1.78e12 ms ≫ 30 s). Both sides are now in seconds.
+        if (Date.now() / 1000 - lastUpdate > STALE_THRESHOLD_SECS) return 'STALE';
         return 'LIVE';
     }
 
@@ -113,8 +123,8 @@
 
     const fundingCls = $derived(
         fundingRaw == null ? styles.neutral :
-        fundingRaw >= 0.03 ? styles.bearish :
-        fundingRaw <= -0.03 ? styles.bullish :
+        fundingRaw >= 0.005 ? styles.bearish :
+        fundingRaw <= -0.005 ? styles.bullish :
         styles.neutral
     );
 
@@ -127,22 +137,22 @@
 
     const spreadCls = $derived(
         spreadRaw == null ? styles.neutral :
-        spreadRaw > 0.3 ? styles.neutral :
+        spreadRaw > 0.05 ? styles.warning :
         styles.neutral
     );
 
     const depthCls = $derived(
         depthRaw == null ? styles.neutral :
-        depthRaw > 0.15 ? styles.bullish :
-        depthRaw < -0.15 ? styles.bearish :
+        depthNorm > 0.15 ? styles.bullish :
+        depthNorm < -0.15 ? styles.bearish :
         styles.neutral
     );
 
     const fundingSub = $derived(
         fundingRaw == null ? `${fundingStatus} · AWAITING POLLER` :
-        fundingRaw >= 0.03 ? 'EXT+ LONG CROWDED' :
-        fundingRaw <= -0.03 ? 'EXT- SHORT CROWDED' :
-        Math.abs(fundingRaw) < 0.005 ? 'NEUTRAL' :
+        fundingRaw >= 0.005 ? 'EXT+ LONG CROWDED' :
+        fundingRaw <= -0.005 ? 'EXT- SHORT CROWDED' :
+        Math.abs(fundingRaw) < 0.0005 ? 'NEUTRAL' :
         fundingRaw > 0 ? 'LONG PAYING' : 'SHORT PAYING'
     );
 
@@ -162,8 +172,8 @@
 
     const depthSub = $derived(
         depthRaw == null ? `${depthStatus} · AWAITING BOOK` :
-        depthRaw > 0.15 ? 'BID HEAVY' :
-        depthRaw < -0.15 ? 'ASK HEAVY' :
+        depthNorm > 0.15 ? 'BID HEAVY' :
+        depthNorm < -0.15 ? 'ASK HEAVY' :
         'BALANCED'
     );
 
@@ -181,7 +191,7 @@
 
     const fundingBgCls = $derived(
         fundingRaw == null ? styles.connecting :
-        Math.abs(fundingRaw) >= 0.03 ? styles.warningBg :
+        Math.abs(fundingRaw) >= 0.005 ? styles.warningBg :
         ''
     );
 

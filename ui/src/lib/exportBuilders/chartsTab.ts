@@ -35,7 +35,7 @@ export interface PositionBlock {
   symbol: string;
   direction: string;
   size: number | null;
-  average_entry_price: number | null;
+  entry_price: number | null;
   liq_price: number | null;
   mark_price: number | null;
   margin_used: number;
@@ -189,9 +189,7 @@ function readBoolField(obj: Record<string, unknown>, key: string): boolean {
 function buildPositionBlock(app: AppStore, markPrice: number): PositionBlock | null {
   if (app.paperDirection === '') return null;
   const pos = (app.activePaperPosition ?? {}) as Record<string, unknown>;
-  const entry = readNumberField(pos, 'average_entry_price')
-    ?? readNumberField(pos, 'entry_price')
-    ?? 0;
+  const entry = readNumberField(pos, 'entry_price') ?? 0;
   const size = readNumberField(pos, 'size');
   const openedAt = readNumberField(pos, 'opened_at')
     ?? readNumberField(pos, 'created_at');
@@ -202,7 +200,7 @@ function buildPositionBlock(app: AppStore, markPrice: number): PositionBlock | n
     symbol: app.activeTab,
     direction: app.paperDirection,
     size,
-    average_entry_price: entry > 0 ? entry : null,
+    entry_price: entry > 0 ? entry : null,
     liq_price: liq > 0 ? liq : null,
     mark_price: markPrice > 0 ? markPrice : null,
     margin_used: app.paperMarginUsed,

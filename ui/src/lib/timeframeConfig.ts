@@ -38,7 +38,6 @@ export interface TimeframeConfigDraft {
     squeezeKcPeriod: number;  squeezeKcAtrMult: number;
     atrMultiplier: number;  atrTargetRR: number;
     volumeAvgPeriod: number;  rvolInstitutional: number;  rvolClimax: number;
-    analysisLimit: number;
     /// v7.0-prod — per-TF operator-selected leverage tiers (each ∈ [1, 100]).
     /// Drives the `LiquidationHeatmapPrimitive.clusterInHighlight` matcher.
     /// Default seed is `[10]` (see `defaultTermDraft` in `WorkspaceSettings`).
@@ -72,7 +71,6 @@ export function applyTimeframeConfig(tf: TimeframeTelemetry, term: TimeframeConf
     tf.atrMultiplierVal = term.atrMultiplier; tf.atrTargetRRVal = term.atrTargetRR;
     tf.volumeAvgPeriodVal = term.volumeAvgPeriod;
     tf.rvolInstitutionalVal = term.rvolInstitutional; tf.rvolClimaxVal = term.rvolClimax;
-    tf.analysisLimit = term.analysisLimit;
     // v7.0-prod — per-TF heatmap leverage tier persistence. The PriceChart
     // $effect forwards this list to `LiquidationHeatmapPrimitive.updateData`
     // so the overlay intensifies the operator-selected tiers.

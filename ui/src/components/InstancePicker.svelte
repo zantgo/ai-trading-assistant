@@ -23,6 +23,13 @@
         pair: string;
         symbol: string;
         status: string;
+        mode?: 'observe' | 'paper' | 'live';
+    }
+
+    function modeCls(mode: InstanceRow['mode']): string {
+        if (mode === 'observe') return styles.modeObserve;
+        if (mode === 'live') return styles.modeLive;
+        return styles.modePaper;
     }
 
     let instances = $state<InstanceRow[]>([]);
@@ -196,6 +203,9 @@
                         <span class={styles.symbol}>{pairDisplay(pk)}</span>
                         <span class={styles.price}>{priceFor(pk)}</span>
                     </div>
+                    {#if inst.mode}
+                        <span class="{styles.modeChip} {modeCls(inst.mode)}">{inst.mode.toUpperCase()}</span>
+                    {/if}
                     {#if chg}
                         <span class="{styles.change} {changeCls(chg)}">{chg}</span>
                     {/if}

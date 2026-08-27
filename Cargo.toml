@@ -7,10 +7,18 @@ members = [
     "crates/network-adapters",
     "crates/portfolio-supervisor",
     "crates/performance-analytics",
+    "crates/backtesting-engine",
     "crates/api-gateway",
     "crates/execution-daemon",
 ]
 resolver = "2"
+
+# Declared toolchain floor (inherited by every crate; used by clippy's
+# MSRV lint family and by toolchain managers). The codebase already uses
+# `std::sync::LazyLock` (stable 1.80) and `let ... else` (stable 1.65),
+# so 1.80 is the floor.
+[workspace.package]
+rust-version = "1.80"
 
 # Single source of truth for clippy / rust correctness lints. Only
 # the "correctness" lints (those that catch real bugs or future-hard-

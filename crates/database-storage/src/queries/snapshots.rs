@@ -1,10 +1,19 @@
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{Exchange, NormalizedCandle};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use sqlx::SqlitePool;
 
 pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
+    insert_snapshot_with_session(pool, snapshot, None).await;
+}
+
+/// v10: insert with an explicit session id (the live/paper telemetry path).
+pub async fn insert_snapshot_with_session(
+    pool: &SqlitePool,
+    snapshot: &MarketSnapshot,
+    session_id: Option<i64>,
+) {
     let sqz_on_db_val = snapshot.squeeze_on().map(|s| if s { 1 } else { 0 });
     let exchange_label = snapshot
         .exchange
@@ -89,10 +98,14 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             cluster_long_count, cluster_short_count, cluster_total_notional_usd,
             cluster_estimation_confidence,
             liquidity_json, cluster_json,
-            auxiliary_normalized_data
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95)"
+            auxiliary_normalized_data,
+            reconstructed,
+            market_regime, opportunity_json, decision_context_json,
+            analysis_json, advisory_json,
+            session_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95, ?96, ?97, ?98, ?99, ?100, ?101, ?102)"
     )
-    .bind(exchange_label)
+    .bind(&exchange_label)
     .bind(snapshot.timeframe_secs as i64)
     .bind(snapshot.timestamp as i64)
     .bind(&snapshot.symbol)
@@ -187,10 +200,81 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     .bind(liquidity_json)
     .bind(cluster_json)
     .bind(auxiliary_json)
+    // K3 (production audit): persist reconstruction provenance so a
+    // restart or the `/api/history` DB fallback can distinguish
+    // gap-filled candles from genuine live ones (the wire collapses to
+    // SYNTHETIC; the column keeps the same token, NULL = live).
+    .bind(
+        snapshot
+            .quality_envelope
+            .as_ref()
+            .filter(|q| q.is_gap_filled)
+            .map(|_| "SYNTHETIC"),
+    )
+    .bind(
+        snapshot
+            .context
+            .as_ref()
+            .map(|c| c.regime.clone())
+            .or_else(|| {
+                snapshot
+                    .analysis
+                    .as_ref()
+                    .map(|a| format!("{:?}", a.market_regime))
+            }),
+    )
+    .bind(snapshot.opportunity.as_ref().and_then(|o| serde_json::to_string(o).ok()))
+    .bind(
+        snapshot
+            .decision_context
+            .as_ref()
+            .and_then(|d| serde_json::to_string(d).ok()),
+    )
+    .bind(snapshot.analysis.as_ref().and_then(|a| serde_json::to_string(a).ok()))
+    .bind(snapshot.advisory.as_ref().and_then(|a| serde_json::to_string(a).ok()))
+    .bind(session_id)
     .execute(pool)
     .await
     {
         eprintln!("Database Error: Failed to save completed snapshot: {}", e);
+    }
+
+    // BTE live archive write path: every completed snapshot also upserts
+    // its OHLCV into `candle_archive` so the deep-history backtest has a
+    // warm local store in every session mode (observe / paper / live).
+    // Gap-filled candles carry source 'reconstructed'; genuine live rows
+    // carry 'live'. Dedup is handled by the UNIQUE constraint.
+    let archive_source = if snapshot
+        .quality_envelope
+        .as_ref()
+        .map(|q| q.is_gap_filled)
+        .unwrap_or(false)
+    {
+        "reconstructed"
+    } else {
+        "live"
+    };
+    if let Err(e) = sqlx::query(
+        "INSERT INTO candle_archive
+            (exchange, symbol, timeframe_secs, ts_secs, open, high, low, close,
+             volume, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT (exchange, symbol, timeframe_secs, ts_secs) DO NOTHING",
+    )
+    .bind(&exchange_label)
+    .bind(&snapshot.symbol)
+    .bind(snapshot.timeframe_secs as i64)
+    .bind(snapshot.timestamp as i64)
+    .bind(snapshot.open.map(|d| d.to_string()))
+    .bind(snapshot.high.map(|d| d.to_string()))
+    .bind(snapshot.low.map(|d| d.to_string()))
+    .bind(snapshot.close.map(|d| d.to_string()))
+    .bind(snapshot.volume.map(|d| d.to_string()))
+    .bind(archive_source)
+    .execute(pool)
+    .await
+    {
+        eprintln!("DB persist failed: {e}");
     }
 }
 
@@ -214,9 +298,10 @@ pub async fn query_recent_candles(
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT exchange, timestamp, open, high, low, close, volume
+        "SELECT exchange, timestamp, open, high, low, close, volume, reconstructed
          FROM market_snapshots
          WHERE symbol = ?1
            AND timeframe_secs = ?2
@@ -239,29 +324,60 @@ pub async fn query_recent_candles(
             .unwrap_or(Decimal::ZERO)
     };
 
+    type CandleRow = (
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+
     let mut candles: Vec<NormalizedCandle> = rows
         .into_iter()
-        .map(|(exchange_str, ts, open, high, low, close, volume)| {
-            let exchange = match exchange_str.as_str() {
-                "Bitget" => Exchange::Bitget,
-                _ => Exchange::Hyperliquid,
-            };
-            let close_dec = parse(close);
-            let non_zero = |d: Decimal| if d.is_zero() { close_dec } else { d };
-            NormalizedCandle {
-                exchange,
-                symbol: symbol.to_string(),
-                start_time_ms: (ts.max(0) as u64) * 1000,
-                duration_ms: timeframe_secs * 1000,
-                open: non_zero(parse(open)),
-                high: non_zero(parse(high)),
-                low: non_zero(parse(low)),
-                close: close_dec,
-                volume: parse(volume),
-                trades_count: 0,
-                reconstructed: None,
-            }
-        })
+        .map(
+            |(exchange_str, ts, open, high, low, close, volume, reconstructed): CandleRow| {
+                let exchange = match exchange_str.as_str() {
+                    "Bitget" => Exchange::Bitget,
+                    _ => Exchange::Hyperliquid,
+                };
+                let close_dec = parse(close);
+                let non_zero = |d: Decimal| if d.is_zero() { close_dec } else { d };
+                // K3: the persisted provenance column feeds the candle
+                // back (NULL = genuine live candle).
+                let reconstruction = reconstructed.as_deref().map(|r| match r {
+                    "EXCHANGE_HISTORICAL" => {
+                        core_domain::normalized::ReconstructionMethod::ExchangeHistorical
+                    }
+                    "EXPONENTIAL_MOVING_AVERAGE" => {
+                        core_domain::normalized::ReconstructionMethod::ExponentialMovingAverage
+                    }
+                    "LINEAR_INTERPOLATION" | "LINEAR_EXTRAPOLATION" => {
+                        // AUDIT-AIU-123: legacy rows persisted the
+                        // `LINEAR_INTERPOLATION` token before the AUDIT-V4-024
+                        // rename to `LinearExtrapolation` — accept both.
+                        core_domain::normalized::ReconstructionMethod::LinearExtrapolation
+                    }
+                    "UNAVAILABLE" => core_domain::normalized::ReconstructionMethod::Unavailable,
+                    _ => core_domain::normalized::ReconstructionMethod::Synthetic,
+                });
+                NormalizedCandle {
+                    exchange,
+                    symbol: symbol.to_string(),
+                    start_time_ms: (ts.max(0) as u64) * 1000,
+                    duration_ms: timeframe_secs * 1000,
+                    open: non_zero(parse(open)),
+                    high: non_zero(parse(high)),
+                    low: non_zero(parse(low)),
+                    close: close_dec,
+                    volume: parse(volume),
+                    trades_count: 0,
+                    reconstructed: reconstruction,
+                }
+            },
+        )
         .collect();
 
     // Query returned newest-first; reverse to ascending (oldest-first).
@@ -313,10 +429,9 @@ pub async fn query_latest_snapshot(
         // 20260726000000_liquidity_snapshot_persistence.sql). Legacy
         // rows (pre-migration) have NULLs here, which is fine — the
         // chart's WS will populate them on the next live tick.
-        let cluster = r
-            .get::<Option<String>, _>(34)
-            .as_deref()
-            .and_then(|s| serde_json::from_str::<core_domain::liquidity::LiquidationClusterMatrix>(s).ok());
+        let cluster = r.get::<Option<String>, _>(34).as_deref().and_then(|s| {
+            serde_json::from_str::<core_domain::liquidity::LiquidationClusterMatrix>(s).ok()
+        });
         let liquidity = r
             .get::<Option<String>, _>(33)
             .as_deref()
@@ -325,7 +440,10 @@ pub async fn query_latest_snapshot(
             .as_deref()
             .and_then(|s| {
                 serde_json::from_str::<
-                    std::collections::HashMap<String, core_domain::indicator_dtos::NormalizedIndicatorValue>,
+                    std::collections::HashMap<
+                        String,
+                        core_domain::indicator_dtos::NormalizedIndicatorValue,
+                    >,
                 >(s)
                 .ok()
             })
@@ -365,7 +483,9 @@ pub async fn query_latest_snapshot(
             });
 
         MarketSnapshot {
-            timeframe_slot: Some(core_domain::models::TimeframeSlot::parse_from_secs(timeframe_secs)),
+            timeframe_slot: Some(core_domain::models::TimeframeSlot::parse_from_secs(
+                timeframe_secs,
+            )),
             exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
             timeframe_secs,
             timestamp: r.get::<i64, _>(1) as u64,
@@ -458,4 +578,88 @@ pub async fn query_closest_close_price(
             })
         }
     }
+}
+
+/// One recorded completed snapshot with its persisted MME decision matrices
+/// — the backtest replay source (PAE L5).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RecordedSnapshot {
+    pub timestamp: i64,
+    pub timeframe_secs: i64,
+    pub mid_price: f64,
+    pub close: Option<f64>,
+    pub market_regime: Option<String>,
+    pub opportunity_json: Option<String>,
+    pub decision_context_json: Option<String>,
+    pub analysis_json: Option<String>,
+    pub advisory_json: Option<String>,
+    pub reconstructed: Option<String>,
+}
+
+/// Fetch completed snapshots (with decision matrices) for a symbol +
+/// timeframe + window, ascending — the PAE backtest replay source.
+///
+/// Unit contract: `from_secs`/`to_secs` are Unix **seconds** (the
+/// `market_snapshots.timestamp` unit; the API gateway converts ms → s).
+/// Reconstructed (synthesized) rows are excluded — the replay only
+/// consumes exchange-observed decision history.
+pub async fn query_backtest_snapshots(
+    pool: &SqlitePool,
+    symbol: &str,
+    timeframe_secs: u64,
+    from_secs: i64,
+    to_secs: i64,
+    limit: u32,
+) -> Vec<RecordedSnapshot> {
+    sqlx::query_as::<_, RecordedSnapshot>(
+        "SELECT timestamp, timeframe_secs,
+                CAST(mid_price AS REAL) as mid_price, CAST(close AS REAL) as close,
+                market_regime, opportunity_json, decision_context_json,
+                analysis_json, advisory_json, reconstructed
+         FROM market_snapshots
+         WHERE symbol = ?1 AND timeframe_secs = ?2
+           AND timestamp >= ?3 AND timestamp <= ?4
+           AND (reconstructed IS NULL OR reconstructed = '')
+         ORDER BY timestamp ASC
+         LIMIT ?5",
+    )
+    .bind(symbol)
+    .bind(timeframe_secs as i64)
+    .bind(from_secs)
+    .bind(to_secs)
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+/// Data coverage for the backtest replay source — per (symbol, timeframe):
+/// how many recorded snapshots exist and over which time window. The PAE
+/// Overview (observe mode) renders this so the operator knows whether a
+/// requested backtest window is coverable before running it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BacktestCoverageRow {
+    pub symbol: String,
+    pub timeframe_secs: i64,
+    pub snapshot_count: i64,
+    pub earliest_secs: i64,
+    pub latest_secs: i64,
+}
+
+/// Aggregate recorded-snapshot coverage grouped by symbol × timeframe.
+/// `earliest_secs`/`latest_secs` are Unix seconds (the `timestamp` unit).
+pub async fn query_backtest_coverage(pool: &SqlitePool) -> Vec<BacktestCoverageRow> {
+    sqlx::query_as::<_, BacktestCoverageRow>(
+        "SELECT symbol, timeframe_secs,
+                COUNT(*) as snapshot_count,
+                MIN(timestamp) as earliest_secs,
+                MAX(timestamp) as latest_secs
+         FROM market_snapshots
+         WHERE opportunity_json IS NOT NULL OR decision_context_json IS NOT NULL
+         GROUP BY symbol, timeframe_secs
+         ORDER BY symbol, timeframe_secs",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
 }

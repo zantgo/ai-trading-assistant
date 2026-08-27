@@ -32,6 +32,7 @@ export const icons: Record<string, (size?: IconSize) => string> = {
     chevronDown:        (s) => icon('<polyline points="6 9 12 15 18 9"/>', s, 'stroke-width="2"'),
     x:                  (s) => icon('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', s, 'stroke-width="1.8"'),
     play:               (s) => icon('<polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>', s),
+    flask:              (s) => icon('<path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><path d="M8.5 2h7"/><path d="M7 15h10"/>', s),
     pause:              (s) => icon('<rect x="5" y="3" width="6" height="18" rx="1" fill="currentColor" stroke="none"/><rect x="13" y="3" width="6" height="18" rx="1" fill="currentColor" stroke="none"/>', s),
     stop:               (s) => icon('<rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor" stroke="none"/>', s),
     trash:              (s) => icon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>', s),

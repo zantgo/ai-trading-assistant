@@ -7,7 +7,8 @@
 # them is present at startup, the daemon panics with a migration pointer.
 #
 # Hierarchy: PLATFORM > WORKSPACE > INSTANCE
-#   [platform]                 ← server, DB, exchanges, clock (one binary)
+#   [server]                   ← HTTP bind/port (one per folder/session)
+#   [hyperliquid]/[bitget]/…   ← exchanges, clock, quality (one binary)
 #   [workspace]                ← portfolio + analytics + strategies (one per binary)
 #   [[workspace.instances]]    ← trading pairs (zero or more)
 #
@@ -17,6 +18,16 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # PLATFORM
 # ──────────────────────────────────────────────────────────────────────────────
+
+# HTTP server the dashboard + WebSocket are served from. Loopback-only by
+# default (K1 security boundary). For multi-folder / multi-session setups
+# on one machine, give each folder its own port (e.g. 3000, 3001, 3002) —
+# each folder carries its own config.toml + telemetry.db, so the sessions
+# are fully isolated. Overridable per launch: `PLATFORM_PORT`/`PLATFORM_BIND`
+# env vars or `--port`/`--bind` CLI flags (flag > env > this section).
+[server]
+bind = "127.0.0.1"
+port = 3000
 
 [hyperliquid]
 ws_url = "wss://api.hyperliquid.xyz/ws"
@@ -52,6 +63,18 @@ name = "My Portfolio"
 # don't override them.
 default_currency = "USDC"
 default_exchange = "Hyperliquid"
+
+# ── TAE v7 setup executor (master switch) ──
+# enabled = true keeps the 1s setup-executor loop running: fills, setup
+# evaluation, equity sync, PME safety updates, STOP flatten, funding.
+[workspace.minimal_tae]
+enabled = true           # setup executor master switch
+risk_per_trade_pct = 1.0
+min_net_rr = 1.0
+max_position_size_usd = 200.0
+max_open_positions = 1
+entry_mode = "zone_midpoint"
+invalidate_on = "direction_flip"
 
 # ── Market-monitor defaults (per-instance inheritance) ──
 

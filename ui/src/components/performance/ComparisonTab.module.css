@@ -1,0 +1,131 @@
+.wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pickerLabel {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-dim, #8f929d);
+}
+
+.picker {
+    padding: 5px 8px;
+    font-size: 12px;
+    background: var(--panel, #1e222d);
+    color: var(--text, #e0e0e0);
+    border: 1px solid var(--border, #2a2e39);
+    border-radius: 6px;
+}
+
+.hint {
+    font-size: 11px;
+    color: var(--text-dim, #8f929d);
+}
+
+.report {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel, #1e222d);
+    border: 1px solid var(--border, #2a2e39);
+    border-radius: 8px;
+}
+
+.reportTitle {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent, #fdd835);
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.table th {
+    text-align: left;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-dim, #8f929d);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border, #2a2e39);
+}
+
+.table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border, #2a2e39);
+    color: var(--text, #e0e0e0);
+}
+
+.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.label {
+    font-weight: 600;
+}
+
+.modeChip {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border, #2a2e39);
+    color: var(--text-dim, #8f929d);
+}
+
+.verdict {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.verdictStrong {
+    color: #26a69a;
+    border-color: #26a69a;
+}
+
+.verdictModerate {
+    color: #4fc3f7;
+    border-color: #4fc3f7;
+}
+
+.verdictWeak {
+    color: #fdd835;
+    border-color: #fdd835;
+}
+
+.verdictNegative {
+    color: #ef5350;
+    border-color: #ef5350;
+}
+
+.verdictNone {
+    color: var(--text-dim, #8f929d);
+    border-color: var(--border, #2a2e39);
+}
+
+.state {
+    color: var(--text-dim, #8f929d);
+    font-size: 12px;
+    padding: 24px;
+    text-align: center;
+}

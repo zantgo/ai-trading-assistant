@@ -18,6 +18,18 @@ LOG_FILE="engine.log"
 FRONTEND_DIR="ui"
 PID_FILE=".engine.pid"
 
+# v10.1: per-folder sessions — the HTTP port resolves as
+# PLATFORM_PORT env → `[server] port` in config.toml → 3000. Each folder
+# runs its own daemon on its own port; `stop`/`status` target the folder's
+# own port as a fallback when the PID file is missing.
+resolve_port() {
+    local cfg_port
+    cfg_port=$(sed -n '/^\[server\]/,/^\[/p' config.toml 2>/dev/null | grep -E '^\s*port\s*=' | head -1 | sed -n 's/.*port\s*=\s*\([0-9]\+\).*/\1/p' || true)
+    echo "${PLATFORM_PORT:-${cfg_port:-3000}}"
+}
+PORT="$(resolve_port)"
+export PLATFORM_PORT="${PLATFORM_PORT:-$PORT}"
+
 show_help() {
     echo "Trading Platform - CLI Management Tool"
     echo "Usage: ./manage.sh [command]"
@@ -26,10 +38,10 @@ show_help() {
     echo "  build              Compile frontend assets and verify cargo workspace compiles"
     echo "  run                Run the engine in the foreground with live logs (web mode)"
     echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
-    echo "  run-headless       Run in headless mode (no Welcome Gate, auto-spawns instances from config.toml, API server active for monitoring)"
+    echo "  run-cli            Run the terminal monitor (--mode cli, observe-only, no web server)"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
-    echo "  test               Run all test suites (core → indicators → engine → ui)"
+    echo "  test               Run all test suites (core → golden → indicators → engine → ui → doc)"
     echo "  test-core          Pure indicator math + serialization (core-domain, market-analyzer, config-models)"
     echo "  test-engine        DB, server, failover (engine crates)"
     echo "  test-engine-full   Engine suite including load/stress test"
@@ -37,6 +49,7 @@ show_help() {
     echo "  test-indicators    Per-indicator pipeline e2e with console reporting"
     echo "  test-property      Generative property tests across indicators"
     echo "  test-doc           Documentation corpus consistency checks (Phases 8/9/10 gate)"
+    echo "  e2e-backtest       v8.2 backtest matrix harness (headless CLI cases, exchange-aware)"
     echo "  lint               Run cargo fmt --check + clippy (correctness lints) + svelte-check"
     echo "  lint-fix           Run cargo fmt + cargo clippy --fix (mechanical fixes only)"
     echo "  clean              Delete build targets, dependencies, and temporary locks"
@@ -66,6 +79,37 @@ run_foreground() {
     cargo run --bin execution-daemon -- --web
 }
 
+rotate_log() {
+    # M4 (production audit): engine.log previously grew unbounded (per-candle
+    # console lines, clock polls, reconnect logs) — rotate at 50 MB, keep 3.
+    if [ -f "$LOG_FILE" ] && [ "$(du -m "$LOG_FILE" | cut -f1)" -ge 50 ]; then
+        echo "🔄 Rotating $LOG_FILE (>50 MB)..."
+        rm -f "$LOG_FILE.3"
+        mv "$LOG_FILE.2" "$LOG_FILE.3" 2>/dev/null || true
+        mv "$LOG_FILE.1" "$LOG_FILE.2" 2>/dev/null || true
+        mv "$LOG_FILE" "$LOG_FILE.1"
+    fi
+}
+
+# M4 (production audit): record the DAEMON pid, not the `cargo run` wrapper.
+# `cargo run` spawns the binary as a child; killing the wrapper orphaned the
+# daemon on port 3000 (next start then panicked at bind). We build first and
+# exec the binary directly so $! IS the daemon.
+start_daemon() {
+    local mode_args="$1"
+    rotate_log
+    echo "🚀 Building engine..."
+    cargo build 2>&1 | tail -2
+    if [ ! -x target/debug/execution-daemon ]; then
+        echo "❌ Build failed — engine not started."
+        exit 1
+    fi
+    echo "📝 Logs will be written to: $LOG_FILE"
+    nohup target/debug/execution-daemon $mode_args > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "✅ Engine running under PID: $! (daemon, not cargo)"
+}
+
 run_silent() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
         echo "⚠️  Frontend build missing. Triggering compilation first..."
@@ -80,38 +124,20 @@ run_silent() {
         fi
     fi
 
-    echo "🚀 Starting Trading Platform in the background..."
-    echo "📝 Logs will be written to: $LOG_FILE"
-
-    # Run cargo in background and record PID
-    nohup cargo run --bin execution-daemon -- --web > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
-    echo "✅ Engine running under PID: $!"
+    start_daemon "--web"
 }
 
-run_headless() {
+run_cli() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
-        echo "⚠️  Frontend build missing (needed for monitoring). Triggering compilation first..."
-        build
+        echo "⚠️  Frontend build missing (not required for CLI mode — the web UI is skipped entirely)."
     fi
 
-    if [ -f "$PID_FILE" ]; then
-        PID=$(cat "$PID_FILE")
-        if kill -0 "$PID" 2>/dev/null; then
-            echo "⚠️  Engine is already running in the background (PID: $PID)."
-            exit 0
-        fi
-    fi
-
-    echo "🚀 Starting Trading Platform in HEADLESS mode..."
-    echo "   🔧 No Welcome Gate — session auto-initialised from config.toml"
-    echo "   📡 Instances auto-spawned from workspace.instances[]"
-    echo "   🌐 API server on port 3000 for monitoring"
-    echo "📝 Logs will be written to: $LOG_FILE"
-
-    nohup cargo run --bin execution-daemon -- --mode headless > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
-    echo "✅ Engine running in headless mode under PID: $!"
+    echo "🚀 Starting Trading Platform in CLI mode (terminal monitor)..."
+    echo "   🔧 Observe-only session — markets + signals, no orders dispatched"
+    echo "   📡 Instances from the interactive launch prompt (pre-filled from config.toml)"
+    echo "   🖥️  No web server — the L7 overview redraws in your terminal"
+    echo "   💾 Add --save to the daemon args to enable snapshot-export JSON dumps"
+    cargo run --bin execution-daemon -- --mode cli
 }
 
 stop_instance() {
@@ -119,6 +145,16 @@ stop_instance() {
         PID=$(cat "$PID_FILE")
         echo "🛑 Stopping background instance (PID: $PID)..."
         if kill "$PID" 2>/dev/null; then
+            # M4: SIGTERM now triggers the daemon's graceful shutdown (K4);
+            # give it up to 10 s to drain the telemetry queue, then SIGKILL.
+            for _ in $(seq 1 10); do
+                if ! kill -0 "$PID" 2>/dev/null; then break; fi
+                sleep 1
+            done
+            if kill -0 "$PID" 2>/dev/null; then
+                echo "⚠️  Graceful shutdown timed out — forcing kill."
+                kill -9 "$PID" 2>/dev/null || true
+            fi
             rm -f "$PID_FILE"
             echo "✅ Engine stopped."
         else
@@ -127,9 +163,9 @@ stop_instance() {
         fi
     else
         # Fallback to kill cargo/engine processes on this port if no pid file is present
-        PORT_PID=$(lsof -t -i:3000 || true)
+        PORT_PID=$(lsof -t -i:"$PORT" || true)
         if [ -n "$PORT_PID" ]; then
-            echo "🛑 Found engine running on port 3000 (PID: $PORT_PID). Stopping..."
+            echo "🛑 Found engine running on port $PORT (PID: $PORT_PID). Stopping..."
             # `lsof -t` may return multiple PIDs separated by newlines; expand them so
             # `kill` receives each PID as a separate argument instead of a single
             # newline-containing string which `kill` would reject.
@@ -151,44 +187,50 @@ check_status() {
         fi
     fi
 
-    PORT_PID=$(lsof -t -i:3000 || true)
+    PORT_PID=$(lsof -t -i:"$PORT" || true)
     if [ -n "$PORT_PID" ]; then
-        echo "🟢 Engine status: RUNNING on port 3000 (PID: $PORT_PID)"
+        echo "🟢 Engine status: RUNNING on port $PORT (PID: $PORT_PID)"
         return 0
     fi
 
     echo "🔴 Engine status: STOPPED"
+    return 1
 }
 
 run_tests() {
     local failures=0
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 1/5: TEST-CORE — Pure math, indicators, serialization"
+    echo "  STAGE 1/6: TEST-CORE — Pure math, indicators, serialization"
     echo "═══════════════════════════════════════════════════════════"
     test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 2/5: TEST-GOLDEN — Golden-vector conformance"
+    echo "  STAGE 2/6: TEST-GOLDEN — Golden-vector conformance"
     echo "═══════════════════════════════════════════════════════════"
     test_golden || { ((failures++)); echo "❌ TEST-GOLDEN failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 3/5: TEST-INDICATORS — Per-indicator e2e"
+    echo "  STAGE 3/6: TEST-INDICATORS — Per-indicator e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_indicators || { ((failures++)); echo "❌ TEST-INDICATORS failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 4/5: TEST-ENGINE — DB + server + e2e"
+    echo "  STAGE 4/6: TEST-ENGINE — DB + server + e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_engine || { ((failures++)); echo "❌ TEST-ENGINE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 5/5: TEST-UI — Svelte 5 components, state, snapshots"
+    echo "  STAGE 5/6: TEST-UI — Svelte 5 components, state, snapshots"
     echo "═══════════════════════════════════════════════════════════"
     test_ui || { ((failures++)); echo "❌ TEST-UI failed"; }
     echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 6/6: TEST-DOC — Documentation corpus consistency"
+    echo "═══════════════════════════════════════════════════════════"
+    test_doc || { ((failures++)); echo "❌ TEST-DOC failed"; }
+    echo ""
     if [ $failures -eq 0 ]; then
-        echo "✅ All 5 test suites passed"
+        echo "✅ All 6 test suites passed"
     else
         echo "❌ $failures test suite(s) failed"
         return 1
@@ -282,6 +324,11 @@ test_doc() {
     python3 scripts/check_docs.py
 }
 
+e2e_backtest() {
+    echo "🧪 TEST-E2E-BACKTEST: Running the v8.2 backtest matrix harness..."
+    bash scripts/e2e-backtest-matrix.sh "$@"
+}
+
 lint() {
     local failures=0
     echo "═══════════════════════════════════════════════════════════"
@@ -343,8 +390,8 @@ case "$1" in
     run-silent)
         run_silent
         ;;
-    run-headless)
-        run_headless
+    run-cli)
+        run_cli
         ;;
     stop)
         stop_instance
@@ -378,6 +425,9 @@ case "$1" in
         ;;
     test-doc)
         test_doc
+        ;;
+    e2e-backtest)
+        e2e_backtest "${@:2}"
         ;;
     lint)
         lint

@@ -277,8 +277,12 @@ export function deriveTradePlan(args: DeriveArgs): TradePlan {
             );
             const fallback = fallbackCandidate?.price ?? 0;
 
+            // `stop_loss_distance_pct` is percent-scale on the wire
+            // (2.5 = 2.5%, advisory.rs [0.5, 15.0]) — no ×100: the old
+            // fraction-scale multiplication produced a LONG fallback stop
+            // of `entryMid × (1 − 2.5)` = a negative price.
             const stopPctAdvisory = (advisory as any)?.stop_loss_distance_pct != null
-                ? ((advisory as any).stop_loss_distance_pct as number) * 100
+                ? ((advisory as any).stop_loss_distance_pct as number)
                 : null;
             const fallbackPrice = stopPctAdvisory != null && side.entryMid > 0
                 ? side.entryMid * (1 - (isLong ? stopPctAdvisory / 100 : -stopPctAdvisory / 100))

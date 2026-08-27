@@ -2,9 +2,11 @@
 
 > **High-performance market telemetry monitor for Hyperliquid and Bitget, built in Rust.**
 
+> **Single-operator local deployment.** The Trading Platform is built for a single operator and their team: one workspace, one operator identity (`local`), no per-route authentication, and no multi-client/SaaS model. Everything runs on your machine or a VM you control.
+
 The **Trading Platform** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations, with optional paper-trading automation layered on top. It computes 50 technical indicators across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data) with 100 signal-kind declarations across 12 SignalKind types (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming), 8 of which support bull/bear divergence detection. All computation runs in Rust, streaming live data to a Svelte 5 dashboard via WebSocket.
 
-> **Implementation status (v6.10.5).** The **Data Infrastructure Engine (DIE)** and the **Market Monitoring Engine (MME)** — both with every layer and every dashboard — are **implemented**. The **Trade Automation Engine (TAE)**, **Portfolio Management Engine (PME)**, and **Performance Analytics Engine (PAE)** are **WIP / partial**: their Rust backends compile and produce state, but their dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest tab) render hardcoded placeholder data and are clearly labelled as such. The phased delivery plan and the verification checklist are in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> **Implementation status (v7).** All five engines are **implemented**: DIE (ingestion/reconstruction/persistence) and MME (52 indicators, 4-TF synthesis, decision layer) are complete; TAE is the v7 setup executor on the unified paper execution engine; PME is the informational portfolio mirror; PAE ships live analytics plus the recorded-decision backtest with full significance treatment. Paper trading is production-ready; live broker dispatch lands via `ExecutionBackend::LiveBroker`. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Quick Start Workflow
 

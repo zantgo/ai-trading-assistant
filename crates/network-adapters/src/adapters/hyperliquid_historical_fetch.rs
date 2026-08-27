@@ -61,7 +61,7 @@ impl HistoricalFetchPolicy for HyperliquidHistoricalFetch {
         while collected.len() < request.target_count {
             if started.elapsed() >= timeout {
                 return Err(HistoricalFetchError::Timeout(
-                    started.elapsed().as_millis() as u64,
+                    started.elapsed().as_millis() as u64
                 ));
             }
 
@@ -122,7 +122,7 @@ impl HistoricalFetchPolicy for HyperliquidHistoricalFetch {
         }
 
         // Sort newest-first (HFP-09 convention) and trim to target.
-        collected.sort_by(|a, b| b.start_time_ms.cmp(&a.start_time_ms));
+        collected.sort_by_key(|c| std::cmp::Reverse(c.start_time_ms));
         collected.truncate(request.target_count);
 
         // HFP-08: tag every candle as ExchangeHistorical (idempotent — the

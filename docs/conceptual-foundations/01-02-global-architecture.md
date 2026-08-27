@@ -1,9 +1,9 @@
 # Trading Platform Architecture Specification
 
-**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the six core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
-> **Implementation status (v6.8).** DIE and MME are end-to-end implemented. TAE, PME, and PAE are **WIP** — the backends run and expose state, but the dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest panel) render hardcoded placeholder data. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality and §3 for the phased delivery plan.
+> **Implementation status (v10.1).** All six engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper default, live Hyperliquid + Bitget dispatch, v10 lifecycle hardening), PME as an informational portfolio mirror, PAE with live analytics + recorded-decision backtest + significance treatment, and BTE with deep-history pipeline replay + DS persistence. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
 ---
 
@@ -11,12 +11,12 @@
 
 The Trading Platform is designed around a **Two-Dimensional Architectural Framework** that isolates business domains horizontally and analytical transformations vertically. This design guarantees modularity, testability, and deterministic data flow.
 
-|             | Data Infra. (DIE) | Market Monitor (MME) | Trade Auto. (TAE) | Portfolio Mgmt. (PME) | Perf. Analytics (PAE) |
-| ----------- | ----------------- | -------------------- | ----------------- | --------------------- | --------------------- |
-| **LAYER 1** | Raw Data L.       | Metrics L.           | Policy L.         | Position L.           | Trade Anal.           |
-| **LAYER 2** | Market D. L.      | Alignment L.         | Execution L.      | Exposure L.           | Strat. Anal.          |
-| **LAYER 3** | Data Qual.L.      | Analysis L.          |                   | Capital L.            | Risk Anal.            |
-| **LAYER 4** | Dist. Layer       | Opp. Layer           |                   | Portfolio L.          | Perf. Layer           |
+|             | Data Infra. (DIE) | Market Monitor (MME) | Trade Auto. (TAE) | Portfolio Mgmt. (PME) | Perf. Analytics (PAE) | Backtesting (BTE) |
+| ----------- | ----------------- | -------------------- | ----------------- | --------------------- | --------------------- | ------------------- |
+| **LAYER 1** | Raw Data L.       | Metrics L.           | Policy L.         | Position L.           | Trade Anal.           | Archive L.        |
+| **LAYER 2** | Market D. L.      | Alignment L.         | Execution L.      | Exposure L.           | Strat. Anal.          | Replay L.         |
+| **LAYER 3** | Data Qual.L.      | Analysis L.          |                   | Capital L.            | Risk Anal.            |                   |
+| **LAYER 4** | Dist. Layer       | Opp. Layer           |                   | Overview L.           | Perf. Layer           |                   |
 | **LAYER 5** |                   | Risk Layer           |                   |                       |                       |
 | **LAYER 6** |                   | Decision L.          |                   |                       |                       |
 | **LAYER 7** |                   | Overview L.          |                   |                       |                       |
@@ -24,14 +24,14 @@ The Trading Platform is designed around a **Two-Dimensional Architectural Framew
 > **MME parallel branch:** Within the Market Monitoring Engine, Layers 4 (Opportunity) and 5 (Risk) are **orthogonal** and execute **in parallel** directly from Layer 3 (Analysis) — neither reads the other. They converge at Layer 6 (Decision). See §2.2.
 
 ### 1.1 Horizontal Axis: Specialized Engines
-The horizontal axis comprises five decoupled computational engines. Each engine owns one primary quantitative or transactional domain. They maintain zero shared memory or shared states, communicating only via stable, public APIs and read-only message streams.
+The horizontal axis comprises six decoupled computational engines (DIE, MME, TAE, PME, PAE, BTE). Each engine owns one primary quantitative or transactional domain. They maintain zero shared memory or shared states, communicating only via stable, public APIs and read-only message streams.
 
 ### 1.2 Vertical Axis: Sequenced Analytical Layers
 Within each engine, the vertical axis dictates the step-by-step transformation of raw, low-level data into highly abstract decision-support vectors. Each step is represented by an isolated **Layer** that consumes the preceding layer's output, applies deterministic calculations, and produces a single, immutable, versioned **Matrix** as its official output contract.
 
 ---
 
-## 2. The Five Core Engines and Layer Specifications
+## 2. The Six Core Engines and Layer Specifications
 
 ---
 
@@ -119,12 +119,12 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 
 ### 2.3 Trade Automation Engine (TAE)
 
-> **Implementation status (v6.8).** **WIP** — backend code is implemented end-to-end (policy engine, execution engine, paper trading, lifecycle manager, veto loop, all wired in `execution-daemon`); the dedicated `TradeAutomationDashboard` is a hardcoded placeholder. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3 and §3 Phase A–B for the engine-by-engine reality and the phased delivery plan.
+> **Implementation status (v10.1).** **Implemented** — the TAE is a setup executor that consumes the MME's top setup directly and manages the trade lifecycle (entry limit at zone midpoint → TP/SL bracket → LEVEL/SIGNAL invalidation) through the unified execution engine; the `TradeAutomationDashboard` fetches live state via `/api/instances/:id/automation`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3.
 
 The Trade Automation Engine evaluates user-defined execution rules and coordinates order execution with external venues.
 
 ```
-[MME Decision] -> (Policy Layer) -> (Execution Layer) -> [Paper Engine / Live Venue (WIP)]
+[MME Decision] -> (Setup Executor) -> (Execution Layer) -> [Paper / Live Execution Backend]
 ```
 
 #### Layer 1: Policy Layer
@@ -134,24 +134,24 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 
 #### Layer 2: Execution Layer
 
-> **Implementation status (v6.8).** TAE is **WIP** overall (see [`docs/ROADMAP.md`](../ROADMAP.md) §2.3). The execution engine, position sizing, paper trading, and the in-process TAE event loop are implemented. **Live exchange order dispatch is not yet built** — paper trading is the **default and only execution path** today. The Execution Layer diagrams the target spec; current implementation aligns with the target except for the live adapter.
+> **Implementation status (v10.1).** The Execution Layer is implemented: the unified execution engine routes through the `ExecutionBackend` trait — `PaperSimulation` by default, `LiveBroker` (Hyperliquid) and `BitgetLiveBroker` (Bitget) in live mode — with the same fees/slippage/funding/PnL accounting in both modes. The diagrams below describe the implemented system.
 
-*   **Purpose:** Route transactional orders and manage trade lifecycles on the configured execution venue. The current implementation routes to the internal paper trading matching engine (`crates/portfolio-supervisor/src/paper_trading.rs`); a live exchange adapter is the target (Phase E).
-*   **Processing:** Execute the Position Sizing Protocol upon trade entry validation. Query PME Capital Matrix for Available Margin ($E$) and MME Decision Matrix for Stop-Loss Distance as a raw percentage float ($D_{sl}$, e.g. `1.5`). Calculate the exact trade size ($S$) based on the user-configured risk-per-trade fraction ($R$, e.g. $0.01$ = 1% of margin; with the default `risk_per_trade_pct = 1.0`, $R = 0.01$):
-    $$S = \frac{E \times R}{D_{sl} / 100}$$
-    Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue (live or paper), and track order execution states. The `f64 → Decimal` cast at the analytical/transitional boundary lives in `crates/portfolio-supervisor/src/execution/order.rs::construct_order` (see [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
+*   **Purpose:** Route transactional orders and manage trade lifecycles on the configured execution venue. The current implementation routes through the unified execution engine (`crates/portfolio-supervisor/src/execution/engine.rs`) to the paper simulation matching engine (`crates/portfolio-supervisor/src/execution/backend.rs::PaperSimulation`), or to the live venue adapters (`LiveBroker`, `BitgetLiveBroker`) in live mode.
+*   **Processing:** Execute the Allocation Sizing Protocol upon trade entry validation. Query the execution engine for current equity and the instance's configured `allocation_pct` (1–100 %, default 10 %). Calculate the position notional and order size (v8.2 portfolio-share model):
+    $$\text{notional} = \frac{\text{equity} \times \text{allocation\_pct}}{100}, \qquad \text{size\_units} = \frac{\text{notional}}{\text{entry\_price}}$$
+    Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue (live or paper), and track order execution states. The canonical sizing + projection math lives in `crates/portfolio-supervisor/src/setup_executor.rs::project` (consumed by the setup executor — see [03-03-01-tae-overview-spec.md §5](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md)).
 *   **Output (Execution Matrix):** Structured database of outstanding, filled, modified, and cancelled orders.
 
 ---
 
 ### 2.4 Portfolio Management Engine (PME)
 
-> **Implementation status (v6.8).** **WIP** — backend code is implemented (`safety.rs`, `position_layer.rs`, `exposure_layer.rs`, `capital_layer.rs`, `portfolio_risk.rs`, `veto_loop.rs`, registry, all wired in `execution-daemon`); the dedicated `PortfolioDashboard` is a hardcoded placeholder. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.4 and §3 Phase A + C.
+> **Implementation status (v10.1).** **Implemented (informational)** — the PME maintains the safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP) as a read-only status consumed by the TAE setup executor's soft gate; `safety.rs` plus the four pure layer modules are wired in `execution-daemon`, and the `PortfolioDashboard` fetches live state via `/api/instances/:id/portfolio` and `/api/instances/:id/safety`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.4.
 
 The Portfolio Management Engine manages capital safety boundaries, tracks asset exposures, and maintains active ledger accounts.
 
 ```
-[Fills & Fails] -> (Position Layer) -> (Exposure Layer) -> (Capital Layer) -> (Portfolio Layer) -> [TAE / UI]
+[Fills & Fails] -> (Position Layer) -> (Exposure Layer) -> (Capital Layer) -> (Overview Layer) -> [TAE / UI]
 ```
 
 #### Layer 1: Position Layer
@@ -169,16 +169,16 @@ The Portfolio Management Engine manages capital safety boundaries, tracks asset 
 *   **Processing:** Manage available balances, track margin usage, evaluate leverage limits, and record fee impacts.
 *   **Output (Capital Matrix):** High-frequency balance sheet of active and available capital.
 
-#### Layer 4: Portfolio Layer
-*   **Purpose:** Consolidate active position, exposure, and capital matrices into a unified ledger and enforce absolute account-level safety parameters.
-*   **Processing:** Synthesize child matrices to track account health. Enforce aggregate portfolio safety rules (e.g., maximum daily drawdown thresholds). If a systemic threshold is breached, execute **Veto Power**: override the Trade Automation Engine's active stances, immediately setting affected symbol stances to `Avoid` or `Close Only` at the execution boundary to reject new entry trigger payloads.
-*   **Output (Portfolio Matrix):** The master financial state ledger of the trading account.
+#### Layer 4: Overview Layer
+*   **Purpose:** Consolidate active position, exposure, and capital matrices into a unified ledger and report account-level safety state.
+*   **Processing:** Synthesize child matrices to track account health. Maintain the safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP) from the portfolio-wide drawdown and consecutive-loss counters. The ladder is read-only: the TAE setup executor's soft gate blocks new entries in `DRAWDOWN_STOP` / `SUSPENDED`; no veto, no stance override.
+*   **Output (PortfolioOverviewMatrix):** The master financial state ledger of the trading account.
 
 ---
 
 ### 2.5 Performance Analytics Engine (PAE)
 
-> **Implementation status (v6.8).** **WIP** — the PAE backend (`crates/performance-analytics/`) is implemented and the `PerformanceDashboard` Overview/Strategy/Risk/Regimes/Trades panels render real data from `/api/analytics/*`. The **Backtesting panel is a UI-only mock** (no `/api/backtest/*` route) and the in-process backtest runner + equity-curve visualization are pending. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5 and §3 Phase D.
+> **Implementation status (v10.1).** **Implemented** — the PAE backend (stats compiler, strategy/risk analytics, performance layer, strategy optimizer) plus the BTE historical + recorded runners with the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict); the `PerformanceDashboard` fetches live data including the real backtest tab (`POST /api/backtest/run`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5.
 
 The Performance Analytics Engine evaluates historical trading records to isolate strategy efficacy and identify system drag.
 
@@ -304,10 +304,17 @@ To ensure that an execution profile developed on a local setup runs identically 
 *   **Purpose:** The main interface for interactive development, validation, and optimization of trading setups.
 *   **Operation:** Boots all five engines with full graphical visualization modules. Users load assets, visualize indicator axes, paper-trade live streams to prove a statistical edge (alpha), adjust safety guidelines, and export the finalized environment payload.
 
-### 4.3 CLI Mode (Headless Automated Execution)
-*   **Purpose:** High-performance, zero-overhead execution designed for cloud environments.
-*   **Operation:** Operates purely headlessly with no visual interface. Upon initialization, it consumes the standardized configuration file, boots the DIE, MME, TAE, and PME internally, constructs the defined pair pipelines, and executes pre-configured live or paper trades automatically.
-*   **Boundaries:** The CLI mode is restricted to loading and applying previously validated configuration payloads. It is strictly banned from exploratory research, manual pair configurations, or manual visualization task processing.
+### 4.3 CLI Mode (Terminal Monitor — `--mode cli`)
+*   **Purpose:** Low-overhead terminal monitoring for cloud environments (v7.2). The retired
+    `setup` subcommand and `--mode headless` were replaced by an interactive launch prompt
+    (exchange, currency, instances with per-TF durations, pre-filled from `config.toml`).
+*   **Operation:** Boots the DIE/MME pipelines, session pinned to **observe** (no orders ever
+    dispatched — paper/live parity is planned), and renders the same L7 overview the dashboard
+    shows as box-drawing terminal tables, redrawn every `--interval` seconds. `--save` enables
+    snapshot-export JSON dumps. No HTTP server is bound — lighter than web mode, same SQLite
+    `telemetry.db`.
+*   **Boundaries:** Currently observe-only. Config and instances persist via the normal
+    registry/`save_workspace` path, so the GUI can adopt the same deployment later.
 
 ### 4.4 Shared Persistence & Retroactive Visualization
 Both modes write metrics, signals, orders, and execution events to a shared SQL/Time-Series database.
@@ -332,8 +339,8 @@ To illustrate the complete pipeline in practice, below is the sequence of events
 6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` (L3) but does *not* consume the L4 Opportunity Matrix itself.
 7.  **Decision:** The *Decision Layer* synthesizes these matrices, sets *Trade Readiness* to `READY`, and logs a structural invalidation target and calculated `stop_loss_distance_pct: 1.5` in the **Decision Matrix**.
 8.  **Trigger:** The Trade Automation Engine (TAE) receives this decision snapshot. The *Policy Layer* identifies that this state satisfies an active long breakout policy and logs an entry command in the **Policy Matrix**.
-9.  **Routing:** The *Execution Layer* queries the PME *Capital Matrix* to check available margin, reads the Stop-Loss Distance from the MME *Decision Matrix*, runs the Position Sizing Protocol to calculate a safe, risk-adjusted position size ($S = \frac{E \times R}{D_{sl} / 100}$), routes the buy order to the live exchange API, and records the event in the **Execution Matrix**.
-10.  **Supervision:** The Portfolio Management Engine (PME) receives the execution confirmation. The *Position Layer* initializes a new open position in the **Position Matrix**. The *Exposure Layer* recalculates directional risk, the *Capital Layer* locks margin, and the *Portfolio Layer* updates the account's master balance vector, running continuous safety checks to verify that the portfolio-wide drawdown ceiling has not been breached, triggering a veto clamp if required.
+9.  **Routing:** The *Execution Layer* reads current equity from the engine ledger, looks up the instance's `allocation_pct` (1–100 %), runs the Allocation Sizing Protocol to calculate the position notional ($\text{notional} = \text{equity} \times \text{allocation\_pct} / 100$), routes the buy order to the live exchange API, and records the event in the **Execution Matrix**.
+10.  **Supervision:** The Portfolio Management Engine (PME) receives the execution confirmation. The *Position Layer* initializes a new open position in the **Position Matrix**. The *Exposure Layer* recalculates directional risk, the *Capital Layer* locks margin, and the *Overview Layer* updates the account's master balance vector, running continuous safety checks to verify that the portfolio-wide drawdown ceiling has not been breached and updating the safety-state ladder consumed by the TAE soft entry gate.
 11. **Analysis:** Upon a subsequent exit trigger, the trade is closed. The Performance Analytics Engine (PAE) imports the closed log into the *Trade Analytics Layer*, calculates performance metrics and runs statistical significance calculations (P-Value, T-Stat, Monte Carlo sign-randomization) in the *Strategy Analytics Layer*, measures drawdown impact in the *Risk Analytics Layer*, and updates the *Performance Matrix* to refine the strategy-to-regime compatibility maps. If the trade was run headlessly via CLI Mode, these entries are persisted to the database; the operator boots the GUI retroactively to display and analyze these metrics.
 
 ---
@@ -348,7 +355,7 @@ To achieve microsecond-level analytical throughput without sacrificing penny-per
 
 Scope: **DIE ingestion + MME Layers 1–5.**
 
-- Volatile ticks, order-book deltas, and the 51 indicator arrays are packed into cache-aligned, contiguous memory blocks using a **Structure of Arrays (SoA)** layout.
+- Volatile ticks, order-book deltas, and the 52 indicator arrays are packed into cache-aligned, contiguous memory blocks using a **Structure of Arrays (SoA)** layout.
 - Rolling histories live in **pre-allocated arena buffers / object pools**, reclaimed rather than freed, to eliminate heap fragmentation and allocator pauses on the analytical loop.
 - Calculations run on native floating-point primitives so the compiler can **auto-vectorize (SIMD, AVX/SSE)** and drive hardware FPUs directly.
 - Indicator lookup avoids string hashing: the metrics frame is a flat, enum-indexed array (`[IndicatorEvaluation; 51]`) rather than a `HashMap<String, …>`.
@@ -369,12 +376,12 @@ The transition occurs at **MME Layer 6 (Decision Support)**:
 3. The **TAE Execution Layer** pulls that `f64`, pulls **available margin** ($E$) from the PME Capital Matrix as a `Decimal`, and safely converts the float to `Decimal` at the entry boundary before executing the Position Sizing Protocol with transactional precision:
 
    ```rust
-   // Type-boundary conversion (target design)
-   let d_sl          = Decimal::from_f64_retain(stop_loss_distance_pct / 100.0)?; // 1.5 → 0.015
-   let risk_fraction = Decimal::from_f64_retain(risk_per_trade_pct     / 100.0)?; // 1.0 → 0.010
-   let size          = (available_margin * risk_fraction) / d_sl;                  // all Decimal
+   // Type-boundary conversion (v8.2 allocation sizing)
+   let allocation = Decimal::from_f64_retain(allocation_pct / 100.0)?; // 10.0 → 0.10
+   let notional   = equity * allocation;                                // all Decimal
+   let size       = notional / entry_price;                             // position units
    ```
 
-   Equivalently, $S = \dfrac{E \times R}{D_{sl} / 100}$ with $E$ = available margin (Decimal), $R = \text{risk\_per\_trade\_pct} / 100$ (the **fraction** form: $R \in [0, 1]$; the raw user-facing value `risk_per_trade_pct` is divided by `100` to obtain $R$), and $D_{sl}$ = stop-loss distance as a raw percentage float.
+   Equivalently, $\text{notional} = \text{equity} \times \text{allocation\_pct} / 100$ with `allocation_pct` ∈ 1–100 (the raw user-facing percent; per-instance override; the sum of all instance allocations is validated ≤ 100 %). The stop-loss level does not size the position — it defines the risk budget and invalidation level.
 
-   > **Variable-naming hazard (correction).** A previous snippet used `risk_pct` in the multiplication — this is a 100× over-size hazard if `risk_pct` carries the raw-percent float (`1.0`) instead of the fraction (`0.01`). The canonical variable name for the fraction is `risk_fraction`.
+   > **Variable-naming hazard (historical).** The pre-v8.2 formula used `risk_per_trade_pct` in a stop-distance-scaled size (`size = (equity × risk_fraction) / stop_distance`) — a naming hazard where raw-percent vs fraction confusion caused 100× over-sizing. v8.2 removes the stop-distance scaling entirely: the size is the allocated portfolio share.

@@ -1,45 +1,9 @@
-/// Maximum possible magnitude of the confluence score (±90).
-pub const MAX_CONFLUENCE_SCORE: f64 = 90.0;
-
-/// Opposite-signal exit threshold: 60% of the maximum ±90 score.
-pub const OPPOSITE_EXIT_THRESHOLD: f64 = 54.0;
-
-/// Evaluate the allocation percentage from a confluence score using the given curve model.
-pub fn evaluate_allocation_curve(
-    abs_score: u32,
-    base_pct: f64,
-    max_pct: f64,
-    base_threshold: u32,
-    micro_threshold: u32,
-    model: &config_models::AllocationCurveModel,
-    exponent: f64,
-) -> f64 {
-    match model {
-        config_models::AllocationCurveModel::Stepped => {
-            if abs_score < base_threshold {
-                base_pct
-            } else if abs_score < micro_threshold {
-                (base_pct + max_pct) / 2.0
-            } else {
-                max_pct
-            }
-        }
-        config_models::AllocationCurveModel::Linear => {
-            if abs_score == 0 {
-                return base_pct;
-            }
-            let ratio = (abs_score as f64) / (micro_threshold as f64).max(1.0);
-            base_pct + (max_pct - base_pct) * ratio.min(1.0)
-        }
-        config_models::AllocationCurveModel::Exponential => {
-            if abs_score == 0 {
-                return base_pct;
-            }
-            let ratio = (abs_score as f64) / (micro_threshold as f64).max(1.0);
-            base_pct + (max_pct - base_pct) * ratio.min(1.0).powf(exponent)
-        }
-    }
-}
+// v9 (F-06): the score-tiered allocation-curve machinery is ERASED with
+// the scaled-entry/pyramiding legacy — `evaluate_allocation_curve` and
+// its threshold constants had no remaining consumers (sizing is the
+// v8.2 `allocation_pct` model + the strategy's `tae.sizing.quality_curve`).
+// This module retains only the registry-confluence computation consumed
+// by the `/api/monitor` surface.
 
 /// Equal-weighted registry confluence over ALL directional indicators.
 ///
@@ -122,49 +86,6 @@ mod tests {
             map.insert((*k).to_string(), niv(*n, l));
         }
         crate::profile_evaluation::SnapshotValues::from_map(map, 100.0)
-    }
-
-    #[test]
-    fn allocation_stepped_is_backward_compatible() {
-        use config_models::AllocationCurveModel;
-        assert_eq!(
-            evaluate_allocation_curve(20, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
-            1.0
-        );
-        assert_eq!(
-            evaluate_allocation_curve(40, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
-            2.0
-        );
-        assert_eq!(
-            evaluate_allocation_curve(55, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
-            2.0
-        );
-        assert_eq!(
-            evaluate_allocation_curve(60, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
-            3.0
-        );
-    }
-
-    #[test]
-    fn allocation_linear_interpolates() {
-        use config_models::AllocationCurveModel;
-        let pct =
-            evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
-        assert!(
-            (pct - 2.0).abs() < 0.01,
-            "linear at 50% of max should give midpoint; got {}",
-            pct
-        );
-    }
-
-    #[test]
-    fn allocation_exponential_front_loads() {
-        use config_models::AllocationCurveModel;
-        let pct_linear =
-            evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
-        let pct_exp =
-            evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Exponential, 3.0);
-        assert!(pct_exp <= pct_linear, "exponential should be <= linear");
     }
 
     #[test]

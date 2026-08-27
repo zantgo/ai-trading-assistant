@@ -1,5 +1,6 @@
 <script lang="ts">
     import { getIcon } from './icons';
+    import styles from './SvgIcon.module.css';
 
     interface Props {
         name: string;
@@ -9,15 +10,4 @@
     let { name, size = 'md' }: Props = $props();
 </script>
 
-<span class="svg-icon">{@html getIcon(name, size)}</span>
-
-<style>
-    .svg-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-    :global(.svg-icon svg) {
-        display: block;
-    }
-</style>
+<span class={styles.svgIcon}>{@html getIcon(name, size)}</span>

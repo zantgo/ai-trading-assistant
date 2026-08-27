@@ -1026,7 +1026,7 @@ impl NormalizationEngine {
                                 SignalDirection::Bearish
                             },
                             SignalStatus::Active,
-                            &format!(
+                            format!(
                                 "{}_ZERO_CROSS_{}",
                                 key.to_uppercase(),
                                 if cur > 0.0 { "BULLISH" } else { "BEARISH" }
@@ -1311,16 +1311,7 @@ impl NormalizationEngine {
         // persistent Active signals. We compute the stack state for the
         // current and previous bars from the four EMAs + close and emit only
         // on a state transition.
-        if let (
-            Some(f),
-            Some(m),
-            Some(s),
-            Some(lng),
-            Some(pf),
-            Some(pm),
-            Some(ps),
-            Some(pl),
-        ) = (
+        if let (Some(f), Some(m), Some(s), Some(lng), Some(pf), Some(pm), Some(ps), Some(pl)) = (
             inputs.ema_fast,
             inputs.ema_medium,
             inputs.ema_slow,
@@ -1477,7 +1468,8 @@ impl NormalizationEngine {
         // break. Detected structurally using the previous bar's price vs the
         // session levels (levels are stable within a session; rollover bars
         // simply won't produce a transition).
-        if let (Some(ppx), Some(r1), Some(s1)) = (ctx.prev.price, inputs.pivot_r1, inputs.pivot_s1) {
+        if let (Some(ppx), Some(r1), Some(s1)) = (ctx.prev.price, inputs.pivot_r1, inputs.pivot_s1)
+        {
             if ppx <= r1 && ctx.price > r1 {
                 if let Some(e) = out.get_mut("pivot_points") {
                     e.signals.push(IndicatorSignal::new(
@@ -1645,16 +1637,16 @@ impl NormalizationEngine {
                                 SignalKind::LevelTest,
                                 SignalDirection::Neutral,
                                 SignalStatus::Active,
-                                &format!("{}_UPPER_LEVEL_TEST", key.to_uppercase()),
+                                format!("{}_UPPER_LEVEL_TEST", key.to_uppercase()),
                             ));
                         }
-                    } else if pos >= 0.15 && pos < 0.4 {
+                    } else if (0.15..0.4).contains(&pos) {
                         if let Some(e) = out.get_mut(*key) {
                             e.signals.push(IndicatorSignal::new(
                                 SignalKind::LevelTest,
                                 SignalDirection::Neutral,
                                 SignalStatus::Active,
-                                &format!("{}_LOWER_LEVEL_TEST", key.to_uppercase()),
+                                format!("{}_LOWER_LEVEL_TEST", key.to_uppercase()),
                             ));
                         }
                     }

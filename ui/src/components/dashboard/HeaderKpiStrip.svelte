@@ -1,7 +1,7 @@
 <script lang="ts">
     // HeaderKpiStrip — six top-row KPIs answering the operator's
     // top-of-screen needs:
-    //   Valid Trades, Best Opportunity, Avg R:R, Market Bias,
+    //   Valid Trades, Best Opportunity, Risk to Reward Ratio, Market Bias,
     //   Avg Risk, Coverage.
     import { useAppStore } from '../../state.svelte';
     import {
@@ -11,7 +11,8 @@
         collectActiveSetups,
         pickBestOpportunity,
     } from '../../lib/tradeAggregates';
-    import { biasColor, rrColor, scoreColor, formatRR } from '../../lib/dashboardColors';
+    import { biasColor, rrColor, scoreColor, formatRewardRatio } from '../../lib/dashboardColors';
+    import { demoteBiasForCoverage } from '../../lib/layerHeader';
     import styles from './HeaderKpiStrip.module.css';
 
     const app = useAppStore();
@@ -32,6 +33,16 @@
         const withOpportunity = instances.filter((i) => i.opportunity).length;
         const coverage = totalCount > 0 ? (withOpportunity / totalCount) * 100 : 0;
 
+        // I-10 parity with the L7 header badge: under low coverage (≤2
+        // pairs) the STRONG_* token demotes one tier AND its color demotes
+        // with it — the KPI tile and the header never contradict each
+        // other (text or tint), and the pair count rides the sublabel.
+        const rawBias = (overview?.global_market_bias ?? 'NEUTRAL').toString();
+        const lowCoverage =
+            (overview?.low_coverage ?? false) ||
+            (overview?.instance_count ?? 0) <= 2;
+        const demotedBias = demoteBiasForCoverage(rawBias, lowCoverage, overview?.instance_count ?? null);
+
         return {
             validTrades: {
                 label: 'VALID TRADES',
@@ -46,16 +57,18 @@
                 color: best ? scoreColor(best.opportunityScore) : 'rgba(255,255,255,0.35)',
             },
             avgRr: {
-                label: 'AVG R:R',
-                value: formatRR(rr.avg),
-                sub: rr.count > 0 ? `best ${formatRR(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}` : 'no R:R data',
+                label: 'RISK TO REWARD RATIO',
+                value: formatRewardRatio(rr.avg),
+                sub: rr.count > 0 ? `best ${formatRewardRatio(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}` : 'no ratio data',
                 color: rrColor(rr.avg),
             },
             marketBias: {
                 label: 'MARKET BIAS',
-                value: (overview?.global_market_bias ?? 'Neutral').toString(),
-                sub: overview ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth` : 'local aggregation',
-                color: biasColor(overview?.global_market_bias ?? 'Neutral'),
+                value: demotedBias.displayBias ?? rawBias,
+                sub: overview
+                    ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth${demotedBias.coverageSuffix}`
+                    : 'local aggregation',
+                color: biasColor(demotedBias.displayBias ?? rawBias),
             },
             avgRisk: {
                 label: 'AVG RISK',

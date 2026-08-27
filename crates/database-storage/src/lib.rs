@@ -3,6 +3,7 @@ use sqlx::SqlitePool;
 
 pub mod analyzer_normalize_fallback;
 pub mod crypto;
+pub mod ds_export;
 pub mod logger;
 pub mod queries;
 pub mod seed;
@@ -14,10 +15,11 @@ pub use logger::{run_telemetry_logger, TelemetryMsg};
 // ─── Query re-exports ──────────────────────────────────────────────
 
 pub use queries::analytics::{
-    insert_optimization_report, insert_performance_matrix_snapshot,
-    insert_performance_summary, insert_risk_analytics, insert_strategy_analytics,
-    query_optimization_reports, query_performance_matrix_latest,
-    query_risk_analytics_latest, query_strategy_analytics_history,
+    insert_backtest_run, insert_backtest_run_with_session, insert_optimization_report,
+    insert_performance_matrix_snapshot, insert_performance_summary, insert_risk_analytics,
+    insert_strategy_analytics, query_backtest_run, query_backtest_runs_list,
+    query_optimization_reports, query_performance_matrix_latest, query_risk_analytics_latest,
+    query_strategy_analytics_history, BacktestRunRow,
 };
 pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,
@@ -30,8 +32,9 @@ pub use queries::profiles::{
     risk_profile_update, risk_profiles_list, DecisionProfile, ProfileIndicator, RiskProfile,
 };
 pub use queries::snapshots::{
-    insert_snapshot_internal, query_closest_close_price, query_latest_snapshot,
-    query_recent_candles,
+    insert_snapshot_internal, query_backtest_coverage, query_backtest_snapshots,
+    query_closest_close_price, query_latest_snapshot, query_recent_candles, BacktestCoverageRow,
+    RecordedSnapshot,
 };
 pub use queries::stats::{
     dash_trade_detail, dash_trade_timestamps, get_daily_pnl, query_all_closed_trades,
@@ -69,7 +72,7 @@ pub async fn verify_encryption_or_panic(pool: &SqlitePool) {
     }
 }
 
-pub async fn init_db() -> SqlitePool {
+pub async fn init_db() -> Result<SqlitePool, String> {
     let db_options = SqliteConnectOptions::new()
         .filename("telemetry.db")
         .create_if_missing(true)
@@ -77,7 +80,7 @@ pub async fn init_db() -> SqlitePool {
 
     let pool = SqlitePool::connect_with(db_options)
         .await
-        .expect("Database Setup: Failed to initialize SQLite database pool");
+        .map_err(|e| format!("Database Setup: Failed to initialize SQLite database pool: {e}"))?;
 
     if let Err(e) = sqlx::query("PRAGMA journal_mode = WAL;")
         .execute(&pool)
@@ -91,12 +94,24 @@ pub async fn init_db() -> SqlitePool {
     {
         eprintln!("Database: Failed to set PRAGMA synchronous=NORMAL: {}", e);
     }
+    if let Err(e) = sqlx::query("PRAGMA foreign_keys = ON;")
+        .execute(&pool)
+        .await
+    {
+        eprintln!("Database: Failed to set PRAGMA foreign_keys=ON: {}", e);
+    }
+    if let Err(e) = sqlx::query("PRAGMA journal_size_limit = 67108864;")
+        .execute(&pool)
+        .await
+    {
+        eprintln!("Database: Failed to set PRAGMA journal_size_limit: {}", e);
+    }
 
     run_migrations(&pool)
         .await
-        .expect("Database Setup: Failed to run schema migrations");
+        .map_err(|e| format!("Database Setup: Failed to run schema migrations: {e}"))?;
 
     seed::seed_default_profiles(&pool).await;
 
-    pool
+    Ok(pool)
 }

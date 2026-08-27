@@ -121,7 +121,6 @@
 /* ── Status indicator ── */
 
 .statusIndicator {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -186,16 +185,16 @@
     flex-shrink: 0;
 }
 
-/* ── Right-edge vertical stack (status pill over trailing slot) ──
-   Opt-in via the `stackRight` prop (Overview page): the LIVE pill sits
-   on top with the trailing content (e.g. ExportDataButton) beneath it,
-   both pinned to the far right of the header row. */
+/* ── Right-edge action block (v7.3): status pill + trailing slot stay
+   grouped, pinned to the top right, and never wrap internally — when
+   the row runs out of space the identity/badge/chip rail wraps beneath
+   them instead. */
 
-.rightStack {
+.headerRight {
     margin-left: auto;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
+    align-items: center;
+    gap: 12px;
     flex-shrink: 0;
+    white-space: nowrap;
 }

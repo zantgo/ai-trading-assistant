@@ -248,7 +248,6 @@ mod tests {
             structure_assessment: StructureAssessment::Strong,
             volatility_assessment: VolatilityAssessment::Normal,
             volume_assessment: VolumeAssessment::Strong,
-            opportunity_analysis: OpportunityType::Breakout,
             market_quality: QualityLevel::Good,
             market_phase: MarketPhase::Unknown,
             market_interpretation: format!("Test interpretation for {}", symbol),
@@ -271,28 +270,24 @@ mod tests {
                 timeframe_secs: 60,
                 timeframe_label: "micro60".into(),
                 is_active: true,
-           
             },
             InstanceMeta {
                 symbol: symbol.into(),
                 timeframe_secs: 180,
                 timeframe_label: "fast180".into(),
                 is_active: true,
-           
             },
             InstanceMeta {
                 symbol: symbol.into(),
                 timeframe_secs: 300,
                 timeframe_label: "slow300".into(),
                 is_active: true,
-           
             },
             InstanceMeta {
                 symbol: symbol.into(),
                 timeframe_secs: 900,
                 timeframe_label: "macro900".into(),
                 is_active: true,
-           
             },
         ]
     }

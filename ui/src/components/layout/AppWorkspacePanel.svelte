@@ -7,6 +7,9 @@
     } from '../../lib/websocket.svelte';
     import SvgIcon from '../../lib/SvgIcon.svelte';
     import { createInstance } from '../../lib/api.svelte';
+    import {
+        lifecyclePresentation, isActivatable, isActive,
+    } from '../../lib/lifecyclePresentation';
     import { buildEngineHash } from '../../lib/router.svelte';
     import styles from '../../styles/brutalist-grid.module.css';
 
@@ -18,7 +21,7 @@
          *  it after 6 s. */
         errorMessage: string | null;
         onclose: () => void;
-        onrequestConfirm: (id: string, action: 'delete', pair?: string) => void;
+        onrequestConfirm: (id: string, action: 'start' | 'pause' | 'delete', pair?: string) => void;
     }
 
     let { isOpen, wssMap, errorMessage, onclose, onrequestConfirm }: Props = $props();
@@ -27,7 +30,14 @@
     let createInputEl = $state<HTMLInputElement | null>(null);
     let prevIsOpen = $state(false);
 
-    interface InstanceRow { id: string; pair: string; symbol: string; status: string; }
+    interface InstanceRow {
+        id: string;
+        pair: string;
+        symbol: string;
+        status: string;
+        mode?: 'observe' | 'paper' | 'live';
+        lifecycle?: string;
+    }
     let wsInstances = $state<InstanceRow[]>([]);
     let wsLoading = $state(false);
     let newBase = $state('');
@@ -76,6 +86,13 @@
 
     function statusClass(status: string): string {
         switch (status) { case 'running': return styles.statusRunning; case 'paused': return styles.statusPaused; case 'stopped': return styles.statusStopped; default: return styles.statusStopped; }
+    }
+
+    // v10.1: the lifecycle chip (ACTIVE / PAUSED / FLATTENING /
+    // TERMINATED / MONITORING) — one vocabulary, all surfaces.
+    function lifecycleChip(inst: InstanceRow): { label: string; color: string } {
+        const pres = lifecyclePresentation(inst.lifecycle, inst.mode);
+        return { label: pres.label, color: pres.color };
     }
 
     async function fetchWorkspaces() {
@@ -218,10 +235,22 @@
                             <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
                             <span class={styles.wsPanelSym}>{pairDisplay(pk)}</span>
                             <span class={styles.wsPanelPrice}>{priceFor(pk)}</span>
+                            <span class={styles.lifecycleChip} style="color:{lifecyclePresentation(inst.lifecycle, inst.mode).color}; border-color:{lifecyclePresentation(inst.lifecycle, inst.mode).color}">{lifecyclePresentation(inst.lifecycle, inst.mode).label}</span>
                             {#if chg}
                                 <span class="{styles.change} {changeCls(chg)}">{chg}</span>
                             {/if}
                         </div>
+                        {#if isActivatable(inst.mode)}
+                            {@const active = isActive(inst.lifecycle)}
+                            <div
+                                class="{styles.wsPanelActionBtn} {active ? styles.pause : styles.start}"
+                                title={active ? 'Pause — close-only: no new setups' : 'Activate TAE — open new setups'}
+                                role="button"
+                                tabindex="0"
+                                onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, active ? 'pause' : 'start', pk); }}
+                                onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, active ? 'pause' : 'start', pk); } }}
+                            ><SvgIcon name={active ? 'pause' : 'play'} size={12} /></div>
+                        {/if}
                         <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, 'delete', pk); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, 'delete', pk); } }}><SvgIcon name="trash" size={12} /></div>
                     </a>
                 {/each}

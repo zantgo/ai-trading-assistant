@@ -265,6 +265,12 @@ pub struct IndicatorsConfig {
     pub rvol_threshold_institutional: f64,
     #[serde(default = "default_rvol_threshold_climax")]
     pub rvol_threshold_climax: f64,
+    /// Operator-selected integer × leverage tiers for the liquidation
+    /// heatmap tier highlight (each ∈ [1, 100], default `[10]`). The
+    /// dashboard's heatmap tier picker persists selections here; the
+    /// frontend consumes it via `/api/config` so tiers survive reloads.
+    #[serde(default = "default_heatmap_leverage_tiers")]
+    pub heatmap_leverage_tiers: Vec<u32>,
     /// AUDIT-AIU-072: the pivot-points method (classic/fibonacci/camarilla/
     /// woodie) was declared in the registry `config_params` but never wired —
     /// the analyzer hardcoded `Classic`.
@@ -356,6 +362,7 @@ impl Default for IndicatorsConfig {
             volume_average_period: default_volume_average_period(),
             rvol_threshold_institutional: default_rvol_threshold_institutional(),
             rvol_threshold_climax: default_rvol_threshold_climax(),
+            heatmap_leverage_tiers: default_heatmap_leverage_tiers(),
             pivot_points_method: default_pivot_points_method(),
             candlestick_min_confidence: default_candlestick_min_confidence(),
             ichimoku_tenkan: default_ichimoku_tenkan(),
@@ -518,6 +525,10 @@ fn default_rvol_threshold_institutional() -> f64 {
 fn default_rvol_threshold_climax() -> f64 {
     3.0
 }
+
+fn default_heatmap_leverage_tiers() -> Vec<u32> {
+    vec![10]
+}
 fn default_pivot_points_method() -> String {
     "classic".to_string()
 }
@@ -561,7 +572,7 @@ fn default_smc_lookback() -> usize {
     20
 }
 fn default_volume_profile_bins() -> usize {
-    50
+    100
 }
 fn default_volume_profile_window() -> usize {
     500
@@ -645,7 +656,10 @@ fn default_ob_wall_threshold() -> f64 {
     // against the total top-N volume (a ratio mathematically ≤ 1.0), so any
     // threshold > 1.0 can never fire. 0.5 = a wall holding ≥ 50% of the
     // top-of-book volume. Unit tests used 0.15–0.5; production now uses a
-    // sane default and the config is overridable via `[order_book]`.
+    // sane default. NOTE (2026-08-17 audit): despite the historical claim,
+    // there is NO `[order_book]` section in the config surface — the
+    // runtime hardcodes `OrderBookConfig::default()` in the pipeline
+    // constructor; tuning these defaults requires a code change.
     0.5
 }
 fn default_ob_spread_warning() -> f64 {
@@ -735,47 +749,10 @@ fn default_cross_leverage() -> u32 {
     20
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ScoringConfig {
-    #[serde(default = "default_base_allocation_pct")]
-    pub base_allocation_pct: f64,
-    #[serde(default = "default_micro_allocation_pct")]
-    pub micro_allocation_pct: f64,
-    #[serde(default = "default_max_allocation_pct")]
-    pub max_allocation_pct: f64,
-    #[serde(default = "default_base_score_threshold")]
-    pub base_score_threshold: u32,
-    #[serde(default = "default_micro_score_threshold")]
-    pub micro_score_threshold: u32,
-}
-
-impl Default for ScoringConfig {
-    fn default() -> Self {
-        Self {
-            base_allocation_pct: default_base_allocation_pct(),
-            micro_allocation_pct: default_micro_allocation_pct(),
-            max_allocation_pct: default_max_allocation_pct(),
-            base_score_threshold: default_base_score_threshold(),
-            micro_score_threshold: default_micro_score_threshold(),
-        }
-    }
-}
-
-fn default_base_allocation_pct() -> f64 {
-    1.0
-}
-fn default_micro_allocation_pct() -> f64 {
-    2.0
-}
-fn default_max_allocation_pct() -> f64 {
-    3.0
-}
-fn default_base_score_threshold() -> u32 {
-    40
-}
-fn default_micro_score_threshold() -> u32 {
-    60
-}
+// v9 (F-06): `ScoringConfig` (score-tiered allocation percentages) is
+// ERASED with the scaled-entry/pyramiding machinery — sizing is the
+// v8.2 allocation model (`allocation_pct` + the strategy's
+// `tae.sizing.quality_curve`, the replacement for score-based sizing).
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeesConfig {
@@ -813,8 +790,6 @@ pub struct AutomationConfig {
     pub enabled: bool,
     #[serde(default = "default_automation_interval")]
     pub interval_seconds: u64,
-    #[serde(default)]
-    pub use_scoring_allocation: bool,
     #[serde(default = "default_max_opposite_exit_signals")]
     pub max_opposite_exit_signals: usize,
 }
@@ -824,7 +799,6 @@ impl Default for AutomationConfig {
         Self {
             enabled: false,
             interval_seconds: default_automation_interval(),
-            use_scoring_allocation: false,
             max_opposite_exit_signals: default_max_opposite_exit_signals(),
         }
     }
@@ -876,102 +850,22 @@ impl OperationalMode {
     /// True when this mode permits the execution layer to submit orders
     /// (either simulated or real).
     pub fn is_trading(&self) -> bool {
-        matches!(self, OperationalMode::PaperTrading | OperationalMode::LiveTrading)
+        matches!(
+            self,
+            OperationalMode::PaperTrading | OperationalMode::LiveTrading
+        )
     }
 }
 
-// ─── Trigger Configuration ─────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "mode")]
-pub enum TriggerMode {
-    #[serde(rename = "interval")]
-    Interval { seconds: u64 },
-    #[serde(rename = "candle_close")]
-    CandleClose { timeframe: String, count: u32 },
-    #[serde(rename = "event_driven")]
-    EventDriven { events: Vec<String> },
+fn default_true_bool() -> bool {
+    true
 }
 
-impl Default for TriggerMode {
-    fn default() -> Self {
-        TriggerMode::Interval { seconds: 900 }
-    }
-}
-
-// ─── Position Sizing & Leverage Scaling ────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub enum AllocationCurveModel {
-    #[default]
-    Stepped,
-    Linear,
-    Exponential,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AllocationCurve {
-    #[serde(default)]
-    pub model: AllocationCurveModel,
-    #[serde(default = "default_base_allocation_pct")]
-    pub base_allocation_pct: f64,
-    #[serde(default = "default_max_allocation_pct")]
-    pub max_allocation_pct: f64,
-    #[serde(default = "default_base_score_threshold")]
-    pub base_score_threshold: u32,
-    #[serde(default = "default_micro_score_threshold")]
-    pub micro_score_threshold: u32,
-    #[serde(default = "default_exponent")]
-    pub exponent: f64,
-}
-
-impl Default for AllocationCurve {
-    fn default() -> Self {
-        Self {
-            model: AllocationCurveModel::default(),
-            base_allocation_pct: default_base_allocation_pct(),
-            max_allocation_pct: default_max_allocation_pct(),
-            base_score_threshold: default_base_score_threshold(),
-            micro_score_threshold: default_micro_score_threshold(),
-            exponent: default_exponent(),
-        }
-    }
-}
-
-fn default_exponent() -> f64 {
-    2.0
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PositionScalingConfig {
-    #[serde(default)]
-    pub allocation_curve: AllocationCurve,
-    #[serde(default = "default_leverage_mode")]
-    pub leverage_mode: String,
-    #[serde(default = "default_cross_leverage")]
-    pub leverage_cap: u32,
-    #[serde(default = "default_target_margin")]
-    pub target_margin: f64,
-}
-
-impl Default for PositionScalingConfig {
-    fn default() -> Self {
-        Self {
-            allocation_curve: AllocationCurve::default(),
-            leverage_mode: default_leverage_mode(),
-            leverage_cap: default_cross_leverage(),
-            target_margin: default_target_margin(),
-        }
-    }
-}
-
-fn default_leverage_mode() -> String {
-    "Fixed".to_string()
-}
-
-fn default_target_margin() -> f64 {
-    0.02
-}
+// v9 (F-06): `AllocationCurveModel` / `AllocationCurve` /
+// `PositionScalingConfig` are ERASED with the scaled-entry/pyramiding
+// machinery. One position per instance, one side, one SL, one TP —
+// sizing is the v8.2 allocation model (`allocation_pct` + strategy
+// `tae.sizing`).
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TimeframeConfig {
@@ -1013,13 +907,11 @@ impl Default for DefaultsConfig {
     }
 }
 
-/// Opportunity-matrix knobs (v6.10). The confluent-level synthesis in
-/// `market-analyzer::synthesis::derive_confluent_zones` consults
-/// `confluent_atr_fallback.enabled` — when true and every structural
-/// source (Fibonacci / Volume Profile / Pivot Points / Liquidation
-/// Clusters) is empty, the synthesis emits a single entry and target
-/// level derived from `close ± k·ATR` so the Opportunities panel never
-/// shows "No confluent levels" for a healthy market.
+/// Opportunity-matrix knobs (v6.10). **Advisory-only (2026-08-17 audit):
+/// no runtime reader exists** — `market-analyzer::synthesis::derive_confluent_zones`
+/// hardcodes `FALLBACK_ENABLED = true`, `K_ENTRY = 1.5`, `K_TARGET = 2.5`
+/// (the workspace-config threading is a tracked follow-up). Tuning these
+/// keys currently has NO effect on the emitted levels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpportunityMatrixConfig {
     #[serde(default = "default_confluent_atr_fallback_enabled")]
@@ -1157,8 +1049,9 @@ fn default_fast_seconds() -> u64 {
 /// Configurable activation: per-indicator, per-signal, and per-SignalKind
 /// v6.10 (Phase 5 / E3): the three liquidity sub-toggles are now
 /// `Option<bool>` so an instance config can:
-///   * omit the field entirely → inherit the global default
-///   * set `liquidation_feed = false` → override the global to false
+/// - omit the field entirely → inherit the global default
+/// - set `liquidation_feed = false` → override the global to false
+///
 /// Previously the field was `bool` with serde `default = true`, so an
 /// instance could not opt out of the global. With `Option<bool>`,
 /// `None` means "fall through to global" and `Some(false)` means
@@ -1276,6 +1169,44 @@ impl Default for LiquidityConfig {
             hyperliquid_user_address: String::new(),
         }
     }
+}
+
+/// API-failover tolerance knobs for the derivatives-data pollers.
+/// `max_consecutive_failures` is consumed by the Hyperliquid derivatives
+/// poller (it permanently disables the poller after this many consecutive
+/// REST failures); `max_retries_per_call` / `retry_delay_seconds` are
+/// reserved for per-call retry behavior and carried for operator
+/// visibility and future wiring.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ApiFailoverConfig {
+    #[serde(default = "default_failover_max_retries")]
+    pub max_retries_per_call: u32,
+    #[serde(default = "default_failover_retry_delay_seconds")]
+    pub retry_delay_seconds: u32,
+    #[serde(default = "default_failover_max_consecutive_failures")]
+    pub max_consecutive_failures: u32,
+}
+
+impl Default for ApiFailoverConfig {
+    fn default() -> Self {
+        Self {
+            max_retries_per_call: default_failover_max_retries(),
+            retry_delay_seconds: default_failover_retry_delay_seconds(),
+            max_consecutive_failures: default_failover_max_consecutive_failures(),
+        }
+    }
+}
+
+fn default_failover_max_retries() -> u32 {
+    5
+}
+
+fn default_failover_retry_delay_seconds() -> u32 {
+    30
+}
+
+fn default_failover_max_consecutive_failures() -> u32 {
+    30
 }
 
 /// AUDIT-AIU-057: per-signal confidence defaults for the liquidity layer.
@@ -1477,7 +1408,7 @@ pub struct HeatmapConfig {
     #[serde(default = "default_heatmap_retention_secs")]
     pub retention_secs: u64,
     /// Whether the frontend should render the layered real-bucket
-    /// + estimated-cluster view. Independent of `enabled`: with
+    /// and estimated-cluster view. Independent of `enabled`: with
     /// `render_real = false`, the buckets are still aggregated but
     /// the chart shows only the estimated clusters. Useful for
     /// isolating the two signal sources for diagnosis.
@@ -1699,11 +1630,21 @@ pub struct ReconnectConfig {
     pub disconnect_grace_ms: u64,
 }
 
-fn default_reconnect_initial_ms() -> u64 { 1000 }
-fn default_reconnect_max_ms() -> u64 { 30000 }
-fn default_reconnect_jitter() -> f64 { 0.2 }
-fn default_reconnect_connect_grace_ms() -> u64 { 2000 }
-fn default_reconnect_disconnect_grace_ms() -> u64 { 5000 }
+fn default_reconnect_initial_ms() -> u64 {
+    1000
+}
+fn default_reconnect_max_ms() -> u64 {
+    30000
+}
+fn default_reconnect_jitter() -> f64 {
+    0.2
+}
+fn default_reconnect_connect_grace_ms() -> u64 {
+    2000
+}
+fn default_reconnect_disconnect_grace_ms() -> u64 {
+    5000
+}
 
 impl Default for ReconnectConfig {
     fn default() -> Self {
@@ -1720,14 +1661,6 @@ impl Default for ReconnectConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_default_scoring_config() {
-        let cfg = ScoringConfig::default();
-        assert_eq!(cfg.base_allocation_pct, 1.0);
-        assert_eq!(cfg.micro_allocation_pct, 2.0);
-        assert_eq!(cfg.max_allocation_pct, 3.0);
-    }
 
     #[test]
     fn test_default_fibonacci_config() {
@@ -1755,6 +1688,89 @@ mod tests {
 /// limit) — the two are differentiated only by convention.
 pub type FastTimeframeConfig = SlowTimeframeConfig;
 
+/// v7 setup-executor configuration (minimal TAE) is defined above; below is
+/// the PAE significance-treatment configuration.
+///
+/// The statistical significance treatment (t-test, Monte Carlo sign
+/// randomization, verdict classification) previously ran on hardcoded
+/// constants. Operators of an institutional platform must be able to audit
+/// and tune the bar: `alpha` is the significance level, `monte_carlo_runs`
+/// the randomization count, and `min_trades_for_verdict` the minimum sample
+/// below which no edge verdict is issued.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnalyticsConfig {
+    /// Significance level α — an edge is significant when BOTH the t-test
+    /// p-value and the Monte Carlo p-value fall below this threshold.
+    /// Default: 0.05.
+    #[serde(default = "default_analytics_alpha")]
+    pub alpha: f64,
+    /// Monte Carlo sign-randomization runs for the empirical p-value.
+    /// Default: 10_000.
+    #[serde(default = "default_analytics_monte_carlo_runs")]
+    pub monte_carlo_runs: u32,
+    /// Minimum trade count before an edge verdict is issued; below this the
+    /// classification is `InsufficientData`. Default: 30.
+    #[serde(default = "default_analytics_min_trades")]
+    pub min_trades_for_verdict: u32,
+}
+
+fn default_analytics_alpha() -> f64 {
+    0.05
+}
+fn default_analytics_monte_carlo_runs() -> u32 {
+    10_000
+}
+fn default_analytics_min_trades() -> u32 {
+    30
+}
+
+impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self {
+            alpha: default_analytics_alpha(),
+            monte_carlo_runs: default_analytics_monte_carlo_runs(),
+            min_trades_for_verdict: default_analytics_min_trades(),
+        }
+    }
+}
+
+/// v7.3 portfolio risk limits — the concentration / exposure / correlation
+/// caps the PME Exposure layer enforces. Previously hardcoded constants in
+/// `exposure_layer.rs`; now operator-tunable and rendered by the PME
+/// Exposure tab so the displayed limit is always the enforced one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RiskLimitsConfig {
+    /// Max single-pair concentration as a fraction of equity (0.2 = 20%).
+    #[serde(default = "default_risk_limit_single_pair")]
+    pub max_single_pair_exposure_pct: f64,
+    /// Max portfolio exposure as a fraction of equity (0.5 = 50%).
+    #[serde(default = "default_risk_limit_portfolio")]
+    pub max_portfolio_exposure_pct: f64,
+    /// Max allowed pairwise correlation between holdings (0.8).
+    #[serde(default = "default_risk_limit_correlation")]
+    pub max_correlation: f64,
+}
+
+fn default_risk_limit_single_pair() -> f64 {
+    20.0
+}
+fn default_risk_limit_portfolio() -> f64 {
+    50.0
+}
+fn default_risk_limit_correlation() -> f64 {
+    0.8
+}
+
+impl Default for RiskLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_single_pair_exposure_pct: default_risk_limit_single_pair(),
+            max_portfolio_exposure_pct: default_risk_limit_portfolio(),
+            max_correlation: default_risk_limit_correlation(),
+        }
+    }
+}
+
 // ─── TAE: Lifecycle State ─────────────────────────────────────────
 
 /// Per-instance lifecycle state. Four live values per
@@ -1765,18 +1781,14 @@ pub type FastTimeframeConfig = SlowTimeframeConfig;
 /// `lifecycle_` prefix to make the axis explicit in persisted TOML/JSON.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum LifecycleState {
     Running,
     #[serde(rename = "lifecycle_paused")]
     LifecyclePaused,
     Stopping,
+    #[default]
     Stopped,
-}
-
-impl Default for LifecycleState {
-    fn default() -> Self {
-        LifecycleState::Stopped
-    }
 }
 
 impl LifecycleState {
@@ -1801,30 +1813,6 @@ impl LifecycleState {
 // The only shared variant is `Avoid` (both AGGRESSIVE/CAUTIOUS/NON_AVOID
 // are exclusive to MarketStance; CLOSE_ONLY is exclusive to this enum).
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Stance {
-    Active,
-    CloseOnly,
-    Avoid,
-}
-
-impl Default for Stance {
-    fn default() -> Self {
-        Stance::Active
-    }
-}
-
-impl Stance {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Stance::Active => "ACTIVE",
-            Stance::CloseOnly => "CLOSE_ONLY",
-            Stance::Avoid => "AVOID",
-        }
-    }
-}
-
 // ─── TAE: Trade Direction ─────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1842,115 +1830,6 @@ impl Direction {
             Direction::Short => Decimal::NEGATIVE_ONE,
         }
     }
-}
-
-// ─── TAE: Execution Policy Conditions ─────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "op")]
-pub enum ConditionGroup {
-    #[serde(rename = "AND")]
-    And(Vec<Condition>),
-    #[serde(rename = "OR")]
-    Or(Vec<Condition>),
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Condition {
-    pub field: String,
-    pub operator: Operator,
-    pub value: ConditionValue,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Operator {
-    Eq,
-    Gt,
-    Lt,
-    Gte,
-    Lte,
-    In,
-    Between,
-    NotEq,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ConditionValue {
-    Number(f64),
-    String(String),
-    NumberList(Vec<f64>),
-    StringList(Vec<String>),
-}
-
-// ─── TAE: Risk Parameters ─────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RiskParams {
-    #[serde(default = "default_risk_per_trade_pct")]
-    pub risk_per_trade_pct: f64,
-    #[serde(default)]
-    pub max_position_size_usd: Option<f64>,
-    #[serde(default = "default_max_leverage")]
-    pub max_leverage: u32,
-    #[serde(default = "default_true_bool")]
-    pub use_dynamic_stops: bool,
-    #[serde(default)]
-    pub fixed_stop_loss_pct: Option<f64>,
-    #[serde(default = "default_target_rr_ratio")]
-    pub target_rr_ratio: f64,
-}
-
-impl Default for RiskParams {
-    fn default() -> Self {
-        Self {
-            risk_per_trade_pct: default_risk_per_trade_pct(),
-            max_position_size_usd: None,
-            max_leverage: default_max_leverage(),
-            use_dynamic_stops: default_true_bool(),
-            fixed_stop_loss_pct: None,
-            target_rr_ratio: default_target_rr_ratio(),
-        }
-    }
-}
-
-fn default_risk_per_trade_pct() -> f64 {
-    1.0
-}
-
-fn default_max_leverage() -> u32 {
-    20
-}
-
-fn default_target_rr_ratio() -> f64 {
-    2.5
-}
-
-fn default_true_bool() -> bool {
-    true
-}
-
-// ─── TAE: Execution Policy ────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExecutionPolicy {
-    pub policy_id: String,
-    pub policy_name: String,
-    #[serde(default)]
-    pub description: String,
-    pub symbol: String,
-    pub direction: Direction,
-    pub conditions: ConditionGroup,
-    #[serde(default)]
-    pub trigger_mode: TriggerMode,
-    pub risk: RiskParams,
-    #[serde(default = "default_true_bool")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub cooldown_seconds: u64,
-    #[serde(default = "default_true_bool")]
-    pub reduce_only_on_close_only: bool,
 }
 
 // ─── TAE: Order Types ─────────────────────────────────────────────
@@ -2009,6 +1888,10 @@ pub struct OrderPacket {
     pub reduce_only: bool,
     pub is_emergency_liquidation: bool,
     pub associated_position_id: Option<i64>,
+    /// v7 TAE: free-form per-order metadata (e.g. `exit_reason`,
+    /// `trigger_source` = setup type). Optional; serialized only when non-empty.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2122,4 +2005,126 @@ fn default_snapshot_export_interval_secs() -> u64 {
 
 fn default_snapshot_export_max_snapshots_retained() -> u32 {
     1000
+}
+
+/// Backtesting Engine (BTE) configuration.
+///
+/// The deep-history backtest replays the full MME pipeline over archived
+/// OHLCV candles. `archive_depth_days` bounds how far back the candle
+/// archive reaches (and how deep an on-demand backfill may page); the
+/// value is operator-tunable between 1 and 365 days and is enforced by the
+/// M8 numeric guards. The per-exchange page caps mirror the documented /
+/// empirical candle-endpoint limits (Hyperliquid `candleSnapshot` is
+/// window-bounded with no `limit` parameter — we page conservatively at
+/// 1000; Bitget accepts `limit` 1–1000 — we page at 200).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BacktestConfig {
+    /// Candle-archive retention / maximum backfill depth in days.
+    /// Default: 180. Enforced range: 1..=365 (M8).
+    #[serde(default = "default_backtest_archive_depth_days")]
+    pub archive_depth_days: u32,
+    /// Warmup bars before the first valid MTF-aligned decision — the
+    /// burn-in span is `warmup_bars × longest_timeframe_secs`.
+    /// Default: 300.
+    #[serde(default = "default_backtest_warmup_bars")]
+    pub warmup_bars: u32,
+    /// Persist the exact input candles per run for reproducibility.
+    /// Default: true.
+    #[serde(default = "default_backtest_store_input_bars")]
+    pub store_input_bars: bool,
+    /// Maximum equity-curve points persisted per run (downsampled).
+    /// Default: 2000.
+    #[serde(default = "default_backtest_max_equity_points")]
+    pub max_equity_points: u32,
+    /// Maximum recorded snapshots replayed per run (keeps the synchronous
+    /// endpoint bounded). Default: 50_000.
+    #[serde(default = "default_backtest_max_snapshots")]
+    pub max_snapshots: u32,
+    #[serde(default)]
+    pub hyperliquid: ExchangeBacktestLimits,
+    #[serde(default)]
+    pub bitget: ExchangeBacktestLimits,
+}
+
+/// Per-exchange paging limits for the BTE archive backfill.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeBacktestLimits {
+    /// Candles per REST page.
+    #[serde(default = "default_backtest_page_cap")]
+    pub page_cap: u32,
+    /// Delay between pages (rate-limit courtesy).
+    #[serde(default = "default_backtest_rate_limit_delay_ms")]
+    pub rate_limit_delay_ms: u64,
+    /// Hard ceiling on pages per backfill run (bounded fetch time).
+    #[serde(default = "default_backtest_max_pages_per_run")]
+    pub max_pages_per_run: u32,
+    /// v8.2: the endpoint's historical candle window per TF (0 = no cap).
+    /// Hyperliquid's `candleSnapshot` exposes the most recent 5,000 candles;
+    /// the per-TF max depth is `max_candles_per_tf × tf_secs`. Bitget pages
+    /// deep history — cap 0 (the archive depth governs).
+    #[serde(default = "default_backtest_max_candles_per_tf")]
+    pub max_candles_per_tf: u32,
+}
+
+fn default_backtest_archive_depth_days() -> u32 {
+    180
+}
+fn default_backtest_warmup_bars() -> u32 {
+    300
+}
+fn default_backtest_store_input_bars() -> bool {
+    true
+}
+fn default_backtest_max_equity_points() -> u32 {
+    2000
+}
+fn default_backtest_max_snapshots() -> u32 {
+    50_000
+}
+fn default_backtest_page_cap() -> u32 {
+    1000
+}
+fn default_backtest_rate_limit_delay_ms() -> u64 {
+    1000
+}
+fn default_backtest_max_pages_per_run() -> u32 {
+    2000
+}
+fn default_backtest_max_candles_per_tf() -> u32 {
+    0
+}
+
+impl Default for BacktestConfig {
+    fn default() -> Self {
+        Self {
+            archive_depth_days: default_backtest_archive_depth_days(),
+            warmup_bars: default_backtest_warmup_bars(),
+            store_input_bars: default_backtest_store_input_bars(),
+            max_equity_points: default_backtest_max_equity_points(),
+            max_snapshots: default_backtest_max_snapshots(),
+            hyperliquid: ExchangeBacktestLimits {
+                page_cap: 1000,
+                rate_limit_delay_ms: 1000,
+                max_pages_per_run: 2000,
+                max_candles_per_tf: 5000,
+            },
+            bitget: ExchangeBacktestLimits {
+                page_cap: 200,
+                rate_limit_delay_ms: 100,
+                max_pages_per_run: 6000,
+                max_candles_per_tf: 0,
+            },
+        }
+    }
+}
+
+impl Default for ExchangeBacktestLimits {
+    fn default() -> Self {
+        Self {
+            page_cap: default_backtest_page_cap(),
+            rate_limit_delay_ms: default_backtest_rate_limit_delay_ms(),
+            max_pages_per_run: default_backtest_max_pages_per_run(),
+            max_candles_per_tf: default_backtest_max_candles_per_tf(),
+        }
+    }
 }

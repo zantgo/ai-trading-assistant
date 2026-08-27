@@ -40,28 +40,25 @@ impl OrderLifecycle {
         timestamp_ms: u64,
         metadata: Option<String>,
     ) -> Result<(), String> {
-        let valid = match (self.status, to) {
-            (OrderStatus::Pending, OrderStatus::Submitted) => true,
-            (OrderStatus::Pending, OrderStatus::Rejected) => true,
-            (OrderStatus::Pending, OrderStatus::Cancelled) => true,
-            (OrderStatus::Submitted, OrderStatus::Open) => true,
-            (OrderStatus::Submitted, OrderStatus::Rejected) => true,
-            (OrderStatus::PreDispatch, OrderStatus::Pending) => true,
-            (OrderStatus::PreDispatch, OrderStatus::Rejected) => true,
-            (OrderStatus::Open, OrderStatus::PartiallyFilled) => true,
-            (OrderStatus::Open, OrderStatus::Cancelled) => true,
-            (OrderStatus::PartiallyFilled, OrderStatus::PartiallyFilled) => true,
-            (OrderStatus::PartiallyFilled, OrderStatus::Closed) => true,
-            (OrderStatus::PartiallyFilled, OrderStatus::Cancelled) => true,
-            (OrderStatus::Open, OrderStatus::Closed) => true,
-            _ => false,
-        };
+        let valid = matches!(
+            (self.status, to),
+            (OrderStatus::Pending, OrderStatus::Submitted)
+                | (OrderStatus::Pending, OrderStatus::Rejected)
+                | (OrderStatus::Pending, OrderStatus::Cancelled)
+                | (OrderStatus::Submitted, OrderStatus::Open)
+                | (OrderStatus::Submitted, OrderStatus::Rejected)
+                | (OrderStatus::PreDispatch, OrderStatus::Pending)
+                | (OrderStatus::PreDispatch, OrderStatus::Rejected)
+                | (OrderStatus::Open, OrderStatus::PartiallyFilled)
+                | (OrderStatus::Open, OrderStatus::Cancelled)
+                | (OrderStatus::PartiallyFilled, OrderStatus::PartiallyFilled)
+                | (OrderStatus::PartiallyFilled, OrderStatus::Closed)
+                | (OrderStatus::PartiallyFilled, OrderStatus::Cancelled)
+                | (OrderStatus::Open, OrderStatus::Closed)
+        );
 
         if !valid {
-            return Err(format!(
-                "Invalid transition: {:?} -> {:?}",
-                self.status, to
-            ));
+            return Err(format!("Invalid transition: {:?} -> {:?}", self.status, to));
         }
 
         self.transitions.push(OrderTransition {
@@ -82,8 +79,10 @@ impl OrderLifecycle {
     ) {
         self.filled_size += fill_qty;
         self.fill_price = Some(fill_price);
-        let _ = self.transition(OrderStatus::PartiallyFilled, timestamp_ms, Some(
-            format!("filled {} @ {}", fill_qty, fill_price)
-        ));
+        let _ = self.transition(
+            OrderStatus::PartiallyFilled,
+            timestamp_ms,
+            Some(format!("filled {} @ {}", fill_qty, fill_price)),
+        );
     }
 }

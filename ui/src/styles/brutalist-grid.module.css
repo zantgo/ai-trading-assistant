@@ -150,6 +150,41 @@
     text-transform: none;
 }
 
+/* ── Execution-mode chip (same chrome as exchangeChip, mode-tinted) ───── */
+.modeNavChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: none;
+    margin-right: 8px;
+}
+
+.modeNavObserve {
+    border-color: #38bdf8;
+    color: #7dd3fc;
+    background-color: rgba(56, 189, 248, 0.1);
+}
+
+.modeNavPaper {
+    border-color: #f59e0b;
+    color: #fbbf24;
+    background-color: rgba(245, 158, 11, 0.1);
+}
+
+.modeNavLive {
+    border-color: #22c55e;
+    color: #4ade80;
+    background-color: rgba(34, 197, 94, 0.1);
+}
+
 /* ── Navbar label (icon + text) ────────────────────────────────────────── */
 .navLabel {
     display: inline-flex;
@@ -325,9 +360,21 @@
     to { transform: translateX(0); }
 }
 
+.sessionChip {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
 .sidebarBrand {
     display: flex;
     align-items: center;
+    gap: 10px;
     height: 52px;
     padding: 0 20px;
     font-size: 13px;
@@ -376,18 +423,20 @@
 }
 
 .wipBadge {
-    margin-left: auto;
-    padding: 1px 6px;
-    background: rgba(255, 183, 77, 0.15);
-    color: #ffb74d;
-    border: 1px solid rgba(255, 183, 77, 0.4);
-    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
     font-size: 9px;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    line-height: 1.4;
+    letter-spacing: 0.04em;
+    color: #000;
+    background: #eab308;
+    border: 1px solid #ca8a04;
+    border-radius: 999px;
+    padding: 1px 6px;
+    margin-left: auto;
     flex-shrink: 0;
+    cursor: help;
+    line-height: 1.2;
 }
 
 .sidebarDivider {
@@ -1029,6 +1078,30 @@
 .wsPanelActionBtn.danger:hover {
     background: rgba(255, 69, 58, 0.12);
     color: #ff453a;
+}
+
+/* v10.1: TAE activation toggle — pause (amber) / start (green). */
+.wsPanelActionBtn.pause:hover {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+}
+
+.wsPanelActionBtn.start:hover {
+    background: rgba(34, 197, 94, 0.14);
+    color: #22c55e;
+}
+
+/* v10.1: lifecycle chip (ACTIVE / PAUSED / FLATTENING / TERMINATED /
+   MONITORING) — the single vocabulary for the instance state. */
+.lifecycleChip {
+    font-family: var(--font-mono, monospace);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 1px 6px;
+    border: 1px solid;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .wsPanelEmpty {

@@ -9,4 +9,6 @@
 //! `core_domain::snapshot_export` to avoid circular dependencies
 //! between `api-gateway` and `execution-daemon`.
 
+pub mod cli_renderer;
+pub mod ds_exporter;
 pub mod snapshot_export;

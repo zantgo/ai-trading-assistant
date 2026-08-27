@@ -1,5 +1,6 @@
 import type { AppStore } from '../state.svelte';
 import type { InstanceState } from '../types';
+import { decide } from './watchlistScanner';
 
 export function formatIntervalRemaining(totalSeconds: number): string {
     const h = Math.floor(totalSeconds / 3600);
@@ -28,25 +29,17 @@ export async function saveRulesCall(content: string): Promise<boolean> {
 }
 
 export async function fetchRulesCall(): Promise<string> {
+    // Audit fix (m4): the 404 body is plain text — `res.json()` threw a
+    // SyntaxError on the error path. Check `ok` and read text first.
     const res = await fetch('/api/rules');
-    const data = await res.json();
-    return data.content || '';
-}
-
-export async function saveIntervalsConfigCall(slowSecs: number, normalSecs: number, fastSecs: number): Promise<boolean> {
-    const res = await fetch('/api/config');
-    const config = await res.json();
-    config.intervals = {
-        slow_seconds: slowSecs,
-        normal_seconds: normalSecs,
-        fast_seconds: fastSecs,
-    };
-    const saveRes = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-    });
-    return saveRes.ok;
+    if (!res.ok) return '';
+    const text = await res.text();
+    if (!text) return '';
+    try {
+        return JSON.parse(text).content || '';
+    } catch {
+        return '';
+    }
 }
 
 // ─── Config application logic ──────────────────────────────────────────────
@@ -67,11 +60,31 @@ function pairKeyFromDeclaredSymbol(app: AppStore, symbol: string): string {
 export function applyConfigToStore(app: AppStore, config: Record<string, unknown>): ApplyConfigResult {
     app.apiKeyConfigured = (config.api_key_configured as boolean) ?? true;
 
-    if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number; analysis_limit: number };
+    if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number };
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 
-    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number }; operational_mode?: string }>;
+    // v7.2 parity: the workspace slow/macro ladder (registry fallback
+    // source) — the Launch Setup wizard's per-instance TF defaults.
+    const slowTf = (config.slow_timeframe as { duration_seconds?: number } | undefined)
+        ?.duration_seconds;
+    const macroTf = (config.macro_timeframe as { duration_seconds?: number } | undefined)
+        ?.duration_seconds;
+    if (typeof slowTf === 'number' && slowTf > 0) app.workspaceSlowTimeframeSecs = slowTf;
+    if (typeof macroTf === 'number' && macroTf > 0) app.workspaceMacroTimeframeSecs = macroTf;
+
+    // `instances` is a `Vec<InstanceEntry>` on the wire (array, not Record)
+    // — each entry carries `symbol` (exchange-native, e.g. "BTC-USDT") and
+    // `id`. Index by the pair key so per-instance timeframe config
+    // (barDurationSec, EMA/RSI/MACD periods) actually applies on load.
+    const instancesArr = Array.isArray(config.instances) ? (config.instances as Array<Record<string, unknown>>) : [];
+    const pairConfigs = new Map<string, Record<string, any>>();
+    for (const inst of instancesArr) {
+        const sym = typeof inst?.symbol === 'string' ? inst.symbol : '';
+        if (!sym) continue;
+        const key = app.pairKeyFor(sym);
+        pairConfigs.set(key, inst as Record<string, any>);
+    }
     const symbols: string[] = (config.symbols as string[]) || ['BTC'];
 
     for (const item of symbols) {
@@ -82,7 +95,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
             app.initInstance(declared);
         }
 
-        const specific = pairConfigs[pairKey];
+        const specific = pairConfigs.get(pairKey);
         const targetState = app.instancesMap[pairKey];
 
         function advancedIndicators(ind: Record<string, unknown>) {
@@ -144,6 +157,16 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         }
 
         if (specific && targetState) {
+            // v7.3: propagate the per-instance execution mode from the
+            // canonical config source (`/api/config` returns
+            // `instances[].mode`) synchronously at mount. Previously `mode`
+            // was only backfilled by the async `/api/instances` sync, which
+            // left the navbar's `activeMode` undefined long enough to show
+            // the full (non-collapsed) tab set in observe mode.
+            const instMode = (specific as { mode?: 'observe' | 'paper' | 'live' }).mode;
+            if (instMode === 'observe' || instMode === 'paper' || instMode === 'live') {
+                targetState.mode = instMode;
+            }
             if (specific.micro_term) {
                 targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
                 Object.assign(targetState.microTerm, {
@@ -158,8 +181,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.micro_term.indicators.adx_period,
                     atrPeriodVal: specific.micro_term.indicators.atr_period,
                     squeezePeriodVal: specific.micro_term.indicators.squeeze_period,
-                    analysisLimit: specific.micro_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.fast_term) {
@@ -176,8 +198,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.fast_term.indicators.adx_period,
                     atrPeriodVal: specific.fast_term.indicators.atr_period,
                     squeezePeriodVal: specific.fast_term.indicators.squeeze_period,
-                    analysisLimit: specific.fast_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.fast_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.fast_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.slow_term) {
@@ -194,8 +215,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.slow_term.indicators.adx_period,
                     atrPeriodVal: specific.slow_term.indicators.atr_period,
                     squeezePeriodVal: specific.slow_term.indicators.squeeze_period,
-                    analysisLimit: specific.slow_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.slow_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.slow_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.macro_term) {
@@ -212,8 +232,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.macro_term.indicators.adx_period,
                     atrPeriodVal: specific.macro_term.indicators.atr_period,
                     squeezePeriodVal: specific.macro_term.indicators.squeeze_period,
-                    analysisLimit: specific.macro_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.macro_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.macro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
         }
@@ -300,21 +319,29 @@ export async function deleteInstanceById(instanceId: string): Promise<boolean> {
     }
 }
 
-/** Poll a single pair's `decisionContext` slot until it has a `trade_readiness`
- *  value (the first WS frame at any TF schedules the Decision pipeline,
- *  so a `=== null` -> populated transition is the "decision is in" signal).
+/** Poll a single pair's slots until a **recommendation to any side**
+ *  appears (the scanner's `decide()` rule: `trade_readiness === 'READY'`
+ *  AND a directional bias — Long / Short of any strength) or the wait
+ *  window elapses.
  *
- *  Used by the Watchlist Scanner to wait for the engine's first decision
- *  per pair before deciding whether to keep or remove the instance. The
- *  poll is a plain non-reactive read — we deliberately don't put it in a
- *  `$effect` because the modal owns the loop and the polling timer is the
- *  single source of truth for timeouts.
+ *  Used by the Watchlist Scanner as the per-pair wait window (default
+ *  5 minutes): the pair is *not* judged on its first frame — it gets the
+ *  whole window to produce a recommendation (e.g. the setup forms on the
+ *  next completed candle). The moment a qualifying state is observed the
+ *  promise resolves `READY` so the scanner keeps the instance immediately;
+ *  a window with no recommendation resolves `TIMEOUT` and the scanner
+ *  deletes the instance.
+ *
+ *  The poll is a plain non-reactive read — we deliberately don't put it
+ *  in a `$effect` because the modal owns the loop and the polling timer is
+ *  the single source of truth for timeouts.
  *
  *  Resolves with `{ status: 'READY', decisionContext, advisory }` on the
- *  first populated pair, or `{ status: 'TIMEOUT' }` after `timeoutMs`
+ *  first qualifying pair, or `{ status: 'TIMEOUT' }` after `timeoutMs`
  *  elapses. We return both the `decisionContext` (for the modal's
  *  trade_readiness read) and the `advisory` (for the directional bias
- *  read) so the scanner can derive a verdict from one await.
+ *  read) so the scanner can derive a verdict from one await. `waitedMs`
+ *  reports the elapsed window on both paths.
  *
  *  Returns TIMEOUT early if the pair was removed from `app.instancesMap`
  *  (the user cancelled the run mid-flight and the scanner deleted the
@@ -328,8 +355,9 @@ export async function waitForAdvisory(
         status: 'READY';
         decisionContext: NonNullable<InstanceState['decisionContext']>;
         advisory: InstanceState['advisory'];
+        waitedMs: number;
     }
-    | { status: 'TIMEOUT' }
+    | { status: 'TIMEOUT'; waitedMs: number }
 > {
     const start = Date.now();
     const POLL_MS = 250;
@@ -342,15 +370,21 @@ export async function waitForAdvisory(
     while (Date.now() - start < maxWaitMs) {
         const pair = app.instancesMap[pairKey];
         if (!pair) {
-            return { status: 'TIMEOUT' };
+            return { status: 'TIMEOUT', waitedMs: Date.now() - start };
         }
         const dc = pair.decisionContext;
-        if (dc && typeof dc === 'object' && typeof dc.trade_readiness === 'string') {
-            return { status: 'READY', decisionContext: dc, advisory: pair.advisory };
+        const advisory = pair.advisory;
+        if (decide(dc, advisory) === 'KEEP') {
+            return {
+                status: 'READY',
+                decisionContext: dc as NonNullable<InstanceState['decisionContext']>,
+                advisory,
+                waitedMs: Date.now() - start,
+            };
         }
         await new Promise<void>((r) => setTimeout(r, POLL_MS));
     }
-    return { status: 'TIMEOUT' };
+    return { status: 'TIMEOUT', waitedMs: Date.now() - start };
 }
 
 /** POST the instance config payload. `instanceId` is the backend-assigned
@@ -374,11 +408,12 @@ export async function syncInstanceIdsFromList(app: AppStore): Promise<void> {
         const res = await fetch('/api/instances');
         if (!res.ok) return;
         const data = await res.json();
-        const instances: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
+        const instances: Array<{ id?: string; pair?: string; mode?: 'observe' | 'paper' | 'live' }> = data?.instances ?? [];
         for (const inst of instances) {
             if (!inst?.id || !inst?.pair) continue;
             const entry = app.instancesMap[inst.pair];
             if (entry && !entry.instanceId) entry.instanceId = inst.id;
+            if (entry) entry.mode = inst.mode;
         }
     } catch (_) {}
 }
@@ -389,7 +424,6 @@ export function readDraftFromPair(pair: InstanceState): {
     emaFast: number; emaMedium: number; emaSlow: number; emaLong: number;
     rsiPeriod: number; macdFast: number; macdSlow: number; macdSignal: number;
     adxPeriod: number; atrPeriod: number; squeezePeriod: number;
-    analysisLimit: number;
     showEmas: boolean; showBb: boolean; showVwap: boolean; showVolume: boolean;
     showAdx: boolean; showAtr: boolean; showRsi: boolean; showMacd: boolean;
     showSqueeze: boolean; showBbwp: boolean; showFib: boolean; showRvol: boolean;
@@ -425,7 +459,6 @@ export function readDraftFromPair(pair: InstanceState): {
         adxPeriod: pair.microTerm.adxPeriodVal,
         atrPeriod: pair.microTerm.atrPeriodVal,
         squeezePeriod: pair.microTerm.squeezePeriodVal,
-        analysisLimit: pair.microTerm.analysisLimit,
         showEmas: pair.microTerm.showEmas,
         showBb: pair.microTerm.showBb,
         showVwap: pair.microTerm.showVwap,
@@ -447,3 +480,119 @@ export function readDraftFromPair(pair: InstanceState): {
     };
 }
 
+
+// ─── v9 Strategy / Account / Lifecycle API ───────────────────────────
+
+export interface StrategySummary {
+    name: string;
+    base: string | null;
+    description: string;
+    schema_version: number;
+}
+
+export interface AccountSummary {
+    mode: string;
+    portfolio_capital_source: 'paper_config' | 'exchange' | 'none';
+    portfolio_capital_usd: number | null;
+    equity: number;
+    daily_pnl: number;
+    drawdown_pct: number;
+    safety_state: string;
+    instance_count: number;
+    open_positions_count: number;
+}
+
+export async function fetchStrategies(): Promise<StrategySummary[]> {
+    const res = await fetch('/api/strategies');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.strategies ?? [];
+}
+
+export async function fetchStrategyJson(name: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`/api/strategies/${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function saveStrategy(
+    name: string,
+    json: Record<string, unknown>,
+    base?: string | null,
+    description?: string | null,
+): Promise<{ warnings?: string[]; error?: string }> {
+    const res = await fetch('/api/strategies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, base: base ?? null, description, strategy: json }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    return { warnings: (data as { warnings?: string[] }).warnings ?? [] };
+}
+
+export async function deleteStrategy(name: string): Promise<{ error?: string }> {
+    const res = await fetch(`/api/strategies/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function cloneStrategy(source: string, newName: string): Promise<{ error?: string }> {
+    const res = await fetch(`/api/strategies/${encodeURIComponent(source)}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_name: newName }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function fetchAccountSummary(): Promise<AccountSummary> {
+    const res = await fetch('/api/account/summary');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+}
+
+export async function postAccountCapital(usd: number): Promise<{ error?: string }> {
+    const res = await fetch('/api/account/capital', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portfolio_capital_usd: usd }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function postAccountReset(): Promise<{ error?: string }> {
+    const res = await fetch('/api/account/reset', { method: 'POST' });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function postInstanceLifecycle(
+    instanceId: string,
+    action: 'start' | 'pause' | 'terminate',
+): Promise<{ error?: string }> {
+    const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/lifecycle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}

@@ -1,6 +1,6 @@
 # Clock Monitor (NTP Drift Enforcement)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 
@@ -8,7 +8,7 @@
 
 The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤100 µs drift budget** of true UTC.
 
-**Why 50 µs.** NTPv4 over a LAN achieves typical offset of 10–100 µs. The 50 µs threshold is the midpoint of that band and is chosen so that the maximum candle-boundary error stays below 0.01 % of the shortest supported candle duration (0.01 % of the 60 s micro tier = 6 ms; the 50 µs budget is 120× tighter). A 50 µs drift produces a 0.000083 % boundary error, which is well within the indicator pipeline's numerical tolerance. Operators running direct-exchange colocation may tighten this via config; operators running cloud VPS with >100 µs typical jitter should widen it.
+**Default budget (2026-08-17 audit).** The shipped `config.toml` and the `config-models` default set `threshold_micros = 10 000` (10 ms) — earlier revisions of this doc claimed a 50 µs default, but the runtime never enforced it (the 50 µs value survives only in `ClockMonitorConfig::default()` inside `network-adapters`, which the daemon does not construct). The 10 ms budget is 200× looser than the original intent: the maximum candle-boundary error stays below 0.17 % of the 60 s micro tier. Operators running direct-exchange colocation may tighten via `[clock_monitor] threshold_micros`; operators on cloud VPS with >100 µs typical jitter should keep the wider default.
 
 The `ClockMonitor` enforces this budget by polling NTP servers at a configurable interval and reacting to threshold breaches.
 
@@ -20,7 +20,7 @@ pub struct ClockMonitorConfig {
     // ntp_servers tried in order. First successful response defines the
     // current UTC reference; subsequent servers are polled as fallback.
     pub poll_interval: Duration,          // default: 30s
-    pub threshold: Duration,              // default: 100µs
+    pub threshold: Duration,              // config-models default: 10 ms
     pub breach_action: BreachAction,      // Warn (default) | Panic
     pub warn_on_breach: bool,            // default: true
     pub jitter_window_size: usize,       // default: 20
@@ -46,7 +46,7 @@ In `config.toml` (the platform's single source of configuration truth):
 enabled = true
 ntp_servers = ["pool.ntp.org", "time.aws.com"]
 poll_interval_secs = 30
-threshold_micros = 50
+threshold_micros = 10000   # default: 10 ms (shipped config; tighten for colocation)
 query_timeout_secs = 5
 jitter_window_size = 20
 breach_action = "warn"        # or "panic"

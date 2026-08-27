@@ -1,15 +1,15 @@
 # Crate Layout & Cycle-Breaking Design
 
-**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 9 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 10 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.
 
 ---
 
-## 1. The Nine Physical Crates
+## 1. The Ten Physical Crates
 
-The platform is a Cargo Workspace of 9 specialized, decoupled crates plus the Svelte 5 frontend.
+The platform is a Cargo Workspace of 10 specialized, decoupled crates plus the Svelte 5 frontend.
 
 | Crate | Layers it owns | Primary responsibility |
 |---|---|---|
@@ -18,8 +18,9 @@ The platform is a Cargo Workspace of 9 specialized, decoupled crates plus the Sv
 | `market-analyzer` | MME L1–L7 (logical ownership); DIE L2–L4 (physical execution) | 52 indicators across 4 timeframes, signal detection, multi-TF pipeline orchestrator (`ActivePair`, `TimeframePipeline`), `MarketContext` synthesis, candle generation, quality validation, distribution channels, indicator DTO re-exports. |
 | `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 active tables; migration history tracks table additions — see CHANGELOG), WAL telemetry logger, query layer, encryption helpers. |
 | `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid and Bitget, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
-| `portfolio-supervisor` | PME + TAE | Instance lifecycle, `SafetyManager`, sizing, exposure, capital, session state, profile evaluation, risk/commission math, registry orchestrator. **WIP** overall — the backends run and expose state, but the dedicated `TradeAutomationDashboard` and `PortfolioDashboard` are hardcoded placeholders. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3, §2.4, §3 Phase A–C. |
-| `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator. **WIP** overall — the analytics APIs (`/api/analytics/*`) are live and consumed by the `PerformanceDashboard` Overview/Strategy/Risk/Regimes/Trades panels. The Backtesting panel is a UI-only mock; the in-process backtest runner + equity-curve visualization are pending. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5, §3 Phase D. |
+| `portfolio-supervisor` | PME + TAE | Instance lifecycle, setup executor + unified execution engine (TAE), safety-state ladder, sizing, exposure, capital, session state, registry orchestrator. **Implemented** — see [`docs/ROADMAP.md`](../ROADMAP.md) §2.3–§2.4. |
+| `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator, recorded-decision backtest runner (historical BTE lives in `backtesting-engine`). **Implemented** — the analytics APIs (`/api/analytics/*`) are live, and the backtest tab consumes `POST /api/backtest/run` + `GET /api/backtest/:id`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5. |
+| `backtesting-engine` | BTE | Candle archive (`candle_archive`), backfill orchestrator, historical pipeline replay (full MME), recorded replay, DS persistence (`backtest_*` tables), single-run lock, parity contract. **Implemented** — v8 production-ready, v8.2 async + multi-symbol. See `docs/engines/backtesting-engine/`. |
 | `api-gateway` | HTTP/WS surface | Axum router (`build_router`), WebSocket broadcast handler, all HTTP request/response shapes (`IndicatorSnapshot`, `EvaluateRequest`, `RiskCalculationRequest`, `StatsQuery`, …), `AppState`, `DbState`, `WsState`. |
 | `execution-daemon` | Bootstrap | Binary entry point — parses CLI, reads config, initializes DB, builds `AppState`, spawns background tasks, runs the Axum server. Holds no business logic of its own. |
 
@@ -54,9 +55,13 @@ The dependency graph is **strictly unidirectional** and **acyclic** — Cargo wi
                                                          ▲
                                                          │
                                                 [performance-analytics]
-                                                         ▲
-                                                         │
-                                                    [api-gateway]
+                                                         ▲   ▲
+                                                         │   │
+                                                [backtesting-engine]   │
+                                                         ▲   │
+                                                         └───┤
+                                                             │
+                                                        [api-gateway]
                                                          ▲
                                                          │
                                                   [execution-daemon]

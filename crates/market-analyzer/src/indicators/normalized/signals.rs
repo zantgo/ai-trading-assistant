@@ -166,20 +166,17 @@ pub fn derive_signals(map: &mut Map) {
             ));
         }
         // Chart pattern forming.
-// Gated on `key == "patterns"` so a future label on another indicator
-// that happens to contain the substring "PATTERN" cannot accidentally
-// emit a `PatternForming` signal here (every other derive branch uses
-// the same `key == "X"` gate — see ema_stack, aroon, choppiness, hv,
-// supertrend, psar, adx, stochastic, obv, volume_profile, pivot_points,
-// smc_*, anchored_vwap). The `l != "NO_PATTERN"` guard avoids emitting
-// a "PatternForming" signal when the calculator ran but found nothing
-// (this is the common steady-state for the patterns indicator — emitting
-// a signal there would inflate GroupConfluenceGrid's signal count and
-// surface a misleading "PatternForming" entry in the Signals view).
-        if key == "patterns"
-            && l.contains("PATTERN")
-            && l != "NO_PATTERN"
-        {
+        // Gated on `key == "patterns"` so a future label on another indicator
+        // that happens to contain the substring "PATTERN" cannot accidentally
+        // emit a `PatternForming` signal here (every other derive branch uses
+        // the same `key == "X"` gate — see ema_stack, aroon, choppiness, hv,
+        // supertrend, psar, adx, stochastic, obv, volume_profile, pivot_points,
+        // smc_*, anchored_vwap). The `l != "NO_PATTERN"` guard avoids emitting
+        // a "PatternForming" signal when the calculator ran but found nothing
+        // (this is the common steady-state for the patterns indicator — emitting
+        // a signal there would inflate GroupConfluenceGrid's signal count and
+        // surface a misleading "PatternForming" entry in the Signals view).
+        if key == "patterns" && l.contains("PATTERN") && l != "NO_PATTERN" {
             let d = if l.contains("BULLISH") {
                 SignalDirection::Bullish
             } else if l.contains("BEARISH") {
@@ -240,20 +237,17 @@ pub fn derive_signals(map: &mut Map) {
 
         // ── Extended patterns (indicators whose labels never matched before) ──
 
-        // MACD crossover (primary signal for this indicator).
-        if key == "macd" && l.contains("CROSSOVER") {
-            let d = if l.contains("BULLISH") {
-                SignalDirection::Bullish
-            } else {
-                SignalDirection::Bearish
-            };
-            sigs.push(IndicatorSignal::new(
-                SignalKind::Crossover,
-                d,
-                SignalStatus::Active,
-                l,
-            ));
-        }
+        // MACD crossover: REMOVED here (AUDIT-AIU-112). The structured
+        // Crossover signal is emitted by the dedicated block in
+        // `normalize_all` (all.rs), which dedupes to exactly one event per
+        // bar AND suppresses zero-line-rejected crossovers (FOMO bullish
+        // above / PANIC bearish below the zero line). The legacy
+        // label-string branch below matched ANY label containing
+        // "CROSSOVER" — including `FOMO_BULLISH_CROSSOVER_REJECTED` /
+        // `PANIC_BEARISH_CROSSOVER_REJECTED` (re-emitting the very event
+        // the zero-line filter was built to suppress) and
+        // `BULLISH_CROSSOVER_ACCELERATING` (double-emitting a second,
+        // differently-labelled Crossover on legitimate bars).
 
         // EMA ribbon stack alignment / retest: REMOVED here (AUDIT-AIU-030).
         // StackChange is a transition-only momentary signal per 05-02-11 §4;
@@ -303,22 +297,22 @@ pub fn derive_signals(map: &mut Map) {
 
         // RSI / Stochastic / MFI / ChandeMO directional momentum bias (non-extreme).
         // AUDIT-AIU-032: the chandemo labels are `EMERGING_BULL_MOMENTUM` /
-        // `EMERGING_BEAR_MOMENTUM` (no "BULLISH_MOMENTUM" substring) and RSI
-        // uses `BULLISH_DISCOUNT` / `BEARISH_PREMIUM` — none matched this
-        // branch, so the documented bias Thresholds (04-02-13 §4, 04-02-11)
-        // never fired. The patterns below cover every label form.
+        // `EMERGING_BEAR_MOMENTUM` (no "BULLISH_MOMENTUM" substring) and
+        // stochastic uses `BULLISH_MOMENTUM_ALIGNMENT` — the patterns below
+        // cover every label form. (AUDIT-AIU-108: RSI's bias labels are now
+        // `BULLISH_MOMENTUM` / `BEARISH_MOMENTUM` — matched by the first two
+        // patterns; the legacy `BULLISH_DISCOUNT` / `BEARISH_PREMIUM` label
+        // forms were retired in the same change.)
         const MOM_KEYS: &[&str] = &["rsi", "stochastic", "chandemo", "mfi"];
         if MOM_KEYS.contains(&key.as_str()) {
             if l.contains("BULLISH_MOMENTUM")
                 || l.contains("BULL_MOMENTUM")
                 || (l.contains("_BULLISH_") && l.contains("BIAS"))
-                || l.contains("BULLISH_DISCOUNT")
             {
                 sigs.push(threshold(SignalDirection::Bullish, l));
             } else if l.contains("BEARISH_MOMENTUM")
                 || l.contains("BEAR_MOMENTUM")
                 || (l.contains("_BEARISH_") && l.contains("BIAS"))
-                || l.contains("BEARISH_PREMIUM")
             {
                 sigs.push(threshold(SignalDirection::Bearish, l));
             }
@@ -652,7 +646,13 @@ pub fn derive_signals(map: &mut Map) {
         }
 
         // ── SMC Order Blocks: tested→LevelTest + TrendFlip. ──
-        if key == "smc_order_blocks" && l != "SMC_OB_NONE" {
+        // AUDIT-AIU-114: only genuine TEST events (`SMC_OB_*_TEST` — price
+        // trading within 0.5% of the block's mid) emit signals. The legacy
+        // branch also fired on `SMC_OB_*_ACTIVE` — the standing steady state
+        // (zone persists until price closes through it) — pushing a LevelTest
+        // AND a `SMC_OB_TRENDFLIP` on EVERY completed bar for the zone's
+        // lifetime, spamming TAE/confluence with a "flip" that never flips.
+        if key == "smc_order_blocks" && l.contains("TEST") {
             let d = if l.contains("BULLISH") {
                 SignalDirection::Bullish
             } else if l.contains("BEARISH") {
@@ -666,14 +666,12 @@ pub fn derive_signals(map: &mut Map) {
                 SignalStatus::Active,
                 l,
             ));
-            if l.contains("ACTIVE") {
-                sigs.push(IndicatorSignal::new(
-                    SignalKind::TrendFlip,
-                    d,
-                    SignalStatus::Active,
-                    "SMC_OB_TRENDFLIP",
-                ));
-            }
+            sigs.push(IndicatorSignal::new(
+                SignalKind::TrendFlip,
+                d,
+                SignalStatus::Active,
+                "SMC_OB_TRENDFLIP",
+            ));
         }
 
         // ── Anchored VWAP level tests / crossovers ──

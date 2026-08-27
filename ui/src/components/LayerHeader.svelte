@@ -23,13 +23,9 @@
         /** Optional slot for the panel title + ExportDataButton. Rendered
          * to the right of the status pill so it never overlaps the badge. */
         trailing?: Snippet;
-        /** Stack the status pill and the trailing slot vertically in a
-         * right-edge column instead of a single row. Opt-in (Overview
-         * page only); all other tabs keep the single-row layout. */
-        stackRight?: boolean;
     }
 
-    let { spec, trailing, stackRight = false }: Props = $props();
+    let { spec, trailing }: Props = $props();
 
     const badgeCls: Record<ValueState, string> = {
         valid: styles.badgeValid,
@@ -94,21 +90,16 @@
         </div>
     {/snippet}
 
-    {#if stackRight}
-        <div class={styles.rightStack}>
-            {@render statusIndicator()}
-            {#if trailing}
-                <div class={styles.trailing}>
-                    {@render trailing()}
-                </div>
-            {/if}
-        </div>
-    {:else}
+    <!-- v7.3: the status pill and the trailing slot (panel title +
+         EXPORT DATA) are grouped in a single non-wrapping right block
+         so they can never split apart or drop onto a second line —
+         the identity/badge/chip rail wraps beneath them instead. -->
+    <div class={styles.headerRight}>
         {@render statusIndicator()}
         {#if trailing}
             <div class={styles.trailing}>
                 {@render trailing()}
             </div>
         {/if}
-    {/if}
+    </div>
 </div>

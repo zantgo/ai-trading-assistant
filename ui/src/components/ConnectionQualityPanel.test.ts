@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectionQualityReport } from '../types';
 import ConnectionQualityPanel from './ConnectionQualityPanel.svelte';
-import styles from './ConnectionQualityPanel.module.css';
 
 const report: ConnectionQualityReport = {
     window: 'one_hour',
@@ -36,7 +35,7 @@ describe('ConnectionQualityPanel', () => {
 
         render(ConnectionQualityPanel);
 
-        expect(screen.getByText('Loading...')).toBeTruthy();
+        expect(screen.getByText('Loading…')).toBeTruthy();
     });
 
     it('renders_metrics_after_fetch', async () => {
@@ -58,7 +57,7 @@ describe('ConnectionQualityPanel', () => {
         render(ConnectionQualityPanel);
         await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/connection-quality?window=one_hour'));
 
-        await fireEvent.click(screen.getByRole('button', { name: '6h' }));
+        await fireEvent.click(screen.getByRole('tab', { name: '6h' }));
 
         await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/connection-quality?window=six_hour'));
     });
@@ -71,12 +70,15 @@ describe('ConnectionQualityPanel', () => {
         expect(await screen.findByText('Error: network down')).toBeTruthy();
     });
 
-    it('score_class_applied_correctly', async () => {
+    it('score_color_applied_correctly', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse(report)));
 
         render(ConnectionQualityPanel);
 
         const score = await screen.findByText('92.0');
-        expect(score.classList.contains(styles.scoreExcellent)).toBe(true);
+        // The shared KpiStrip colors the value via the `color` style token;
+        // an excellent score (≥ 90) must render green (jsdom normalizes hex
+        // to rgb).
+        expect(score.getAttribute('style')).toContain('rgb(34, 197, 94)');
     });
 });

@@ -1,6 +1,6 @@
+use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 
 #[derive(Debug, Deserialize)]
 struct BitgetCandleResponse {
@@ -28,6 +28,7 @@ fn parse_decimal(s: &str) -> Result<Decimal, String> {
 /// - `start_time_ms` / `end_time_ms` are 13-digit millisecond timestamps.
 /// - `limit` is the per-page cap (HFP-06). Bitget accepts any value but
 ///   empirically caps responses around 200.
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_historical_candles_page(
     symbol: &str,
     internal_symbol: &str,
@@ -45,19 +46,43 @@ pub async fn fetch_historical_candles_page(
 
     // Bitget V2 mix market expects 13-digit millisecond timestamps — pass raw ms.
     let limit_str = limit.to_string();
-    let response = client
-        .get(rest_url)
-        .query(&[
-            ("symbol", symbol),
-            ("productType", product_type),
-            ("granularity", interval),
-            ("startTime", &start_time_ms.to_string()),
-            ("endTime", &end_time_ms.to_string()),
-            ("limit", &limit_str),
-        ])
-        .send()
-        .await
-        .map_err(|e| format!("REST request failed for {} {}: {}", symbol, interval, e))?;
+    // v9: transport-level retry — deep backfills page dozens of requests;
+    // a single transient send error must not abort the whole run.
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut last_err: Option<String> = None;
+    let mut response = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match client
+            .get(rest_url)
+            .query(&[
+                ("symbol", symbol),
+                ("productType", product_type),
+                ("granularity", interval),
+                ("startTime", &start_time_ms.to_string()),
+                ("endTime", &end_time_ms.to_string()),
+                ("limit", &limit_str),
+            ])
+            .send()
+            .await
+        {
+            Ok(res) => {
+                response = Some(res);
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                last_err = Some(format!(
+                    "REST request failed for {} {}: {}",
+                    symbol, interval, e
+                ));
+                if attempt < MAX_ATTEMPTS {
+                    tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64))
+                        .await;
+                }
+            }
+        }
+    }
+    let response = response.ok_or_else(|| last_err.unwrap_or_default())?;
 
     let status = response.status();
     if !status.is_success() {

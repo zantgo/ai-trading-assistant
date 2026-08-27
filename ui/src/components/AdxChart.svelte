@@ -99,7 +99,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const adxPts = pairsFromHistory(h, 'adx', 'adx');
             const plusPts = pairsFromHistory(h, 'adx', 'plus_di');

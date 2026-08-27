@@ -1,7 +1,7 @@
 # PME Layer 2 — Exposure Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/exposure_layer.rs`) is implemented; dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
+**Version:** 10.1 (2026-08-24) — v7: PME is informational; this layer's math is unchanged.
+**Status:** Specified — implemented (pure math); v7 surface wiring in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 2 of 4
 **Input Contract:** Position Matrix (L1)
@@ -10,13 +10,15 @@
 
 ---
 
+> **v7.3 — config-driven limits.** The concentration caps (`max_single_pair_exposure_pct = 20`, `max_portfolio_exposure_pct = 50`, `max_correlation = 0.8`) are no longer hardcoded constants: they come from `[workspace.risk_limits]` in config.toml (`exposure_layer::ConcentrationLimits::from_config`). The PME Exposure tab renders the same numbers the backend enforces, including a BREACH warning when a pair crosses its cap. The `GET /api/instances/:id/exposure` and `GET /api/instances/:id/portfolio` responses carry a `limits` block with the enforced values.
+
 ## 1. Purpose
 
 The Exposure Layer prevents **concentration risk** — the danger of excessive capital allocation to a single asset, correlated group, or directional vector. It consumes the active Position Matrix from Layer 1 and aggregates positions into sector-level, asset-level, and directional exposure metrics.
 
 ```
 [Position Matrix] ──► EXPOSURE LAYER (L2) ──► [Exposure Matrix] ──► [Capital Layer (L3)]
-                                                                 └──► [Portfolio Layer (L4)]
+                                                                 └──► [Overview Layer (L4)]
 ```
 
 ---
@@ -49,8 +51,8 @@ Per [PME Overview](../portfolio-management-engine/03-04-01-pme-overview-spec.md)
 
 When a limit is approached:
 1. New position requests that would breach the limit are rejected pre-trade at Gate 6 (see [08-02-pre-trade-risk-controls.md](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)).
-2. The Portfolio Layer (L4) is notified.
-3. If breached on the existing portfolio, positions are flagged for reduction (`CLOSE_ONLY` stance) via the exposure-limit veto row in [PME Layer 4 §4.1](03-04-05-pme-layer4-portfolio.md) (no Hard Exit; released when back under limit).
+2. The Overview Layer (L4) is notified.
+3. v7: concentration limits are **informational** (displayed on the Exposure panel); nothing is flagged, reduced, or blocked on breach.
 
 ---
 
@@ -62,7 +64,7 @@ $$\text{net\_exposure} = \sum \text{long\_notional} - \sum \text{short\_notional
 
 $$\text{net\_exposure\_pct} = \frac{\text{net\_exposure}}{\text{total\_equity}} \times 100$$
 
-This is used by the Portfolio Layer (L4) to detect when the portfolio becomes excessively directional, which may trigger a stance adjustment.
+This is used by the Overview Layer (L4) to detect when the portfolio becomes excessively directional, which may trigger a stance adjustment.
 
 ---
 
@@ -85,7 +87,7 @@ The `CorrelationMap` is updated periodically from historical price data. New cor
 
 The Exposure Layer reports:
 - `gross_exposure` → feeds into leverage ratio calculation in Capital Layer.
-- `net_exposure` → used for directional risk assessment in Portfolio Layer.
+- `net_exposure` → used for directional risk assessment in Overview Layer.
 
 ---
 
@@ -104,5 +106,5 @@ The Exposure Layer reports:
 - [PME Overview](../portfolio-management-engine/03-04-01-pme-overview-spec.md) — Engine boundaries and leverage restrictions.
 - [PME Layer 1 — Position](03-04-02-pme-layer1-position.md) — Upstream data source.
 - [PME Layer 3 — Capital](03-04-04-pme-layer3-capital.md) — Leverage calculation consumer.
-- [PME Layer 4 — Portfolio](03-04-05-pme-layer4-portfolio.md) — Veto trigger consumer.
+- [PME Layer 4 — Overview](03-04-05-pme-layer4-overview.md) — Veto trigger consumer.
 - [Ontology — Portfolio Management](../../conceptual-foundations/01-01-ontology.md) — Conceptual definitions.

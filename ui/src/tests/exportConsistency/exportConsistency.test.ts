@@ -86,8 +86,8 @@ describe('export consistency — Alignment tab', () => {
     expectJsonNumberRenderedAsDom(c, '+31', 30.5);
     expect(c.dom).toContain('82%');
     expect(c.payload.hero.trend_agreement_pct).toBe(82);
-    expect(c.dom).toContain('4/4');
-    expect(c.jsonText).toContain('4/4');
+    expect(c.dom).toContain('4 TF');
+    expect(c.jsonText).toContain('4 TF');
 
     // Consensus hero (v6.10.20 C): the dial verdict renders as a bold
     // header + grey sub-label — the export's `label_display` mirrors the
@@ -120,7 +120,7 @@ describe('export consistency — Alignment tab', () => {
     expect(c.dom).toContain('5 signals');
     expect(c.payload.per_timeframe[0].active_signals).toBe(5);
     expectInDomAndJson(c, '0.45');
-    expectInDomAndJson(c, 'TRENDING_BULL');
+    expectInDomAndJson(c, 'TRENDING');
     expectInDomAndJson(c, 'RANGE');
 
     // Score calculation: weights, contributions, formula.
@@ -132,7 +132,7 @@ describe('export consistency — Alignment tab', () => {
     // Interpretation — real label (STRONG BULL) and full screen sentence.
     const interpretation = stripTags(c.payload.interpretation);
     expect(interpretation).toContain('strong directional consensus');
-    expect(interpretation).toContain('82% agreement across 4/4 timeframes');
+    expect(interpretation).toContain('82% agreement across 4 timeframes');
     expect(interpretation).toContain('classified as WEAK BULL');
     expect(interpretation).toContain('2 cross-timeframe signal votes reinforce the current bias.');
     expect(c.dom).toContain(interpretation);
@@ -200,8 +200,8 @@ describe('export consistency — Risks tab', () => {
     expect(cascade.intensity_display).toBe('72.5');
     expect(c.dom).toContain('72.5');
     expect(cascade.asymmetry_magnitude_pct).toBe(35);
-    expect(cascade.asymmetry_display).toBe('↑35.0% (short squeeze)');
-    expectInDomAndJson(c, '↑35.0% (short squeeze)');
+    expect(cascade.asymmetry_display).toBe('↑35.0% (SHORT_SQUEEZE_RISK)');
+    expectInDomAndJson(c, '↑35.0% (SHORT_SQUEEZE_RISK)');
 
     // v6.11: execution-friction gauge — screen card + export parity.
     const exec = p.dimensions.find((d: { key: string }) => d.key === 'execution_risk')!;
@@ -273,7 +273,11 @@ describe('export consistency — Opportunities tab', () => {
     expect(c.dom).toContain('$66000');
     expect(c.dom).toContain('$62800');
     expect(c.dom).toContain('2.50');
-    expect(c.jsonText).toContain('2.50'); // header chip "1:2.50"
+    // v7.3: the header R:R chip is gone — the R:R story lives in the
+    // setup cards (screen "2.50", JSON rr_value) and the Expected R:R
+    // section; the exported header chip rail carries no R:R chip.
+    expect(p.header.chips.map((c: { label: string }) => c.label)).not.toContain('Reward-to-Risk Ratio');
+    expect(p.trade_setups[0].rr_value).toBe(2.5);
     expect(c.dom).toContain('3/3 preconditions met');
     expect(tc.preconditions_met).toBe(3);
 
@@ -308,16 +312,18 @@ describe('export consistency — Opportunities tab', () => {
     expectInDomAndJson(c, 'PIVOT POINTS');
     expect(p.confluent_target_levels).toHaveLength(2);
 
-    // Market position + environment.
+    // Market position: the export keeps the raw L3 mirror (bias / regime /
+    // quality). The on-screen Market Position section was removed (v7.4 —
+    // the L3 facts live on the Analysis tab), so this is JSON-only.
     expect(p.market_position.bias).toBe('Bullish');
-    expectInDomAndJson(c, 'Bullish');
-    expect(p.market_position.regime).toBe('TRENDING_BULL');
-    expect(p.environment.timeframes_considered_display).toBe('4/4 Timeframes considered');
+    expect(c.jsonText).toContain('Bullish');
+    expect(p.market_position.regime).toBe('TrendingBull');
+    expect(p.environment.timeframes_considered_display).toBe('4 Timeframes considered');
     // The environment pills moved into the L4 header chip rail — the chip
     // renders label + value ('Timeframes: 4/4') instead of the old
     // bottom-section sentence.
     expect(c.dom).toContain('Timeframes:');
-    expect(c.dom).toContain('4/4');
+    expect(c.dom).toContain('4 TF');
     expect(p.environment.confidence_pct).toBe(72);
     expect(c.dom).toContain('Confidence: 72%');
   });
@@ -412,7 +418,7 @@ describe('export consistency — Analysis tab', () => {
 
     // Body block.
     expect(p.body.bias).toBe('Bullish');
-    expect(p.body.market_regime).toBe('TRENDING_BULL');
+    expect(p.body.market_regime).toBe('TrendingBull');
     expect(p.body.market_quality).toBe('Good');
     expect(p.body.cycle_phase).toBe('MARKUP');
 
@@ -434,10 +440,10 @@ describe('export consistency — Analysis tab', () => {
     expect(micro.bucket).toBe('supporting');
     expect(micro.score).toBe(62);
     expect(micro.score_display).toBe('+62');
-    expect(micro.regime).toBe('TRENDING_BULL');
+    expect(micro.regime).toBe('TRENDING');
     expect(micro.signals_count).toBe(3);
     expectInDomAndJson(c, '+62');
-    expectInDomAndJson(c, 'TRENDING_BULL');
+    expectInDomAndJson(c, 'TRENDING');
 
     // Qualitative assessment.
     expect(p.qualitative_assessment.trend).toBe('Healthy');
@@ -457,14 +463,16 @@ describe('export consistency — Analysis tab', () => {
     expect(p.qualitative_assessment.volume_score_display).toBe('79%');
     expectInDomAndJson(c, '79%');
 
-    // Per-timeframe alignment 2×2 grid.
+    // Per-timeframe alignment — the on-screen gauge grid moved to the
+    // Alignment tab (v7.4); the export keeps the raw per-TF payload, so
+    // these are JSON-only assertions now.
     expect(p.per_timeframe_alignment).toHaveLength(4);
     const microTf = p.per_timeframe_alignment[0];
     expect(microTf.active).toBe(true);
     expect(microTf.trend_display).toBe('+0.45');
-    expectInDomAndJson(c, '+0.45');
+    expect(c.jsonText).toContain('+0.45');
     expect(microTf.overall_display).toBe('+1.0');
-    expect(microTf.regime).toBe('TRENDING_BULL');
+    expect(microTf.regime).toBe('TRENDING');
     expect(p.per_timeframe_alignment[3].regime).toBe('RANGE');
 
     // Interpretation + rationale.
@@ -473,9 +481,11 @@ describe('export consistency — Analysis tab', () => {
     // evidence is the structured grid below the interpretation; the full
     // rationale sentence still ships in the JSON export.
     expect(c.jsonText).toContain('The market is in a healthy uptrend');
-    expect(c.dom).toContain('31 / 100');
+    // v7.4: the Overall Score renders as a signed integer (+31), never a
+    // misleading "31 / 100" percentage.
+    expect(c.dom).toContain('+31');
     expect(c.dom).toContain('(Bullish)');
-    expect(c.dom).toContain('4/4 timeframes aligned');
+    expect(c.dom).toContain('4 timeframes aligned');
     expectJsonNumberRenderedAsDom(c, '83.3%', 83.3);
     expectJsonNumberRenderedAsDom(c, '33.0', 33.0);
 
@@ -698,10 +708,13 @@ describe('export consistency — Metrics tab (single-TF Micro)', () => {
     // Market context — export carries the wire values verbatim; the screen
     // surfaces the synthesis in the LayerHeader headline (humanized
     // display-form labels) plus the distributed dimension chips.
-    expect(p1.market_context.regime).toBe('TRENDING_BULL');
-    expect(p1.market_context.overall_label).toBe('STRONG_BULLISH');
-    expect(c1.dom).toContain('TRENDING BULL');
-    expect(c1.dom).toContain('STRONG BULLISH');
+    expect(p1.market_context.regime).toBe('TRENDING');
+    expect(p1.market_context.overall_label).toBe('STRONG_BULL');
+    // The TRENDING regime chip is HIDDEN on screen: the L1 header hides
+    // the regime when the badge label already implies it (STRONG_BULLISH
+    // contains BULL → TRENDING chip suppressed; payload keeps the value).
+    expect(c1.dom).not.toContain('Regime: TRENDING');
+    expect(c1.dom).toContain('STRONG BULL');
     expect(p1.market_context.age_bars_display).toMatch(/^\d+b$/);
 
     // Age chip (per-TF header) mirrors the export's age_bars_display —
@@ -866,9 +879,9 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     expect(p.source_tab).toBe('mtf');
 
     // MTF sentinel: no single timeframe — timeframe_secs is 0 and the
-    // actual TF list is carried in meta.timesframes.
+    // actual TF list is carried in meta.timeframes.
     expect(p.meta.timeframe_secs).toBe(0);
-    expect(p.meta.timesframes).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
+    expect(p.meta.timeframes).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
 
     // Registry display names on both surfaces.
     expect(p.indicators.some((r: { display_name: string }) => r.display_name === 'RSI (14)')).toBe(true);
@@ -1079,18 +1092,18 @@ describe('export consistency — Overview tab', () => {
       const entry = app.instancesMap[PAIR];
       if (entry && !entry.instanceId) entry.instanceId = 'inst_test_btc';
       app.overviewMatrix = {
-        global_market_bias: 'Bullish',
-        market_breadth: 'Positive',
+        global_market_bias: 'BULLISH',
+        market_breadth: 'POSITIVE',
         regime_distribution: {
-          TRENDING_BULL: 0.6,
+          TRENDING: 0.6,
           RANGE: 0.3,
           VOLATILE: 0.1,
         },
         opportunity_distribution: {},
         risk_distribution: { low_pct: 60, moderate_pct: 30, high_pct: 10, risk_environment: 'LOW_RISK' },
         asset_ranking: [],
-        market_synchronization: 'Synchronized',
-        market_health: 'Healthy',
+        market_synchronization: 'SYNCHRONIZED',
+        market_health: 'HEALTHY',
         global_summary: 'Bullish breadth with synchronized pairs.',
         instance_count: 3,
         active_symbols: ['BTC-USDT'],
@@ -1136,16 +1149,16 @@ describe('export consistency — Overview tab', () => {
     expect(p.hero.actionable_count).toBeGreaterThan(0);
     expect(p.hero.best_symbol).toBe('BTC');
     expect(p.hero.best_direction).toBeTruthy();
-    expect(c.jsonText).toContain('R:R 1 :');
+    expect(c.jsonText).toContain('risk-reward');
 
     // KPI strip (6 cards).
     expect(c.dom).toContain('VALID TRADES');
     expect(c.dom).toContain('BEST OPPORTUNITY');
-    expect(c.dom).toContain('AVG R:R');
+    expect(c.dom).toContain('RISK TO REWARD RATIO');
     expect(c.dom).toContain('MARKET BIAS');
     expect(c.dom).toContain('AVG RISK');
     expect(c.dom).toContain('COVERAGE');
-    expect(p.kpis.market_bias.value).toBe('Bullish');
+    expect(p.kpis.market_bias.value).toBe('BULLISH');
     expect(p.kpis.market_bias.sub).toContain('42% breadth');
     expect(c.dom).toContain('42% breadth');
 
@@ -1178,23 +1191,23 @@ describe('export consistency — Overview tab', () => {
 
     // Market Health — overall + sync chip + 4 sub-dim bars.
     expect(c.dom).toContain('MARKET HEALTH');
-    expect(c.dom).toContain('Healthy');
+    expect(c.dom).toContain('HEALTHY');
     expect(c.dom).toContain('SYNC');
     expect(c.dom).toContain('SYNCHRONIZED');
     expect(c.dom).toContain('TREND STRENGTH');
     expect(c.dom).toContain('LIQUIDITY');
     expect(c.dom).toContain('VOLATILITY');
     expect(c.dom).toContain('SIGNAL STABILITY');
-    expect(p.market_health.overall_display).toBe('Healthy');
+    expect(p.market_health.overall_display).toBe('HEALTHY');
     expect(p.market_health.sync_display).toBe('SYNCHRONIZED');
     expect(p.market_health.bars).toHaveLength(4);
 
     // Regime distribution — sorted descending.
     expect(c.dom).toContain('REGIME DISTRIBUTION');
-    expect(c.dom).toContain('Trending Bull');
+    expect(c.dom).toContain('Trending');
     expect(c.dom).toContain('Range');
     expect(c.dom).toContain('Volatile');
-    expect(p.regime_distribution.rows[0].key).toBe('TRENDING_BULL');
+    expect(p.regime_distribution.rows[0].key).toBe('TRENDING');
     expect(p.regime_distribution.rows[0].pct).toBe(60);
     expect(c.dom).toContain('60%');
 
@@ -1216,7 +1229,7 @@ describe('export consistency — Overview tab', () => {
     const row = p.asset_rankings.rows.find((r: { symbol: string }) => r.symbol === 'BTC');
     expect(row).toBeTruthy();
     expect(row.symbol).toBe('BTC');
-    expect(row.rr_display).toContain('1 : ');
+    expect(row.rr_display).toMatch(/^(\d+(\.\d{1,2})?|—)$/);
     expect(row.confidence_display).toMatch(/^\d+%$/);
     expect(row.score_display).toMatch(/^\d+$/);
     expect(row.mtf_label_display).toBe('WEAK BULL');
@@ -1225,7 +1238,7 @@ describe('export consistency — Overview tab', () => {
 
     // Raw L7 matrix + counts captured for downstream consumers.
     expect(p.overview_matrix).not.toBeNull();
-    expect(p.overview_matrix.global_market_bias).toBe('Bullish');
+    expect(p.overview_matrix.global_market_bias).toBe('BULLISH');
     expect(p.instance_count).toBeGreaterThan(0);
   });
 

@@ -64,16 +64,25 @@ struct TrackerState {
 
 #[derive(Debug, Clone)]
 enum QualityEvent {
-    Connected { at_ms: u64 },
-    Disconnected { at_ms: u64 },
-    ReconnectCompleted { at_ms: u64, duration_ms: u64 },
+    Connected {
+        at_ms: u64,
+    },
+    Disconnected {
+        at_ms: u64,
+    },
+    ReconnectCompleted {
+        at_ms: u64,
+        duration_ms: u64,
+    },
     /// AUDIT-V9 B3: a candle was reconstructed (REST gap fill or
     /// sub-minute synthesis). Carries the timestamp so the rolling
     /// window report can count only events that fall inside the
     /// window — replacing the previous unbounded process-lifetime
     /// `reconstructed_candle_count` which permanently penalised the
     /// composite score for the rest of the session.
-    Reconstructed { at_ms: u64 },
+    Reconstructed {
+        at_ms: u64,
+    },
 }
 
 impl ConnectionQualityTracker {
@@ -127,11 +136,7 @@ impl ConnectionQualityTracker {
 
     pub async fn record_reconstructed_candle(&self, at_ms: u64) {
         let mut state = self.state.write().await;
-        append_event(
-            &mut state,
-            QualityEvent::Reconstructed { at_ms },
-            at_ms,
-        );
+        append_event(&mut state, QualityEvent::Reconstructed { at_ms }, at_ms);
     }
 
     pub async fn report(&self, window: QualityWindow, now_ms: u64) -> ConnectionQualityReport {
@@ -218,8 +223,7 @@ impl ConnectionQualityTracker {
         let disconnect_factor = 1.0 - (disconnect_count as f64 / 10.0).min(1.0);
         let reconnect_factor = 1.0 - (avg_reconnect_ms / 5000.0).min(1.0);
         let data_loss_penalty = 5.0 * (total_data_loss_secs as f64 / 600.0).min(1.0);
-        let reconstructed_penalty =
-            5.0 * (reconstructed_count as f64 / 100.0).min(1.0);
+        let reconstructed_penalty = 5.0 * (reconstructed_count as f64 / 100.0).min(1.0);
         let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor
             - data_loss_penalty
             - reconstructed_penalty)
@@ -272,9 +276,7 @@ impl ConnectionQualityRegistry {
     ) -> Option<ConnectionQualityReport> {
         let tracker = {
             let scopes = self.scopes.read().await;
-            scopes
-                .get(&(pair_key.to_string(), timeframe_secs))
-                .cloned()
+            scopes.get(&(pair_key.to_string(), timeframe_secs)).cloned()
         };
         match tracker {
             Some(t) => Some(t.report(window, now_ms).await),
@@ -290,10 +292,7 @@ impl ConnectionQualityRegistry {
     ) -> Vec<(String, u64, ConnectionQualityReport)> {
         let snapshot: Vec<((String, u64), ConnectionQualityTracker)> = {
             let scopes = self.scopes.read().await;
-            scopes
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
+            scopes.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
         };
         let mut out = Vec::with_capacity(snapshot.len());
         for ((pair_key, tf), tracker) in snapshot {
@@ -355,12 +354,12 @@ impl ConnectionQualityRegistry {
         } else {
             reconnects.iter().sum::<f64>() / reconnects.len() as f64
         };
-        let total_data_loss_secs: u64 = reports
+        let total_data_loss_secs: u64 =
+            reports.iter().map(|(_, _, r)| r.total_data_loss_secs).sum();
+        let reconstructed_candles: u32 = reports
             .iter()
-            .map(|(_, _, r)| r.total_data_loss_secs)
+            .map(|(_, _, r)| r.reconstructed_candles)
             .sum();
-        let reconstructed_candles: u32 =
-            reports.iter().map(|(_, _, r)| r.reconstructed_candles).sum();
         // AUDIT-V9 B2: composite is the mean of per-scope composite
         // scores — a workspace-wide re-application of the formula is
         // misleading because its counters aggregate cross-scope.
@@ -639,9 +638,7 @@ mod tests {
         // 12 scopes, each with exactly 1 disconnect inside the window.
         for pair in 0..3 {
             for tf_secs in [60_u64, 180, 300, 900] {
-                let t = registry
-                    .scope(&format!("PAIR-{pair}"), tf_secs)
-                    .await;
+                let t = registry.scope(&format!("PAIR-{pair}"), tf_secs).await;
                 t.record_connect(now_ms - 60_000).await;
                 t.record_disconnect(now_ms - 30_000).await;
                 t.record_reconnect(now_ms - 29_000, 100).await;

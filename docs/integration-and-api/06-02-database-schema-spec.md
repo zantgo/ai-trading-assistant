@@ -1,13 +1,13 @@
 # Database Schema Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
 **This catalog is the current target schema (version per README §Feature Status).** Per-table implementation status is tracked in README §Feature Status.
 **Purpose:** This document specifies the SQLite database schema — all persistent tables, indexes, WAL configuration, and migration strategy for the Trading Platform's shared telemetry store.
 
-**Active tables (26):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)).
+**Active tables (27):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)), **`liquidation_real_buckets`** (Block D — added in v6.10; periodic flush of the in-memory price-bucketed liquidation aggregation, see [02-12-liquidity-matrix.md §5](../matrices/02-12-liquidity-matrix.md)).
 
 **Deferred (forward-compatibility only):** none.
 
@@ -52,14 +52,16 @@ Indexes are created on each table for the query patterns the engine actually use
 
 | Index | Columns | Use |
 |---|---|---|
-| `idx_market_snapshots_pair_time` | `(pair_key, timeframe_secs, timestamp DESC)` | Replay history fetch |
-| `idx_market_snapshots_completed` | `(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1` | MME pipeline (only completed snapshots) |
-| `idx_market_snapshots_reconstructed` | `(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1` | Reconstructed-candle audit |
+| `idx_snapshots_lookup` | `(symbol, timeframe_secs, timestamp DESC)` | Replay history fetch |
+| `idx_snapshots_liquidity_cascade` | `(symbol, timeframe_secs, timestamp DESC) WHERE liquidity_cascade_state IS NOT NULL` | Liquidity cascade queries |
+| `idx_liq_events_lookup` | `(symbol, timestamp DESC)` | Liquidation-event forensics |
+| `idx_liq_events_exchange` | `(exchange, timestamp DESC)` | Venue-level liquidation scans |
 | `idx_open_orders_state` | `(state, instance_id, created_at)` | Live order lifecycle queries |
 | `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
 | `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
 | `idx_rce_instance_gate_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
-| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local"`) |
+| `idx_rce_symbol_time` | `(symbol, timestamp_ms DESC)` | Per-symbol safety audit lookups |
+| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Single-operator audit index (`operator_id = "local"`) |
 | `idx_order_fills_trade` | `(trade_id)` | Per-fill PAE reconstruction |
 | `idx_order_fills_order` | `(order_id)` | Per-order fill chain |
 | `idx_cq_pair_timeframe_window_time` | `(pair_key, timeframe_secs, window, timestamp_ms DESC)` | Connection-quality queries (per-instance × per-timeframe window filter) |
@@ -73,61 +75,99 @@ Tables are grouped by ownership. Each entry shows the canonical schema (DDL-styl
 
 ### 3.1 `market_snapshots` — MME telemetry persistence (storage owned by DIE; content produced by MME)
 
-The primary time-series table — one row per completed candle, paired with the rolled-up MME matrix outputs that ride the WS `MarketSnapshot`. Rows are written only for completed candles; the `is_completed` column is retained for forward compatibility with shadow persistence (always `1` today), and the partial index `idx_market_snapshots_completed` is defensive.
+The primary time-series table — one row per completed candle: the candle itself, the indicator state (raw + normalized dual representation), the liquidity / cluster payloads (Phase 0–4), and the full indicator map as an auxiliary JSON blob. Rows are written only for completed candles by the analyzer's telemetry sink (`TelemetryMsg::InsertSnapshot`). The DDL below is the **actual applied schema** (initial migration `20240601000000_initial_schema.sql` + subsequent `ALTER TABLE` migrations `20260704…20260726`); the wire's L2–L6 matrices (`alignment`/`analysis`/`risk`/`advisory`/`opportunity`/`decision_context`/`context`/`statistical_context`/`metrics_config`) are **not persisted** — `query_latest_snapshot` reconstructs those as `None` and they are recomputed live by the MME (see *Persistence boundary* below).
 
 ```sql
 CREATE TABLE IF NOT EXISTS market_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pair_key TEXT NOT NULL,
-    timeframe_secs INTEGER NOT NULL,
+    exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
+    symbol TEXT NOT NULL,
+    timeframe_secs INTEGER NOT NULL DEFAULT 60,
     timestamp INTEGER NOT NULL,
-    is_completed INTEGER NOT NULL DEFAULT 1,
-    exchange TEXT NOT NULL,
     mid_price TEXT NOT NULL,
     bid_price TEXT NOT NULL,
     ask_price TEXT NOT NULL,
-    bid_size TEXT NOT NULL,
-    ask_size TEXT NOT NULL,
-    funding_rate TEXT,
-    open TEXT NOT NULL,
-    high TEXT NOT NULL,
-    low TEXT NOT NULL,
-    close TEXT NOT NULL,
-    volume TEXT NOT NULL,
-    average_volume TEXT,
-    open_interest TEXT,
-    oi_delta_1h TEXT,
-    prev_day_px TEXT,
-    mark_price TEXT,
-    index_price TEXT,
-    mark_index_spread_pct REAL,
-    reconstructed INTEGER NOT NULL DEFAULT 0,
-    reconstruction_method TEXT CHECK (reconstruction_method IS NULL OR reconstruction_method IN ('EXCHANGE_HISTORICAL','EXPONENTIAL_MOVING_AVERAGE','LINEAR_EXTRAPOLATION','UNAVAILABLE')),
-    indicators_json TEXT NOT NULL CHECK (json_valid(indicators_json)),
-    liquidity_json TEXT CHECK (liquidity_json IS NULL OR json_valid(liquidity_json)),
-    cluster_json TEXT CHECK (cluster_json IS NULL OR json_valid(cluster_json)),
-    liquidity_signals_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(liquidity_signals_json)),
-    alignment_json TEXT CHECK (alignment_json IS NULL OR json_valid(alignment_json)),
-    analysis_json TEXT CHECK (analysis_json IS NULL OR json_valid(analysis_json)),
-    risk_json TEXT CHECK (risk_json IS NULL OR json_valid(risk_json)),
-    advisory_json TEXT CHECK (advisory_json IS NULL OR json_valid(advisory_json)),
-    opportunity_json TEXT CHECK (opportunity_json IS NULL OR json_valid(opportunity_json)),
-    metrics_config_json TEXT CHECK (metrics_config_json IS NULL OR json_valid(metrics_config_json)),
-    decision_context_json TEXT CHECK (decision_context_json IS NULL OR json_valid(decision_context_json)),
-    context_json TEXT CHECK (context_json IS NULL OR json_valid(context_json)),
-    statistical_context_json TEXT CHECK (statistical_context_json IS NULL OR json_valid(statistical_context_json)),
-    risk_profile_json TEXT CHECK (risk_profile_json IS NULL OR json_valid(risk_profile_json))
+    open TEXT, high TEXT, low TEXT, close TEXT,
+    volume TEXT, average_volume TEXT,
+    -- raw indicator scalars
+    bb_upper TEXT, bb_middle TEXT, bb_lower TEXT, atr_14 TEXT, vwap TEXT,
+    ema_fast TEXT, ema_medium TEXT, ema_slow TEXT, ema_long TEXT, rsi_14 TEXT,
+    macd_line TEXT, macd_signal TEXT, macd_hist TEXT,
+    adx_14 TEXT, adx_plus TEXT, adx_minus TEXT,
+    squeeze_on INTEGER, squeeze_momentum TEXT, bbwp TEXT,
+    support_levels TEXT, resistance_levels TEXT,
+    -- normalized [-1,1] + state label dual representation (primary scored set)
+    rsi_normalized REAL, rsi_state_label TEXT,
+    macd_normalized REAL, macd_state_label TEXT,
+    squeeze_normalized REAL, squeeze_state_label TEXT,
+    adx_normalized REAL, adx_state_label TEXT,
+    bbwp_normalized REAL, bbwp_state_label TEXT,
+    rvol_normalized REAL, rvol_state_label TEXT,
+    ema_stack_normalized REAL, ema_stack_state_label TEXT,
+    vwap_normalized REAL, vwap_state_label TEXT,
+    -- extended indicator set (phase 1a/1b + stoch/chandemo)
+    stoch_k_normalized REAL, stoch_k_state_label TEXT,
+    stoch_d_normalized REAL, stoch_d_state_label TEXT,
+    chandemo_normalized REAL, chandemo_state_label TEXT,
+    supertrend_normalized REAL, supertrend_state_label TEXT,
+    keltner_normalized REAL, keltner_state_label TEXT,
+    donchian_normalized REAL, donchian_state_label TEXT,
+    obv_normalized REAL, obv_state_label TEXT,
+    cmf_normalized REAL, cmf_state_label TEXT,
+    mfi_normalized REAL, mfi_state_label TEXT,
+    hv_normalized REAL, hv_state_label TEXT,
+    aroon_normalized REAL, aroon_state_label TEXT,
+    choppiness_normalized REAL, choppiness_state_label TEXT,
+    linreg_slope_normalized REAL, linreg_slope_state_label TEXT,
+    zscore_normalized REAL, zscore_state_label TEXT,
+    -- fibonacci resting levels
+    fib_GP_top REAL, fib_GP_bottom REAL, fib_ext_1618 REAL, fib_ext_2618 REAL,
+    -- liquidity intelligence (Phase 0–4, migration 20260726)
+    liquidity_long_usd REAL, liquidity_short_usd REAL, liquidity_net_usd REAL,
+    liquidity_events INTEGER,
+    liquidity_cascade_state TEXT, liquidity_cascade_intensity REAL,
+    cluster_long_count INTEGER, cluster_short_count INTEGER,
+    cluster_total_notional_usd REAL, cluster_estimation_confidence REAL,
+    liquidity_json TEXT, cluster_json TEXT,
+    -- full indicator map (all 52 keys, raw + normalized + labels + signals)
+    auxiliary_normalized_data TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_market_snapshots_pair_time ON market_snapshots(pair_key, timeframe_secs, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_market_snapshots_completed ON market_snapshots(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1;
-CREATE INDEX IF NOT EXISTS idx_market_snapshots_reconstructed ON market_snapshots(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1;
+CREATE INDEX IF NOT EXISTS idx_snapshots_lookup
+    ON market_snapshots (symbol, timeframe_secs, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_liquidity_cascade
+    ON market_snapshots(symbol, timeframe_secs, timestamp DESC)
+    WHERE liquidity_cascade_state IS NOT NULL;
 ```
 
-**Persistence rule.** `market_snapshots` stores the **core candle + MME matrix fields** that are needed for replay and historical backtesting. Fields that are local to the live WS broadcast envelope (e.g. live shadow values that flicker until the next completed candle, the §A.7 `cascade_risk_index` placeholder) are **not persisted** to keep the table tight. The canonical wire contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); live-only fields are computed on the wire and recomputed by the MME during replay. The wire and persistent contracts are deliberately scoped — see `docs/CHANGELOG.md` for the resolution history.
+**Persistence boundary (code truth).** The L2–L6 matrix payloads (`alignment_json`, `analysis_json`, `risk_json`, `advisory_json`, `opportunity_json`, `decision_context_json`, `context_json`, `statistical_context_json`, `metrics_config_json`) and `indicators_json` are **documented-but-not-implemented**: no migration creates them and the INSERT writes neither — earlier revisions of this spec listed those columns; they were never shipped. Matrices are recomputed live by the MME and reconstructed as `None` by `query_latest_snapshot`. Persisted per-candle state covers: OHLCV, book prices, raw + normalized indicator scalars, Fibonacci levels, the `LiquidityFlow` + `LiquidationClusterMatrix` summary scalars and full JSON, and the complete indicator map in `auxiliary_normalized_data`.
+
+**Applied but unwritten columns.** Migration `20260715` adds `mark_price`, `index_price`, `mark_index_spread_pct` (TEXT/REAL) plus `idx_snapshots_mark_price` — the INSERT never writes them (always `None`), so they are omitted from the DDL above; they exist for forward compatibility with price-provenance auditing.
+
+**`liquidation_events` (Phase 1 input log).** Migration `20260715` creates the raw liquidation event log consumed by the L1.5 accumulator:
+
+```sql
+CREATE TABLE IF NOT EXISTS liquidation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    price REAL NOT NULL,
+    size_usd REAL NOT NULL,
+    timestamp INTEGER NOT NULL,
+    venue_order_id TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_liq_events_lookup ON liquidation_events (symbol, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_liq_events_exchange ON liquidation_events (exchange, timestamp DESC);
+```
+
+Retention: 90-day window (pruned by the telemetry logger's retention pass). CA-15 note: when the `[activation]` `liquidation_feed` toggle is disabled, the L1.5 accumulator aggregation stops (`record_event` gated) but raw event persistence here continues unchanged — "MME L1.5 drops the feed; DIE ingestion continues" (see [03-02-12 §CA-15](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)).
+
+**Retention.** The same 7-day window applies to `market_snapshots` (pruned by the telemetry logger's retention pass); the liquidity columns are covered by the same window — no separate cleanup pass.
 
 **Book-state provenance.** `mid_price`, `bid_price`, `ask_price`, and `average_volume` are sourced from the AssetContext/book channels (not from the candle close itself) and may lag the close.
 
-**Liquidity signals serialization.** `liquidity_signals_json` is **always serialized** as a JSON array (never omitted via `skip_serializing_if`). An empty signal set produces `"[]"`. This policy is matched by the live `/ws` payload and by [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md).
+**Liquidity serialization.** `liquidity_json` / `cluster_json` carry the full `LiquidityFlow` / `LiquidationClusterMatrix` payloads for `/api/history` round-trips (chart bootstrap after a daemon restart); the scalar columns above summarise the same state for queryability. The live `/ws` payload carries the same structures inline — see [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md).
 
 ### 3.2 `open_orders` — TAE order lifecycle (canonical vocabulary)
 
@@ -159,7 +199,7 @@ CREATE TABLE IF NOT EXISTS open_orders (
 CREATE INDEX IF NOT EXISTS idx_open_orders_state ON open_orders(state, instance_id, created_at);
 ```
 
-**Per `03-03-03-tae-layer2-execution.md §4`:** `PRE_DISPATCH` orders are held in process memory only and are **never** persisted to `open_orders`. The `risk_control_events` table (§3.10) is the persistent audit trail for every held order; the `/api/pre-dispatch/*` resource ([`06-01 §2.9`](06-01-api-gateway-contract.md)) is the operator surface.
+**v7 note:** the pre-dispatch review path and its `PRE_DISPATCH` order state were erased with the policy engine. `risk_control_events` (§3.10) remains the audit trail for safety veto releases and resets.
 
 The `close_reason` vocabulary is canonical: `STOP_LOSS`, `TAKE_PROFIT`, `SIGNAL_EXIT`, `MANUAL`, `VETO`, `TIMEOUT`, `EMERGENCY_LIQUIDATION`. The PAE contract consumes this exact enum without aliasing.
 
@@ -198,7 +238,7 @@ CREATE TABLE IF NOT EXISTS paper_balances (
 );
 ```
 
-**Persistence semantics.** `active_stance` (per-symbol authorization: `ACTIVE`, `CLOSE_ONLY`, `AVOID`) and the account-level `safety_state` (`NORMAL`, `WARN`, `CAUTIOUS`, `SUSPENDED`, `DRAWDOWN_STOP`) are both persisted; `consecutive_losses` and `cooldown_start_ms` complete the safety-state reconstruction set. The PME reconstructs the safety-state machine on engine restart from these columns deterministically. See [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and the `AUDIT-V4-046` resolution in `docs/CHANGELOG.md`.
+**Persistence semantics.** `active_stance` (per-symbol authorization: `ACTIVE`, `CLOSE_ONLY`, `AVOID`) and the account-level `safety_state` (`NORMAL`, `WARN`, `CAUTIOUS`, `SUSPENDED`, `DRAWDOWN_STOP`) are both persisted; `consecutive_losses` and `cooldown_start_ms` complete the safety-state reconstruction set. The PME reconstructs the safety-state machine on engine restart from these columns deterministically. See [`03-04-05-pme-layer4-overview.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) and the `AUDIT-V4-046` resolution in `docs/CHANGELOG.md`.
 
 ### 3.5 `active_positions` — PME Position Matrix
 
@@ -224,7 +264,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v6.10 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target Unscheduled (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -290,25 +330,35 @@ CREATE INDEX IF NOT EXISTS idx_order_fills_order ON order_fills(order_id);
 
 `order_fills` is **active in v4.0** (B-6). The PAE contract (`03-05-02 §3`) is now **complete per-fill attribution**: MFE/MAE, slippage (per-fill `target_price - fill_price`), fee attribution, and volume-weighted average entry/exit are all computed from the per-fill rows. See [`03-05-02-pae-layer1-trade-analytics.md`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) §3.
 
-### 3.8 `exchange_keys` — encrypted API credentials (AES-256-GCM)
+### 3.8 `exchange_keys` — encrypted API credentials (AES-256-GCM, v7.1)
+
+The v4.0 draft schema (key_id / encrypted_api_key BLOB / encryption_nonce / encryption_algorithm / last_rotated_at) was never materialized; the shipped migration (20240601000000) defines the real table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS exchange_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_id TEXT NOT NULL UNIQUE,
     exchange TEXT NOT NULL,
-    encrypted_api_key BLOB NOT NULL,
-    encrypted_api_secret BLOB NOT NULL,
-    encrypted_passphrase BLOB,
-    encryption_nonce BLOB NOT NULL,
-    encryption_algorithm TEXT NOT NULL DEFAULT 'AES-256-GCM' CHECK (encryption_algorithm = 'AES-256-GCM'),
-    created_at INTEGER NOT NULL,
-    last_rotated_at INTEGER NOT NULL
+    account_name TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    api_secret TEXT NOT NULL,
+    passphrase TEXT NOT NULL DEFAULT '',
+    referred_uid TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 0,
+    last_sync_timestamp INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_exchange_keys_exchange ON exchange_keys(exchange);
 ```
 
-> **Encrypted credentials only.** `config.toml` holds no secret material — all API keys, secrets, and passphrases live in this table, encrypted at rest with `EXCHANGE_SECRET_KEY` (master key from environment variable). The contract is in [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md).
+`api_secret` and `passphrase` are stored **AES-256-GCM encrypted** with the `EXCHANGE_SECRET_KEY` master key (env var). `api_key` is stored plaintext (it is not secret material — it identifies the account; Hyperliquid uses the wallet address, Bitget the API key id).
+
+**Per-venue field guide (v7.1):**
+
+| Venue | `api_key` | `api_secret` | `passphrase` |
+|---|---|---|---|
+| Hyperliquid | Wallet address (`0x…`) | Wallet private key hex | unused |
+| Bitget | API key id | API secret | API passphrase (required) |
+
+> **Encrypted credentials only.** `config.toml` holds no secret material — all API keys, secrets, and passphrases live in this table. The management API is [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md); rotation re-encrypts every row under a new master key (`POST /api/keys/rotate`).
 
 ### 3.9 `connection_quality_samples` — per-instance uptime telemetry
 
@@ -333,32 +383,27 @@ CREATE INDEX IF NOT EXISTS idx_cq_pair_timeframe_window_time ON connection_quali
 
 The persistence loop in `crates/network-adapters/src/connection_quality_tracker.rs::run_persistence_loop` writes one row per (tracker × window) every 60 seconds; there is one tracker per `(pair_key, timeframe_secs)` pair, so a workspace with `N` symbols and a 4-tier ladder yields up to `4 × N` trackers, each producing 3 rows per 60s tick (one per window).
 
-### 3.10 `risk_control_events` — gate-rejection and override audit (new in v4.0)
+### 3.10 `risk_control_events` — single-operator safety audit (v7)
 
-Every pre-trade gate failure (Gates 0–7; Gate 0 is the lifecycle gate added in v6.2 per [03-03-06 IL-05](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)) and every operator override is logged with the local-operator identity, gate id, decision, prior state, resulting state, and a retention timestamp:
+Every informational safety action (release, reset, session reset) and every manual automation close is logged with the single-operator identity, gate id, decision, reason, and timestamp. The v4.0 draft schema (event_id / prior_state / resulting_state / retention_until_ms) was never materialized; the shipped migration (20260818000001) + the v7.0 operator column (20260818000005) define the real table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS risk_control_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id TEXT NOT NULL UNIQUE,
-    policy_id TEXT,
     instance_id TEXT NOT NULL,
-    gate_id INTEGER NOT NULL,
-    decision TEXT NOT NULL CHECK (decision IN ('BLOCK', 'HELD_FOR_REVIEW', 'CLIP_AND_CONTINUE', 'OVERRIDE')),
-    reason TEXT NOT NULL,
-    requested_disposition TEXT NOT NULL,
-    operator_id TEXT NOT NULL DEFAULT 'local',
-    prior_state TEXT,
-    resulting_state TEXT,
-    pre_dispatch_order_id TEXT,
+    symbol TEXT,
+    gate_id INTEGER,
+    decision TEXT,
+    reason TEXT,
     timestamp_ms INTEGER NOT NULL,
-    retention_until_ms INTEGER NOT NULL
+    operator_id TEXT NOT NULL DEFAULT 'local'
 );
 CREATE INDEX IF NOT EXISTS idx_rce_instance_gate_time ON risk_control_events(instance_id, gate_id, timestamp_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_rce_symbol_time ON risk_control_events(symbol, timestamp_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator_id, timestamp_ms DESC);
 ```
 
-`operator_id = 'local'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` remains available by convention for cases where the API layer forwards without an explicit identity (not currently surfaced). The column carries no CHECK — plain `TEXT NOT NULL DEFAULT 'local'` — forward-compatible with caller-supplied identity (AUDIT-V4-076). Caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled).
+`operator_id = 'local'` is the fixed single-operator identity (per [`06-01 §1`](06-01-api-gateway-contract.md)): the platform is a single-operator local deployment with no caller-supplied identity (AUDIT-V4-076 cancelled). Writers: the safety release/reset/session-reset handlers and the automation manual-close handler (`operator_id = "local"`).
 
 ### 3.11 — 3.26 Remaining tables
 
@@ -411,6 +456,87 @@ CREATE INDEX IF NOT EXISTS idx_lifecycle_events_instance_time
 ```
 
 Every transition from §2 of the lifecycle spec writes one row. `actor` distinguishes operator commands, automation conditions, and system-internal transitions. `to_state` extends the lifecycle CHECK with `DELETED` (the DELETE endpoint produces tombstone transitions; the row is preserved for audit but excluded from active views).
+
+### BTE candle archive + data-science tables (v8)
+
+```sql
+CREATE TABLE IF NOT EXISTS candle_archive (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  exchange        TEXT NOT NULL DEFAULT 'Hyperliquid',
+  symbol          TEXT NOT NULL,
+  timeframe_secs  INTEGER NOT NULL,
+  ts_secs         INTEGER NOT NULL,
+  open TEXT, high TEXT, low TEXT, close TEXT, volume TEXT,
+  trades_count    INTEGER,
+  source          TEXT NOT NULL DEFAULT 'live',   -- live | reconstructed | backfill
+  UNIQUE (exchange, symbol, timeframe_secs, ts_secs)
+);
+
+CREATE TABLE IF NOT EXISTS backfill_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  instance_id TEXT NOT NULL, symbol TEXT NOT NULL,
+  exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
+  depth_days INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'running',
+  pages_fetched INTEGER NOT NULL DEFAULT 0,
+  candles_stored INTEGER NOT NULL DEFAULT 0,
+  earliest_ts_secs INTEGER, latest_ts_secs INTEGER,
+  error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+
+ALTER TABLE backtest_runs ADD COLUMN instance_id TEXT;
+ALTER TABLE backtest_runs ADD COLUMN mode TEXT;
+ALTER TABLE backtest_runs ADD COLUMN config_snapshot_json TEXT;
+
+CREATE TABLE IF NOT EXISTS backtest_trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL, ts_close_secs INTEGER NOT NULL,
+  direction TEXT NOT NULL, entry_price REAL NOT NULL, exit_price REAL NOT NULL,
+  size REAL NOT NULL, pnl REAL NOT NULL, exit_reason TEXT NOT NULL DEFAULT '',
+  ts_entry_secs INTEGER, hold_secs INTEGER, mfe_pct REAL, mae_pct REAL, roi_pct REAL,
+  slippage_bps REAL, commission_fees REAL, funding_fees REAL
+);
+-- v10.1 cost attribution: slippage_bps = entry+exit fill-vs-mid bps;
+-- commission_fees = exit commission; funding_fees = direction-aware
+-- 8h settlement accrued on the position (negative = paid).
+-- exit_reason vocabulary (v10): 'tp' | 'sl' | 'invalidated_signal' |
+-- 'manual' | 'stop_flatten' | 'end_of_backtest' (v8.2 end-of-run force-close) |
+-- 'setup_gone' | 'confidence_drop' (v10 posture/confidence exits)
+
+CREATE TABLE IF NOT EXISTS backtest_equity (
+  run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL, equity REAL NOT NULL,
+  PRIMARY KEY (run_id, ts_secs)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_portfolio (
+  run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL,
+  equity REAL NOT NULL, cash REAL NOT NULL, margin_used REAL NOT NULL,
+  exposure_pct REAL NOT NULL, drawdown_pct REAL NOT NULL,
+  positions_open INTEGER NOT NULL,
+  PRIMARY KEY (run_id, ts_secs)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_signals (
+  run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL,
+  timeframe_secs INTEGER NOT NULL, label TEXT NOT NULL,
+  kind TEXT NOT NULL, value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backtest_metrics (
+  run_id INTEGER NOT NULL, metric_key TEXT NOT NULL, value TEXT NOT NULL,
+  PRIMARY KEY (run_id, metric_key)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_input_bars (
+  run_id INTEGER NOT NULL, symbol TEXT NOT NULL,
+  timeframe_secs INTEGER NOT NULL, ts_secs INTEGER NOT NULL,
+  open TEXT NOT NULL, high TEXT NOT NULL, low TEXT NOT NULL,
+  close TEXT NOT NULL, volume TEXT NOT NULL,
+  PRIMARY KEY (run_id, symbol, timeframe_secs, ts_secs)
+);
+```
+
+See `docs/engines/backtesting-engine/08-02-archive-and-backfill.md` and
+`08-05-study-persistence.md` for the write paths and retention rules.
 
 ---
 
@@ -487,9 +613,13 @@ The canonical v4.0 migration set adds eight changes:
 - [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md) — canonical `MarketSnapshot` wire contract; top-level liquidity fields.
 - [`02-08-opportunity-matrix.md §2.1`](../matrices/02-08-opportunity-matrix.md) — `invalidation_level` canonical name; migration from `invalidation_level` and `final_invalidation`.
 - [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — order-state lifecycle; `PRE_DISPATCH` semantics.
-- [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — safety-state machine and reconstruction from persisted columns.
+- [`03-04-05-pme-layer4-overview.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) — safety-state machine and reconstruction from persisted columns.
 - [`03-05-02-pae-layer1-trade-analytics.md §3`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) — per-fill reconstruction contract.
 - [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md) — `POST /api/keys` encrypted-credential contract.
 - [`08-02-pre-trade-risk-controls.md`](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — gate ordering and `risk_control_events` provenance.
 - [`08-04-candle-reconstruction.md`](../operations-and-compliance/08-04-candle-reconstruction.md) — reconstruction methods.
 - [`08-05-connection-quality.md`](../operations-and-compliance/08-05-connection-quality.md) — `connection_quality_samples` data model.
+
+## v10 Sessions & enrichment
+
+- `sessions` table … session_id on 7 tables … enriched `backtest_trades` … per-run risk metrics in `backtest_metrics`.

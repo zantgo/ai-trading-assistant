@@ -107,6 +107,7 @@ async fn shadow_candles_never_completed() {
 
     let analyzer_handle = tokio::spawn({
         let cancel = cancel.clone();
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -130,12 +131,13 @@ async fn shadow_candles_never_completed() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
-Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-                    Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-                                Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+            Arc::new(RwLock::new(None)),
             None,
-            None,  // heatmap_config (None)
+            None, // heatmap_config (None)
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -146,9 +148,14 @@ Arc::new(RwLock::new(VecDeque::with_capacity(60))),
             None,
             None,
             1,
+            300,
             Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            Arc::new(RwLock::new(
+                core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+            )),
+            Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
         )
     });
 

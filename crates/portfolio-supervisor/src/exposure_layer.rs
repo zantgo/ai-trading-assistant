@@ -1,6 +1,6 @@
 use core_domain::portfolio::{CorrelationMap, ExposureMatrix, PositionMatrix};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
 
@@ -24,6 +24,18 @@ impl Default for ConcentrationLimits {
     }
 }
 
+impl ConcentrationLimits {
+    /// v7.3: limits from `[workspace.risk_limits]` config — the displayed
+    /// cap and the enforced cap are the same number.
+    pub fn from_config(cfg: &config_models::RiskLimitsConfig) -> Self {
+        Self {
+            max_single_pair_pct: cfg.max_single_pair_exposure_pct,
+            max_portfolio_pct: cfg.max_portfolio_exposure_pct,
+            max_correlation: cfg.max_correlation,
+        }
+    }
+}
+
 fn assign_sector(symbol: &str) -> &'static str {
     let base = symbol.split('-').next().unwrap_or(symbol).to_uppercase();
     match base.as_str() {
@@ -37,9 +49,7 @@ fn assign_sector(symbol: &str) -> &'static str {
     }
 }
 
-pub fn compute_correlation_matrix(
-    price_histories: &HashMap<String, Vec<f64>>,
-) -> CorrelationMap {
+pub fn compute_correlation_matrix(price_histories: &HashMap<String, Vec<f64>>) -> CorrelationMap {
     let mut pairs = HashMap::new();
     let symbols: Vec<&String> = price_histories.keys().collect();
     for i in 0..symbols.len() {
@@ -80,10 +90,7 @@ fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     Some(cov / (var_x.sqrt() * var_y.sqrt()))
 }
 
-pub fn compute_exposure_matrix(
-    positions: &[PositionMatrix],
-    equity: Decimal,
-) -> ExposureMatrix {
+pub fn compute_exposure_matrix(positions: &[PositionMatrix], equity: Decimal) -> ExposureMatrix {
     let mut long_exposure = dec!(0);
     let mut short_exposure = dec!(0);
     let mut symbol_concentration = HashMap::new();

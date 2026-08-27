@@ -154,16 +154,100 @@
     .alignmentHero { grid-template-columns: 1fr; }
 }
 
-/* ── Per-TF cards ── */
-.tfCards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.tfCard { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; }
-.tfCardHead { display: flex; align-items: center; justify-content: space-between; }
-.tfCardName { font-size: 13px; font-weight: 800; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.04em; }
-.tfCardSig { font-size: 9px; font-weight: 600; color: #64748b; padding: 2px 6px; border-radius: 3px; background: rgba(255,255,255,0.03); }
-.tfCardChips { display: flex; flex-wrap: wrap; gap: 4px; }
-.tfChip { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 3px; background: rgba(255,255,255,0.03); color: #94a3b8; border: 1px solid rgba(255,255,255,0.05); font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.bullValue { background: rgba(34,197,94,0.10); color: #26a69a; border-color: rgba(34,197,94,0.2); }
-.bearValue { background: rgba(239,68,68,0.10); color: #ef5350; border-color: rgba(239,68,68,0.2); }
+/* ── Per-TF gauge grid (v7.4 — transplanted from the Analysis tab) ── */
+.timeframeGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+.tfSquare {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 0.2s, background 0.2s;
+}
+.tfSquare:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+.tfHeader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+    padding-bottom: 4px;
+}
+.tfName {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+}
+.tfSigChip {
+    font-size: 9px;
+    font-weight: 600;
+    color: #64748b;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.03);
+}
+.tfGauge {
+    width: 20px;
+    height: 20px;
+    position: relative;
+    margin-left: auto;
+}
+.tfGaugeSvg {
+    width: 100%;
+    height: 100%;
+}
+.tfGaugeTrack {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.04);
+    stroke-width: 3;
+}
+.tfGaugeProgress {
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+.tfGridBody {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.tfStatRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    font-family: var(--mono);
+}
+.tfStatLabel {
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 8px;
+}
+.tfStatValue {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.tfRegimeBadge {
+    font-size: 8px;
+    font-weight: 800;
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: var(--sans);
+}
 .tfRegimeBull { background: rgba(34,197,94,0.10); color: #22c55e; border-color: rgba(34,197,94,0.2); }
 .tfRegimeBear { background: rgba(239,68,68,0.10); color: #ef4444; border-color: rgba(239,68,68,0.2); }
 .tfRegimeVol { background: rgba(245,158,11,0.10); color: #f59e0b; border-color: rgba(245,158,11,0.2); }
@@ -177,10 +261,10 @@
 .weightChipPct { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; font-family: var(--mono); margin-top: 2px; }
 
 /* ── ALIGNMENT SUMMARY prose (v7.0): premium gray card via SummaryCard;
-   the text itself is neutral slate — the always-gray background is the
+   typography (12px slate, lh 1.6, high-contrast strong spans) is the
+   unified SummaryCard body language — the always-gray background is the
    summary signal, color belongs to badges/chips. ── */
-.interpretation { font-size: 12.5px; color: #cbd5e1; line-height: 1.6; }
-.interpretation :global(strong) { color: #e2e8f0; font-weight: 600; }
+.interpretation { margin: 0; }
 
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
 .noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; }

@@ -54,7 +54,7 @@ mod tests {
     fn test_seed_returns_price() {
         let mut ema = Ema::new(10);
         let result = ema.update(100.0);
-        assert_eq!(result, Decimal::from_f64_retain(100.0).unwrap());
+        assert_eq!(result, Decimal::from_f64_retain(100.0).unwrap_or_default());
     }
 
     #[test]
@@ -66,8 +66,8 @@ mod tests {
         }
         let result = ema.update(100.0);
         assert!(
-            (result - Decimal::from_f64_retain(100.0).unwrap()).abs()
-                < Decimal::from_f64_retain(0.01).unwrap()
+            (result - Decimal::from_f64_retain(100.0).unwrap_or_default()).abs()
+                < Decimal::from_f64_retain(0.01).unwrap_or_default()
         );
     }
 
@@ -83,8 +83,11 @@ mod tests {
     #[test]
     fn test_ema_period_2_seeds_correctly() {
         let mut ema = Ema::new(2);
-        assert_eq!(ema.update(10.0), Decimal::from_f64_retain(10.0).unwrap());
+        assert_eq!(
+            ema.update(10.0),
+            Decimal::from_f64_retain(10.0).unwrap_or_default()
+        );
         let result = ema.update(10.0);
-        assert_eq!(result, Decimal::from_f64_retain(10.0).unwrap());
+        assert_eq!(result, Decimal::from_f64_retain(10.0).unwrap_or_default());
     }
 }

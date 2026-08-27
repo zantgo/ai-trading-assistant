@@ -147,20 +147,21 @@ export interface IndicatorDto {
     confidence?: number;
 }
 
-/** Optional per-snapshot statistical context block (L1-native Monte Carlo / z-scores). */
+/** Optional per-snapshot statistical context block (L1-native Monte Carlo / z-scores).
+ *  Wire shape mirrors `core_domain::models::StatisticalContext` exactly:
+ *  `{ close_z, rsi_z, macd_z, monte_carlo_expected, monte_carlo_stdev }`.
+ *  Populated on live completed frames by the SIL statistics engine; consumed
+ *  by no UI panel today (placeholder semantics). */
 export interface StatisticalContext {
-    close_zscore?: number | null;
-    rsi_zscore?: number | null;
-    macd_zscore?: number | null;
-    monte_carlo_expected_return?: number | null;
-    monte_carlo_std_dev?: number | null;
-    monte_carlo_sample_count?: number | null;
-    monte_carlo_p_value?: number | null;
-    window_bars?: number | null;
+    close_z?: number | null;
+    rsi_z?: number | null;
+    macd_z?: number | null;
+    monte_carlo_expected?: number | null;
+    monte_carlo_stdev?: number | null;
 }
 
 /** Candle quality envelope — only present on completed snapshots. */
-export type SequenceIntegrity = 'Valid' | 'OutOfOrder' | 'Duplicate';
+export type SequenceIntegrity = 'VALID' | 'OUT_OF_ORDER' | 'DUPLICATE';
 export interface CandleQualityEnvelope {
     quality_score: number;
     is_valid: boolean;
@@ -196,6 +197,10 @@ export interface MetricsConfig {
  * fields are optional because some only populate on completed candles.
  */
 export interface MarketSnapshot {
+    /** Wire slot key (`micro`/`fast`/`slow`/`macro`, or `custom-<id>`).
+     *  The WS handler stamps it on every frame; the frontend dispatcher
+     *  reads it via the raw envelope before applying. */
+    timeframe_slot?: string | null;
     exchange?: string | null;
     symbol: string;
     timeframe_secs: number;
@@ -237,6 +242,9 @@ export interface MarketSnapshot {
     risk_profile?: number | null;
     liquidity?: LiquidityFlow | null;
     cluster?: LiquidationClusterMatrix | null;
+    /** Per-TF volume profile (audit M4: the wire field was consumed by
+     *  websocket.svelte.ts but absent from this type). */
+    volume_profile?: VolumeProfileSnapshot | null;
     quality_envelope?: CandleQualityEnvelope | null;
 }
 
@@ -255,6 +263,8 @@ export interface IndicatorSignal {
     label: string;
     strength: number;
     age_bars?: number;
+    /** v9: WEAK / MODERATE / STRONG / EXTREME per the strategy's `l1.signals.strength_buckets`. */
+    strength_label?: string;
     points?: SignalPoint[] | null;
 }
 
@@ -281,6 +291,9 @@ export interface IndicatorLifecycleStatus {
      *  arrived yet. Optional so older snapshots that omit the field
      *  continue to render as before. */
     feed_state?: FeedState;
+    /** PRI-12 (v6.10.7) — real (non-synthetic) completed candles seen.
+     *  `None` when the pipeline cannot distinguish provenance yet. */
+    bars_seen_real?: number | null;
     /** Legacy v6.5 bit kept for the SILENT ⚡ path; true when the
      *  reading is silent (raw=0, no signals, no state_label). */
     silent?: boolean;
@@ -372,35 +385,38 @@ export interface AlignmentMatrix {
 
 // ── Analysis Matrix (market interpretation — 10 components) ──
 export type MarketBias = 'StrongBullish' | 'Bullish' | 'Neutral' | 'Bearish' | 'StrongBearish';
-export type MarketRegime = 'TRENDING_BULL' | 'TRENDING_BEAR' | 'RANGE' | 'ACCUMULATION' | 'DISTRIBUTION' | 'EXPANSION' | 'CONTRACTION' | 'TRANSITION';
+// Wire casing is PascalCase (analysis.rs has no serde rename on these
+// enums): 'TrendingBull', 'Range', 'Accumulation', ...
+export type MarketRegime = 'TrendingBull' | 'TrendingBear' | 'Range' | 'Accumulation' | 'Distribution' | 'Expansion' | 'Contraction' | 'Transition';
 export type TrendAssessment = 'Weak' | 'Developing' | 'Healthy' | 'Strong' | 'Exhausted';
 export type MomentumAssessment = 'Increasing' | 'Stable' | 'Weakening' | 'Exhausted' | 'Reversing';
-export type StructureAssessment = 'Strong' | 'Healthy' | 'Weak' | 'Broken' | 'UNKNOWN';
+export type StructureAssessment = 'Strong' | 'Healthy' | 'Weak' | 'Broken' | 'Unknown';
 export type VolatilityAssessment = 'Compressed' | 'Normal' | 'Expanding' | 'Extreme' | 'Unstable';
 export type VolumeAssessment = 'Weak' | 'Normal' | 'Strong' | 'Exceptional';
 export type OpportunityType = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'LiquiditySqueeze' | 'Scalp' | 'NoClearOpportunity';
 export type QualityLevel = 'Poor' | 'Weak' | 'Average' | 'Good' | 'Excellent';
-export type MarketPhase = 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MARKDOWN' | 'UNKNOWN';
+export type MarketPhase = 'Accumulation' | 'Markup' | 'Distribution' | 'Markdown' | 'Unknown';
 
 export interface AnalysisMatrix {
     symbol: string;
     bias: MarketBias;
     /** UI-facing confidence in [0.0, 1.0]. Mirrors `state_confidence`
-     *  (serialised as `STATE_CONFIDENCE` on the wire per docs/matrices
-     *  `02-00b-confidence-hierarchy.md`). Added so consumers can read
-     *  `analysis.confidence` directly without SCREAMING_SNAKE_CASE indirection.
+     *  on the wire (no serde rename — the literal JSON key is
+     *  `state_confidence`). Added so consumers can read
+     *  `analysis.confidence` directly.
      */
     confidence: number;
-    /** Canonical backend field (serialised as `STATE_CONFIDENCE`).
+    /** Canonical backend field (JSON key `state_confidence`).
      *  Kept in sync with `confidence`; both refer to the same value. */
     state_confidence: number;
+    /** Signed alignment score ∈ [−1, +1] (mtf_overall_score / 100). */
+    market_bias_score?: number;
     market_regime: MarketRegime;
     trend_assessment: TrendAssessment;
     momentum_assessment: MomentumAssessment;
     structure_assessment: StructureAssessment;
     volatility_assessment: VolatilityAssessment;
     volume_assessment: VolumeAssessment;
-    opportunity_analysis: OpportunityType;
     market_quality: QualityLevel;
     /** Numeric market-quality score in [0, 100] — distinct from
      *  categorical `market_quality` (`QualityLevel` enum). */
@@ -466,7 +482,7 @@ export interface RiskMatrix {
 // ── Advisory Matrix (human-facing guidance — 10 components) ──
 export type DirectionalGuidance = 'StrongLong' | 'Long' | 'Neutral' | 'Short' | 'StrongShort' | 'AvoidDirectionalExposure';
 export type MarketStance = 'Aggressive' | 'Constructive' | 'Neutral' | 'Cautious' | 'Avoid';
-export type OpportunityClass = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'NoClearOpportunity';
+export type OpportunityClass = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'LiquiditySqueeze' | 'Scalp' | 'NoClearOpportunity';
 export type StrategyEnvironment = 'TrendFollowing' | 'Breakout' | 'MeanReversion' | 'HighVolatility' | 'LowActivity' | 'Unfavorable';
 export type EntryGuidance = 'Immediate' | 'WaitForConfirmation' | 'Pullback' | 'Breakout' | 'NoEntryContext';
 export type ExitGuidance = 'TrendWeakening' | 'MomentumExhaustion' | 'StructureBreakdown' | 'RiskIncreasing' | 'NoWarning';
@@ -485,9 +501,10 @@ export interface AdvisoryMatrix {
     target_strategy: TargetStrategy;
     confidence_assessment: number;
     /**
-     * Stop-loss distance as a raw fraction (e.g. `0.015` = 1.5% from entry).
-     * Surfaced from the Rust `AdvisoryMatrix::stop_loss_distance_pct`
-     * (canonical type-boundary handoff f64 at L6 → Decimal at TAE).
+     * Stop-loss distance as a percentage on the wire (e.g. `2.5` = 2.5%
+     * from entry; the backend clamps to `[0.5, 15.0]` percent). Surfaced
+     * from the Rust `AdvisoryMatrix::stop_loss_distance_pct` (canonical
+     * type-boundary handoff f64 at L6 → Decimal at TAE).
      */
     stop_loss_distance_pct: number;
     /**
@@ -509,6 +526,9 @@ export interface AdvisoryMatrix {
      *  (both unipolar 0-100; higher = better). `null` when overall risk is
      *  zero (v6.11 L6). */
     quality_to_risk_ratio?: number | null;
+    /** v9: the strategy's risk-ceiling soft-block stamp (readiness floors
+     *  at WATCH when breached). */
+    risk_blocked?: boolean;
     final_recommendation: string;
 }
 
@@ -518,8 +538,6 @@ export interface DecisionContext {
     score: number;
     /** Directional bias (same PascalCase as AnalysisMatrix.bias). */
     bias: MarketBias;
-    /** Confidence in [0.0, 1.0]. */
-    confidence: number;
     /** Score-band confidence in [0.0, 1.0]. */
     score_confidence: number;
     /**
@@ -550,10 +568,10 @@ export interface DecisionContext {
 }
 
 // ── Overview Matrix (global market synthesis — 9 components) ──
-export type GlobalBias = 'StrongBullish' | 'Bullish' | 'Neutral' | 'Bearish' | 'StrongBearish' | 'Mixed';
-export type MarketBreadth = 'VeryWeak' | 'Weak' | 'Balanced' | 'Positive' | 'StrongPositive' | 'Negative' | 'StrongNegative';
-export type SyncLevel = 'HighlySynchronized' | 'Synchronized' | 'Mixed' | 'Fragmented' | 'HighlyFragmented';
-export type HealthLevel = 'Poor' | 'Weak' | 'Neutral' | 'Healthy' | 'Strong';
+export type GlobalBias = 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH' | 'MIXED';
+export type MarketBreadth = 'VERY_WEAK' | 'WEAK' | 'BALANCED' | 'POSITIVE' | 'STRONG_POSITIVE' | 'NEGATIVE' | 'STRONG_NEGATIVE';
+export type SyncLevel = 'HIGHLY_SYNCHRONIZED' | 'SYNCHRONIZED' | 'MIXED' | 'FRAGMENTED' | 'HIGHLY_FRAGMENTED';
+export type HealthLevel = 'POOR' | 'WEAK' | 'NEUTRAL' | 'HEALTHY' | 'STRONG';
 
 export interface AssetRank {
     symbol: string;
@@ -594,8 +612,9 @@ export interface OverviewMatrix {
     /// Source of the UI's −100% to +100% breadth gauge and the
     /// input to `market_breadth` and `market_synchronization`.
     breadth_pct?: number;
-    /// v6.9+ — True when breadth is computed over a reduced signal set
-    /// (fewer than 4 of the 12 SignalKinds enabled).
+    /// v6.9+ — True when fewer than 3 symbols are active
+    /// (`active_symbols.len() < 3`, overview.rs) — the I-10 STRONG_*
+    /// display-demotion gate on the header/KPI/export.
     low_coverage?: boolean;
     /// v6.9+ — Cross-symbol aggregate of L5 `cascade_risk`.
     cascade_risk_index?: RiskDimension;
@@ -618,6 +637,86 @@ export interface OverviewMatrix {
     /// from `market_synchronization` (cross-symbol, derived from
     /// `breadth_pct`).
     multi_tf_agreement_pct?: number;
+    /// v7.2 parity — server-computed hero verdict (TRADE / WAIT /
+    /// STAND_ASIDE). Single source for the GUI + CLI overview panels.
+    hero?: OverviewHero | null;
+    /// v7.2 parity — per-instance asset-ranking rows (price, signal,
+    /// direction, R:R, confidence, MTF, risk, updated + the top-setup
+    /// entry/target/stop columns). The GUI's 15-column table and the CLI
+    /// renderer read the same rows.
+    overview_rows?: OverviewRow[];
+    /// v7.2 parity — signal-quality buckets (strong/moderate/weak).
+    signal_quality?: SignalQuality | null;
+    /// v7.2 parity — direction counts (long/short/neutral).
+    direction_distribution?: DirectionDistribution | null;
+    /// v7.2 parity — market-health sub-dimension bars.
+    market_health_dims?: MarketHealthDims | null;
+}
+
+export type HeroVerdict = 'TRADE' | 'WAIT' | 'STAND_ASIDE';
+
+export interface OverviewHero {
+    verdict: HeroVerdict;
+    actionable_count: number;
+    candidate_count: number;
+    best_symbol: string | null;
+    best_score: number;
+    best_direction: 'LONG' | 'SHORT' | 'NEUTRAL';
+    best_confidence: number;
+    best_rr: number;
+    instance_count: number;
+}
+
+export interface OverviewRow {
+    symbol: string;
+    price: number;
+    bias: string;
+    signal: 'BUY' | 'SELL' | 'WAIT';
+    direction: 'LONG' | 'SHORT' | 'NEUTRAL';
+    rr: number;
+    score: number;
+    confidence: number;
+    mtf_score: number;
+    mtf_label: string;
+    risk: number;
+    /// Top-setup of the Opportunity Layer — resolved side of the displayed
+    /// bracket (`LONG` / `SHORT` / `NEUTRAL`), server-computed once for the
+    /// GUI + CLI parity contract (01-10 §5).
+    setup_side?: string;
+    /// Top-setup entry zone low/high bound (0 = N/A).
+    entry_low?: number;
+    entry_high?: number;
+    /// Top-setup target (take-profit) zone low/high bound (0 = N/A).
+    target_low?: number;
+    target_high?: number;
+    /// Top-setup stop-loss (invalidation) level (0 = N/A).
+    invalidation?: number;
+    updated_ts: number;
+    active: boolean;
+}
+
+export interface SignalQuality {
+    strong: number;
+    moderate: number;
+    weak: number;
+}
+
+export interface DirectionDistribution {
+    long: number;
+    short: number;
+    neutral: number;
+}
+
+export interface HealthBar {
+    label: string;
+    value: number;
+    available: boolean;
+    contributing_instances: number;
+}
+
+export interface MarketHealthDims {
+    bars: HealthBar[];
+    active_instance_count: number;
 }
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
@@ -658,6 +757,12 @@ export interface IndicatorMeta {
     updates_on_shadow?: boolean;
     /** How the indicator contributes to the UI Norm column. */
     normalization_mode?: IndicatorNormalizationMode;
+    /** Candle bars required before a real reading (registry `bars_required`). */
+    bars_required?: number;
+    /** Registry data source (e.g. CandleBased, DerivativesWs, OrderBookWs). */
+    data_source?: string | null;
+    /** Signal capability flags (registry `signal_capability`). */
+    signal_capability?: string[] | null;
 }
 
 export type IndicatorMap = Record<string, IndicatorDto>;
@@ -688,6 +793,14 @@ export interface TimeframeTelemetry {
     exchange: string;
     barDurationSec: number;
     indicators: IndicatorMap;
+    /// P0 global-store mirror: live candle history kept warm by
+    /// `websocket.svelte.ts` `ingestLiveSnapshot` / `appendLiveCandle`
+    /// so tab-switch does not lose sub-minute history even when the
+    /// module `candleCache` is cleared. Bounded to 1000, same as
+    /// `HIST_BUFFER_MAX`. `undefined` until first completed candle.
+    liveCandleCache?: import('./lib/indicatorHistory').CandleOHLCV[];
+    /// P0 live-history count for staleness UI (e.g. warmup badge).
+    liveHistoryCount?: number;
     priceText: string;
     volText: string;
     avgVolText: string;
@@ -703,7 +816,7 @@ export interface TimeframeTelemetry {
     context?: MarketContext | null;
     /** Phase 1: per-candle liquidity flow (real liquidation events). */
     liquidity?: LiquidityFlow;
-    /** Phase 2: estimated liquidation cluster matrix (5-min refresh). */
+    /** Phase 2: estimated liquidation cluster matrix (per-TF candle cadence, 5-min TTL). */
     cluster?: LiquidationClusterMatrix;
     /** Phase 3: liquidity signals derived from flow + cluster. */
     liquiditySignals?: LiquiditySignal[];
@@ -794,7 +907,6 @@ export interface TimeframeTelemetry {
     chopPeriodVal: number;
     linregPeriodVal: number;
     zscorePeriodVal: number;
-    analysisLimit: number;
     macdExtremeHighVal: number;
     macdExtremeLowVal: number;
     macdContractionVal: number;
@@ -824,6 +936,10 @@ export interface InstanceState {
     /// parameter for `/api/instances/{instance_id}/...` endpoints.
     /// Populated lazily from `GET /api/instances` or `POST /api/instances`.
     instanceId?: string;
+    /// Per-instance execution mode (observe | paper | live), fixed at
+    /// launch. Populated from `GET /api/instances` via
+    /// `syncInstanceIdsFromList`. Drives mode-aware tabs + banners.
+    mode?: 'observe' | 'paper' | 'live';
     microTerm: TimeframeTelemetry;
     fastTerm: TimeframeTelemetry;
     slowTerm: TimeframeTelemetry;
@@ -880,6 +996,11 @@ export interface InstanceState {
     showEmaMedium: boolean;
     showEmaSlow: boolean;
     showEmaLong: boolean;
+    /** LiveTerminal active timeframe (micro/fast/slow/macro) — persisted per-instance
+     *  so sub-minute selection survives Charts↔Metrics tab switches and engine
+     *  view unmounts (previously `activeTf` was local `$state('micro')` and
+     *  reset on every LiveTerminal remount, hiding the chosen 5s/15s TF). */
+    activeTf?: 'micro' | 'fast' | 'slow' | 'macro';
 }
 
 export interface ScaleInPortion {
@@ -1121,9 +1242,11 @@ export interface PipelineReliabilityMetrics {
     coverage: number;
     gap_count: number;
     outliers_rejected: number;
+    outliers_bypassed: number;
     out_of_order_dropped: number;
     total_candles_processed: number;
     reconstructed_candles: number;
+    source_mix?: { db_warm?: number; rest_gap?: number; live?: number };
 }
 
 export interface ExchangeAccount {
@@ -1166,24 +1289,6 @@ export interface CompletedTradesRow {
     roi_pct: number;
 }
 
-export type AllocationCurveModel = 'Stepped' | 'Linear' | 'Exponential';
-
-export interface AllocationCurve {
-    model: AllocationCurveModel;
-    base_allocation_pct: number;
-    max_allocation_pct: number;
-    base_score_threshold: number;
-    micro_score_threshold: number;
-    exponent: number;
-}
-
-export interface PositionScalingConfig {
-    allocation_curve: AllocationCurve;
-    leverage_mode: 'Fixed' | 'VolatilityScaled';
-    leverage_cap: number;
-    target_margin: number;
-}
-
 export type TriggerModeUnion = 'interval' | 'candle_close' | 'event_driven';
 
 export type TriggerModeConfig =
@@ -1218,7 +1323,7 @@ export interface PriceRange {
  *     Reversal.
  *   - `Neutral` carries no actionable setup. Applies to NoClearOpportunity.
  */
-export type DirectionFamily = 'TrendRiding' | 'CounterTrend' | 'Neutral';
+export type DirectionFamily = 'TREND_RIDING' | 'COUNTER_TREND' | 'NEUTRAL';
 
 /**
  * Trade viability classification for an `OpportunityProfile`. Tells the
@@ -1232,6 +1337,14 @@ export type DirectionFamily = 'TrendRiding' | 'CounterTrend' | 'Neutral';
  * field default to `NoClear` (most conservative).
  */
 export type TradeViability = 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+
+/**
+ * The RAW wire vocabulary of `TradeViability` (serde
+ * `SCREAMING_SNAKE_CASE`). The wire field is typed with this union; every
+ * consumer normalizes to `TradeViability` (PascalCase display form) via
+ * `lib/viability.ts::normalizeViability` at the boundary.
+ */
+export type TradeViabilityWire = 'ACTIONABLE' | 'QUALIFYING' | 'DIRECTIONAL_NEUTRAL' | 'GEOMETRY_INVERTED' | 'NO_CLEAR';
 
 /**
  * One per-setup-type entry in `OpportunityMatrix.profiles`. Each
@@ -1260,7 +1373,7 @@ export interface OpportunityProfile {
     long_expected_rr_internal: number | null;
     short_expected_rr_internal: number | null;
     /** Trade viability classification. `null` on legacy payloads. */
-    trade_viability: TradeViability | null;
+    trade_viability: TradeViabilityWire | null;
     /** Server-side geometry-consistency for the LONG side. */
     long_geometry_consistent?: boolean;
     /** Server-side geometry-consistency for the SHORT side. */
@@ -1278,6 +1391,9 @@ export interface OpportunityProfile {
 
 export interface OpportunityMatrix {
     symbol: string;
+    /** Matrix-level direction family (always TrendRiding or Neutral on the
+     *  wire; CounterTrend is expressed per-profile). */
+    direction_family?: DirectionFamily | null;
     primary_opportunity: string;
     opportunity_score: number;
     setup_quality: string;

@@ -7,7 +7,9 @@
 //
 // The scanner is wired up against the platform's Decision Matrix:
 //
-//   - `advisory.trade_readiness` ∈ { READY, FORMING, WATCH, STAND_ASIDE }
+//   - `decisionContext.trade_readiness` ∈ { READY, FORMING, WATCH,
+//     STAND_ASIDE } (trade_readiness lives on the Decision Context, not
+//     the Advisory Matrix — corrected 2026-08-17)
 //   - `advisory.directional_guidance` ∈ { StrongLong, Long, Neutral,
 //                                          Short, StrongShort,
 //                                          AvoidDirectionalExposure }
@@ -20,6 +22,13 @@
 import type { AdvisoryMatrix, DecisionContext, DirectionalGuidance } from '../types';
 
 export const MAX_SYMBOL_LEN = 10;
+
+/// Wait-window bounds for the scanner's recommendation grace period — a
+/// pair is kept when a recommendation to any side appears within the
+/// window, deleted otherwise (default 5 minutes, 1–60).
+export const WAIT_WINDOW_MIN = 1;
+export const WAIT_WINDOW_MAX = 60;
+export const WAIT_WINDOW_DEFAULT = 5;
 
 export type DecisionVerdict = 'KEEP' | 'DELETE';
 
@@ -49,6 +58,17 @@ export interface PairOutcome {
     error?: string;
     /** Milliseconds elapsed from `add` start to done. */
     elapsedMs?: number;
+    /** Wall-clock ms when the pair's add/wait lifecycle started (running UI). */
+    startedMs?: number;
+}
+
+/** Clamp a wait-window value (minutes) into the [1, 60] range; the
+ *  default applies for empty / non-finite input. The scanner's running
+ *  phase always uses the clamped value. */
+export function clampWaitMinutes(value: number | null | undefined): number {
+    if (value == null || !Number.isFinite(value)) return WAIT_WINDOW_DEFAULT;
+    const v = Math.round(value);
+    return Math.min(WAIT_WINDOW_MAX, Math.max(WAIT_WINDOW_MIN, v));
 }
 
 /** Parse a free-text watchlist string into a deduped, ordered, validated

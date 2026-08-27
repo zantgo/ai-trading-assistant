@@ -56,7 +56,14 @@
 
     type TfKey = 'micro' | 'fast' | 'slow' | 'macro';
     type TfLabel = 'MICRO' | 'FAST' | 'SLOW' | 'MACRO';
-    let activeTf: TfKey = $state('micro');
+    // Persist active timeframe per-instance (survives LiveTerminal unmount on
+    // Charts↔Metrics tab switches). Previously `$state('micro')` reset on every
+    // mount, hiding the sub-minute 5s/15s selection.
+    let activeTf = $derived((app.instancesMap[pairKey]?.activeTf as TfKey | undefined) ?? 'micro' as TfKey);
+    function setActiveTf(k: TfKey) {
+        const p = app.instancesMap[pairKey];
+        if (p) p.activeTf = k;
+    }
 
     let expandedTf = $state<string | null>(null);
     let expandedColumnEl = $state<HTMLDivElement | null>(null);
@@ -243,6 +250,36 @@
     function closeExpanded() {
         expandedTf = null;
     }
+
+    /// P1 warmup UI: per-TF pipeline + indicator warmup summary.
+    /// Shows LIVE vs LOADING and for LOADING, how many of the 52
+    /// indicators are still warming and the max bars_seen/bars_required
+    /// progress. Computed from `activeTerm.pipelineState` and
+    /// `activeTerm.indicatorLifecycle` (populated by websocket.svelte.ts
+    /// on every frame).
+    function warmupSummary(tf: TimeframeTelemetry): { label: string; cls: string; detail: string } {
+        const ps = tf.pipelineState ?? 'LOADING';
+        if (ps === 'LIVE') return { label: 'LIVE', cls: 'live', detail: '' };
+        if (ps === 'STALE') return { label: 'STALE', cls: 'stale', detail: '' };
+        if (ps === 'FAILED') return { label: 'FAILED', cls: 'failed', detail: '' };
+        // LOADING / INITIALIZING
+        const lc = tf.indicatorLifecycle ?? {};
+        let live = 0, total = 0, maxSeen = 0, maxReq = 0;
+        for (const v of Object.values(lc as Record<string, { state: string; bars_seen: number; bars_required: number }>)) {
+            total++;
+            if ((v as { state: string }).state === 'Live') live++;
+            maxSeen = Math.max(maxSeen, (v as { bars_seen: number }).bars_seen ?? 0);
+            maxReq = Math.max(maxReq, (v as { bars_required: number }).bars_required ?? 0);
+        }
+        // Fallback to liveCandleCache length when lifecycle not yet populated
+        if (total === 0) {
+            const n = tf.liveHistoryCount ?? tf.liveCandleCache?.length ?? 0;
+            return { label: 'WARMING', cls: 'warming', detail: n ? `${n} bars` : '' };
+        }
+        const pct = total ? Math.round((live / total) * 100) : 0;
+        const detail = maxReq ? `${maxSeen}/${maxReq} bars · ${live}/${total} live (${pct}%)` : `${live}/${total} live`;
+        return { label: 'WARMING', cls: 'warming', detail };
+    }
 </script>
 
 <div class={styles.terminalWorkspace}>
@@ -250,6 +287,7 @@
         {@const pair = app.instancesMap[pairKey]}
         {@const activeTerm = activeTermFor(pair)}
         {@const activeLabel = activeLabelFor(activeTf)}
+        {@const wsSummary = warmupSummary(activeTerm)}
 
         <ChartToggles {pairKey} />
         <div class={styles.workspaceSidebar}>
@@ -258,7 +296,7 @@
                 {#each TERMS as t (t.key)}
                     <button
                         class="{styles.tfSidebarItem} {activeTf === t.key ? styles.active : ''}"
-                        onclick={() => activeTf = t.key}
+                        onclick={() => setActiveTf(t.key)}
                     >
                         <span class={styles.tfLabel}>{t.label}</span>
                         <span class={styles.tfSecs}>{durationSuffix(t.secsFn(pair))}</span>
@@ -271,6 +309,7 @@
                     <div class={styles.timescaleHeader} class:styles.tfHeaderHidden={expandedTf === activeTf}>
                         <span class={styles.timescaleTitle}>{termLabel(activeLabel, activeTerm)}</span>
                         <div class={styles.headerActions}>
+                            <span class="{styles.warmupBadge} {styles[wsSummary.cls]}" title={wsSummary.detail}>{wsSummary.label}{wsSummary.detail ? ` · ${wsSummary.detail}` : ''}</span>
                             <span class={styles.timescalePrice}>{activeTerm.priceText}</span>
                             <button class={styles.expandBtn} onclick={() => toggleExpand(activeTf)} title={expandedTf === activeTf ? 'Collapse' : 'Expand'}>
                                 {expandedTf === activeTf ? '✕' : '⛶'}

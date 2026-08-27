@@ -64,7 +64,6 @@ function makeDecisionContext(overrides: Partial<DecisionContext> = {}): Decision
     return {
         score: 0,
         bias: 'Neutral',
-        confidence: 0,
         score_confidence: 0,
         entry_danger: makeDanger(50),
         expected_reward_risk_ratio: 0,
@@ -123,7 +122,6 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         structure_assessment: 'Healthy',
         volatility_assessment: 'Normal',
         volume_assessment: 'Normal',
-        opportunity_analysis: 'TrendContinuation',
         market_quality: 'Good',
         market_quality_score: 70,
         market_phase: 'Markup',
@@ -392,7 +390,7 @@ describe('computeDecisionRank', () => {
                         preconditions_met: 2,
                         preconditions_total: 2,
                         notes: '',
-                        direction_family: 'CounterTrend',
+                        direction_family: 'COUNTER_TREND',
                         long_entry_zone: { low: 63058, high: 63059 },
                         long_target_zone: { low: 63104, high: 63207 },
                         long_invalidation_level: 63055,
@@ -713,36 +711,36 @@ describe('selectProfileSide', () => {
     }
 
     it('TrendRiding + bullish bias resolves to LONG', () => {
-        expect(selectProfileSide(profile({ direction_family: 'TrendRiding' }), 'Bullish')).toBe('LONG');
-        expect(selectProfileSide(profile({ direction_family: 'TrendRiding' }), 'StrongBullish')).toBe('LONG');
+        expect(selectProfileSide(profile({ direction_family: 'TREND_RIDING' }), 'Bullish')).toBe('LONG');
+        expect(selectProfileSide(profile({ direction_family: 'TREND_RIDING' }), 'StrongBullish')).toBe('LONG');
     });
 
     it('TrendRiding + bearish bias resolves to SHORT', () => {
-        expect(selectProfileSide(profile({ direction_family: 'TrendRiding' }), 'Bearish')).toBe('SHORT');
-        expect(selectProfileSide(profile({ direction_family: 'TrendRiding' }), 'StrongBearish')).toBe('SHORT');
+        expect(selectProfileSide(profile({ direction_family: 'TREND_RIDING' }), 'Bearish')).toBe('SHORT');
+        expect(selectProfileSide(profile({ direction_family: 'TREND_RIDING' }), 'StrongBearish')).toBe('SHORT');
     });
 
     it('CounterTrend + bullish bias resolves to SHORT', () => {
-        expect(selectProfileSide(profile({ direction_family: 'CounterTrend' }), 'Bullish')).toBe('SHORT');
+        expect(selectProfileSide(profile({ direction_family: 'COUNTER_TREND' }), 'Bullish')).toBe('SHORT');
     });
 
     it('CounterTrend + bearish bias resolves to LONG', () => {
-        expect(selectProfileSide(profile({ direction_family: 'CounterTrend' }), 'StrongBearish')).toBe('LONG');
+        expect(selectProfileSide(profile({ direction_family: 'COUNTER_TREND' }), 'StrongBearish')).toBe('LONG');
     });
 
     it('Neutral family always resolves to NEUTRAL', () => {
-        expect(selectProfileSide(profile({ direction_family: 'Neutral' }), 'Bullish')).toBe('NEUTRAL');
-        expect(selectProfileSide(profile({ direction_family: 'Neutral' }), 'Bearish')).toBe('NEUTRAL');
+        expect(selectProfileSide(profile({ direction_family: 'NEUTRAL' }), 'Bullish')).toBe('NEUTRAL');
+        expect(selectProfileSide(profile({ direction_family: 'NEUTRAL' }), 'Bearish')).toBe('NEUTRAL');
     });
 
     it('Neutral macro bias returns NEUTRAL regardless of family', () => {
-        expect(selectProfileSide(profile({ direction_family: 'TrendRiding' }), 'Neutral')).toBe('NEUTRAL');
-        expect(selectProfileSide(profile({ direction_family: 'CounterTrend' }), 'Neutral')).toBe('NEUTRAL');
+        expect(selectProfileSide(profile({ direction_family: 'TREND_RIDING' }), 'Neutral')).toBe('NEUTRAL');
+        expect(selectProfileSide(profile({ direction_family: 'COUNTER_TREND' }), 'Neutral')).toBe('NEUTRAL');
     });
 
     it('null profile or null bias returns NEUTRAL', () => {
         expect(selectProfileSide(null, 'Bullish')).toBe('NEUTRAL');
-        expect(selectProfileSide(profile({ direction_family: 'TrendRiding' }), null)).toBe('NEUTRAL');
+        expect(selectProfileSide(profile({ direction_family: 'TREND_RIDING' }), null)).toBe('NEUTRAL');
         expect(selectProfileSide(undefined, undefined)).toBe('NEUTRAL');
     });
 });
@@ -755,7 +753,7 @@ describe('profileZones', () => {
             preconditions_met: 3,
             preconditions_total: 3,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63000, high: 63200 },
             long_target_zone: { low: 66000, high: 66500 },
             long_invalidation_level: 62400,
@@ -947,7 +945,7 @@ describe('topSetupSummary', () => {
             preconditions_met: 3,
             preconditions_total: 3,
             notes: 'synthetic',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63000, high: 63200 },
             long_target_zone: { low: 66000, high: 66500 },
             long_invalidation_level: 62400,
@@ -956,7 +954,7 @@ describe('topSetupSummary', () => {
             short_target_zone: null,
             short_invalidation_level: null,
             short_expected_rr_internal: null,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
             ...overrides,
         };
     }
@@ -1020,12 +1018,12 @@ describe('topSetupSummary', () => {
     it('always surfaces zones via aggregate fallback when per-profile zones are absent', () => {
         const opp = makeOpportunity({
             // Profile with Neutral family + Neutral bias → no per-profile zones
-            direction_family: 'Neutral',
+            direction_family: 'NEUTRAL',
             long_entry_zone: null,
             long_target_zone: null,
             long_invalidation_level: null,
             long_expected_rr_internal: null,
-            trade_viability: 'DirectionalNeutral',
+            trade_viability: 'DIRECTIONAL_NEUTRAL',
         });
         // Replace the profile type so it's not NoClearOpportunity
         opp.profiles[0].opportunity_type = 'MeanReversion';
@@ -1078,10 +1076,10 @@ describe('topSetupSummary', () => {
         // producer never populates zones on a Neutral-family profile,
         // so this fixture is a defensive edge case.)
         const opp = makeOpportunity({
-            direction_family: 'Neutral',
+            direction_family: 'NEUTRAL',
             long_expected_rr_internal: 0,
             short_expected_rr_internal: 0,
-            trade_viability: 'DirectionalNeutral',
+            trade_viability: 'DIRECTIONAL_NEUTRAL',
         });
         opp.profiles[0].opportunity_type = 'MeanReversion';
         const t = topSetupSummary(opp, makeAnalysis('Neutral'), { net_bias_pct: 10 } as any);
@@ -1250,7 +1248,7 @@ describe('topSetupSummary', () => {
             preconditions_met: 2,
             preconditions_total: 3,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63900, high: 64100 },
             long_target_zone: { low: 64800, high: 65000 },
             long_invalidation_level: 63500,
@@ -1278,7 +1276,7 @@ describe('topSetupSummary', () => {
             preconditions_met: met,
             preconditions_total: total,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63900, high: 64100 },
             long_target_zone: { low: 64800, high: 65000 },
             long_invalidation_level: 63500,
@@ -1306,9 +1304,9 @@ describe('topSetupSummary', () => {
         // LONG setup rides in alternate_setups.
         const opp = makeOpportunity({
             opportunity_type: 'MeanReversion',
-            direction_family: 'CounterTrend',
+            direction_family: 'COUNTER_TREND',
             score: 55,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
             long_expected_rr_internal: 1.14,
         });
         opp.profiles[0].opportunity_type = 'MeanReversion';
@@ -1331,8 +1329,8 @@ describe('topSetupSummary', () => {
         // one available — it must take the container with its zones/R:R,
         // not be hidden behind a placeholder.
         const opp = makeOpportunity({
-            direction_family: 'CounterTrend',
-            trade_viability: 'DirectionalNeutral',
+            direction_family: 'COUNTER_TREND',
+            trade_viability: 'DIRECTIONAL_NEUTRAL',
         });
         opp.profiles[0].opportunity_type = 'MeanReversion';
         const t = topSetupSummary(opp, makeAnalysis('Neutral'), { bias: 'Neutral', net_bias_pct: 10 } as any, 'HOLD');
@@ -1376,7 +1374,7 @@ describe('profileSummary', () => {
             preconditions_met: 3,
             preconditions_total: 3,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63000, high: 63200 },
             long_target_zone: { low: 66000, high: 66500 },
             long_invalidation_level: 62400,
@@ -1385,7 +1383,7 @@ describe('profileSummary', () => {
             short_target_zone: null,
             short_invalidation_level: null,
             short_expected_rr_internal: null,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
             ...overrides,
         };
     }
@@ -1428,11 +1426,11 @@ describe('profileSummary', () => {
 
     it('returns DirectionalNeutral + aggregate fallback when per-profile zones absent', () => {
         const p = makeProfile({
-            direction_family: 'Neutral',
+            direction_family: 'NEUTRAL',
             long_entry_zone: null,
             long_target_zone: null,
             long_invalidation_level: null,
-            trade_viability: 'DirectionalNeutral',
+            trade_viability: 'DIRECTIONAL_NEUTRAL',
         });
         const opp = makeOpportunity([p]);
         const s = profileSummary(p, opp, { bias: 'Neutral' } as any);
@@ -1462,7 +1460,7 @@ describe('resolveActiveRr', () => {
             preconditions_met: 3,
             preconditions_total: 3,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63000, high: 63200 },
             long_target_zone: { low: 66000, high: 66500 },
             long_invalidation_level: 62400,
@@ -1471,7 +1469,7 @@ describe('resolveActiveRr', () => {
             short_target_zone: null,
             short_invalidation_level: null,
             short_expected_rr_internal: null,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
             ...overrides,
         };
     }
@@ -1591,7 +1589,7 @@ describe('resolveActiveRr', () => {
             [
                 makeProfile({
                     opportunity_type: 'MeanReversion',
-                    direction_family: 'CounterTrend',
+                    direction_family: 'COUNTER_TREND',
                     long_expected_rr_internal: 1.14,
                 }),
             ],

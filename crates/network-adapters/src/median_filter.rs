@@ -35,12 +35,16 @@ pub struct MedianPriceFilter {
 
 impl MedianPriceFilter {
     pub fn new(config: &QualityConfig) -> Self {
+        // M8 (production audit): a zero window would index an empty
+        // `sorted` vec on the first filtered tick — clamp defensively
+        // even though config validation rejects 0 at boot.
+        let window_size = config.median_window_size.max(1);
         Self {
             window: VecDeque::new(),
-            window_size: config.median_window_size,
+            window_size,
             tolerance: config.outlier_tolerance,
             bypass_on_zero: config.bypass_on_zero_median,
-            warmup_remaining: config.median_window_size,
+            warmup_remaining: window_size,
             outliers_rejected: 0,
             outliers_bypassed: 0,
         }

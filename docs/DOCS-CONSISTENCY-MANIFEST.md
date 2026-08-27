@@ -1,8 +1,8 @@
-# Documentation Consistency Manifest — v6.10.29
+# Documentation Consistency Manifest — v10.1
 
-**Generated:** 2026-08-13
-**Audit run:** v6.10.5 — Sub-minute EMA ribbon fix + idle-bucket heartbeat + stale-mid guard (AUDIT-V8-001…004, shipped; backend-only). Prior run: v6.10.4 — Snapshot Export scheduler + Interactive CLI setup. 3 new docs: `01-09-cli-setup-flow.md` (interactive CLI flow + rationale), `06-03-snapshot-export-schema.md` (on-disk JSON schema reference), `08-09-snapshot-export.md` (operator manual). Prior run: v6.10.3 — Cross-timeframe alignment aggregation in the Overview Matrix (L7): `OverviewMatrix` gains `alignment_distribution` / `alignment_consensus_index` / `multi_tf_agreement_pct`; `AssetRank` gains per-asset `mtf_score` / `mtf_label` mirrors. New `MarketAlignmentCard` in the system-wide Market Overview dashboard; AssetRankingsTable grows from 9 to 11 columns. Prior run: v6.10.2 — Analytical Input Universe correctness audit (AUDIT-AIU-001 … 091); prior run: v6.10.1 — opportunity-score activation-vs-viability bug fix (1 line in `crates/market-analyzer/src/synthesis.rs:117-120` + 4 unit tests + 4 doc updates; release-gate remediation). Prior run: v6.10 — MME hardening audit (12 major bugs, 9 internal inconsistencies, 4 user-requested architecture extensions; back-end remediation across 5 crates, ~45 new tests). Prior run: v6.8 implementation-status register + WIP banner pass (1 new doc + 18 status-banners + version stamps + status-header rename + stale claim corrections). Prior run: v6.7 per-tab 1:1 export payload architecture (5 new docs + 8 updates; docs-only remediation). v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
-**Scope:** `docs/` — **158 markdown files** at v6.10.23 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 1 ROADMAP + 154 numbered docs)
+**Generated:** 2026-08-24
+**Audit run:** v10.1 — Quant-Metrics Hardening + UX Unification (AGENT AUDIT-2026-08-24, shipped). Prior run: v6.10.5 — Sub-minute EMA ribbon fix + idle-bucket heartbeat + stale-mid guard (AUDIT-V8-001…004, shipped; backend-only). Prior run: v6.10.4 — Snapshot Export scheduler + Interactive CLI setup. 3 new docs: `01-09-cli-setup-flow.md` (interactive CLI flow + rationale), `06-03-snapshot-export-schema.md` (on-disk JSON schema reference), `08-09-snapshot-export.md` (operator manual). Prior run: v6.10.3 — Cross-timeframe alignment aggregation in the Overview Matrix (L7): `OverviewMatrix` gains `alignment_distribution` / `alignment_consensus_index` / `multi_tf_agreement_pct`; `AssetRank` gains per-asset `mtf_score` / `mtf_label` mirrors. New `MarketAlignmentCard` in the system-wide Market Overview dashboard; AssetRankingsTable grows from 9 to 11 columns. Prior run: v6.10.2 — Analytical Input Universe correctness audit (AUDIT-AIU-001 … 091); prior run: v6.10.1 — opportunity-score activation-vs-viability bug fix (1 line in `crates/market-analyzer/src/synthesis.rs:117-120` + 4 unit tests + 4 doc updates; release-gate remediation). Prior run: v6.10 — MME hardening audit (12 major bugs, 9 internal inconsistencies, 4 user-requested architecture extensions; back-end remediation across 5 crates, ~45 new tests). Prior run: v6.8 implementation-status register + WIP banner pass (1 new doc + 18 status-banners + version stamps + status-header rename + stale claim corrections). Prior run: v6.7 per-tab 1:1 export payload architecture (5 new docs + 8 updates; docs-only remediation). v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
+**Scope:** `docs/` — **174 markdown files** at v10.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 1 ROADMAP + 170 spec docs)
 **Source code:** **Inspected.** v6.8 is the first manifest version where the doc audit covers the **WIP** engines (TAE, PME, PAE) by reconciling the docs against the actual frontend-backend delivery state. Audit IDs AUDIT-V6-401 … V6-407 are the new items opened specifically by this alignment.
 **v6.8 source-of-truth:** `docs/ROADMAP.md` (introduced in v6.8). All implementation-status claims and per-engine WIP markers are verified against that document. The phased delivery plan (§3) and the verification checklist (§6) are the canonical contract for retiring the WIP labels.
 **v6.5 source-of-truth:** `docs/operations-and-compliance/08-08-candle-buffer-spec.md` (introduced in v6.5). All single-source-of-truth claims for candle buffer size, sub-minute / ≥ 1 minute behavior split, per-TF state machine, and per-indicator lifecycle are verified against that document and its four companion specs (`03-01-06`, `03-01-07`, `03-02-15`, `01-08`).
@@ -13,7 +13,7 @@
 
 ## 1. Verdict
 
-The corpus is **internally consistent and free of HIGH-severity issues** at v6.4; this verdict is re-verified by the release gates in §12 on every release. The v2.x audit register (18 HIGH-severity inconsistencies surfaced in the pre-v4.0 audit) is closed; the canonical deferred-work tracker is in `docs/CHANGELOG.md §Open Items`. The v4.0 closure pattern was: edit the corpus first, then record each issue under `AUDIT-V4-NN` in the changelog, never the reverse. The "AI-correction notes stapled over stale cells" pattern documented in the pre-v4.0 audit is fully eliminated from normative sections; the only remaining audit-marker identifiers (`AUDIT-V4-NN`, `MAT-NN`, `SIG-NN`, `Issue NN`) live in `docs/CHANGELOG.md` and the historical-narrative footnotes that document what was wrong and why the current text is correct. v6.2's v5.0-→v6.2 additions (instance-lifecycle spec + Gate 0 + scoped-enum rule) are verified by §12.11.
+The corpus is **internally consistent and free of HIGH-severity issues** at v10.1; this verdict is re-verified by the release gates in §12 on every release. The v2.x audit register (18 HIGH-severity inconsistencies surfaced in the pre-v4.0 audit) is closed; the canonical deferred-work tracker is in `docs/CHANGELOG.md §Open Items`. The v4.0 closure pattern was: edit the corpus first, then record each issue under `AUDIT-V4-NN` in the changelog, never the reverse. The "AI-correction notes stapled over stale cells" pattern documented in the pre-v4.0 audit is fully eliminated from normative sections; the only remaining audit-marker identifiers (`AUDIT-V4-NN`, `MAT-NN`, `SIG-NN`, `Issue NN`) live in `docs/CHANGELOG.md` and the historical-narrative footnotes that document what was wrong and why the current text is correct. v6.2's v5.0-→v6.2 additions (instance-lifecycle spec + Gate 0 + scoped-enum rule) are verified by §12.11.
 
 ---
 
@@ -24,26 +24,28 @@ docs/
 ├── README.md                                       (1)
 ├── CHANGELOG.md                                    (1)
 ├── DOCS-CONSISTENCY-MANIFEST.md                    (1)
-├── conceptual-foundations/                        (10)  01-00 … 01-09
-├── matrices/                                       (17)  02-00, 02-00b, 02-01 … 02-15
+├── ROADMAP.md                                      (1)
+├── conceptual-foundations/                        (13)  01-00 … 01-12 (incl. 01-10 parity, 01-11 DS layer, 01-12 D/I/L ontology)
+├── matrices/                                       (16)  02-00, 02-00b, 02-01 … 02-13, 02-15 (02-14 erased v7)
 ├── engines/
-│   ├── data-infrastructure-engine/                 (8)   03-01-00 … 03-01-07
-│   ├── market-monitoring-engine/                   (16)  03-02-01 … 03-02-16
+│   ├── data-infrastructure-engine/                 (9)   03-01-00 … 03-01-08 (incl. 03-01-08 heatmap config, v10.1)
+│   ├── market-monitoring-engine/                   (17)  03-02-01 … 03-02-17 (incl. 03-02-17 strategy config, v9)
 │   │   ├── indicators/                             (53)   ← 1 master index + 52 indicator specs
 │   │   └── signals/                                (13)   ← 1 master index + 12 SignalKinds
-│   ├── trade-automation-engine/                    (6)   03-03-01 … 03-03-06
-│   ├── portfolio-management-engine/                (5)   03-04-01 … 03-04-05
-│   └── performance-analytics-engine/               (5)   03-05-01 … 03-05-05
-├── integration-and-api/                           (4)   06-00 … 06-03
-├── ui-ux/                                          (4)   07-01 … 07-04
-└── operations-and-compliance/                      (9)   08-01 … 08-09
+│   ├── trade-automation-engine/                    (5)   03-03-01, 03-03-03, 03-03-05/06/07 (v10: 03-03-07 strategy settings)
+│   ├── portfolio-management-engine/                (6)   03-04-01 … 03-04-06 (incl. 03-04-06 strategy settings, v9)
+│   ├── performance-analytics-engine/               (7)   03-05-01 … 03-05-07 (incl. 03-05-07 strategy settings, v9)
+│   └── backtesting-engine/                         (5)   08-01 … 08-05 (BTE, v8)
+├── integration-and-api/                           (6)   06-00 … 06-04 (incl. 06-03 snapshot, 06-04 DS export)
+├── ui-ux/                                          (10)  07-01 … 07-10 (incl. 07-07 vocabulary, 07-08/09 strategy builder, 07-10 DS surfaces)
+└── operations-and-compliance/                      (10)  08-01 … 08-09 + 03-liq-heatmap-config.md (v10.1)
 ```
 
-**Total: 158 markdown files** = 155 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 155 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 154 spec files.
-Engine specs: 40 = 8 DIE + 16 MME + 6 TAE + 5 PME + 5 PAE.
+**Total: 174 markdown files** = 171 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 155 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 154 spec files. The v7.2 parity release adds [01-10-cli-gui-parity.md](conceptual-foundations/01-10-cli-gui-parity.md) — the CLI ↔ GUI observe-mode parity contract (13 checks, §12.5 gate). The v7.3 release adds [07-07-engine-dashboard-vocabulary.md](ui-ux/07-07-engine-dashboard-vocabulary.md) — the engine dashboard vocabulary (tokens, layer tab order, per-mode tab maps, export contract).
+Engine specs: 49 = 9 DIE + 17 MME + 5 TAE + 6 PME + 7 PAE + 5 BTE (plus 53 indicator + 13 signal specs under MME).
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → v6.5 = 147 → v6.6 = 147 (Bitget V2 derivatives + UI feed-state) → v6.7 = 147 (per-tab 1:1 export payload) → **v6.8 = 150** (+00-ROADMAP, +07-05-export-data-payload-schema, +01-08 corrections) (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
 
 ---
 
@@ -110,7 +112,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **11 LiquiditySignalKind** variants (`CascadeDetected`, `CascadeSustained`, `CascadeExhausted`, `LiquidityVacuum`, `FundingExtreme`, `OIFundingDivergence`, `MagnetActivated`, `ClusterPressureHigh`, `ClusterForwardPressure`, `FundingFlip`, `OiPriceDivergence`). Serialised in `SCREAMING_SNAKE_CASE` per the Rust `Display` impl in `crates/core-domain/src/liquidity/mod.rs`.
 - [x] **6 StrategyEnvironment / 5 ProtectionStrategy / 5 TargetStrategy**
 - [x] **2 distinct drawdown metrics** (`max_daily_drawdown_pct` 5 % early-warning vs `drawdown_limit_pct` 30 % hard veto)
-- [x] **Sizing formula** `S = (E × R) / (D_sl / 100)` with `E = available_margin`, `R = risk_per_trade_pct / 100`, `D_sl = stop_loss_distance_pct` (raw percent float) — present and consistent across `01-00 §8.7`, `01-02 §6.3`, `03-03-01 §6`, `03-03-03 §2`, `03-03-04 §6`, `03-04-04 §4.2`, `08-02 Gate 4`
+- [x] **Sizing formula** `notional = equity × allocation_pct / 100` with `allocation_pct` ∈ 1–100 % (per-instance override; Σ ≤ 100 %) — present and consistent across `01-00 §8.7`, `01-02 §6.3`, `03-03-01 §5`, `03-04-04 §4.2`, `08-02 Gate 4`
 - [x] **Systemic risk** `0.6 × high_pct + 0.4 × sync_penalty` = 1.00
 
 ### 12.3 Worked-example arithmetic
@@ -131,7 +133,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Uniform band convention (canonical).** All score→label bands are lower-inclusive half-open `[a, b)` — risk levels, `entry_danger`, quality levels, and SetupQuality bands alike. Canonical boundary examples: `entry_danger.score = 20.0` → `LOW` (`[20, 40)`, not `VERY_LOW`); `setup_quality score = 85.0` → `PRIME` (PRIME ≥ 85). Sole documented exception: the `MarketBias` NEUTRAL band is the closed interval `[-20, 20]`. No claim of a different band orientation survives in the corpus.
 
 ### 12.5 Liquidity & risk
-- [x] `cascade_asymmetry > +0.3` ⇒ `SHORT_SQUEEZE_RISK`; `< -0.3` ⇒ `LONG_SQUEEZE_RISK`. Verified in `02-13-liquidation-cluster-matrix.md §Cascade asymmetry` (canonical) and `07-04-ui-liquidity-panel-spec.md §Cascade asymmetry sign convention (canonical mapping)` (UI); the worked example in `07-04` now reads `Sign: -0.400  Direction: LONG_SQUEEZE_RISK` (was the inverted `SHORT_SQUEEZE_RISK`).
+- [x] `cascade_asymmetry > +0.3` ⇒ `SHORT_SQUEEZE_RISK`; `< -0.3` ⇒ `LONG_SQUEEZE_RISK`. Verified in `02-13-liquidation-cluster-matrix.md §Cascade asymmetry` (canonical) and `07-04-ui-liquidity-panel-spec.md §Cascade asymmetry sign convention (canonical mapping)` (UI); the worked example in `07-04` now reads `Sign: -0.400  Direction: LONG_SQUEEZE_RISK` (was the inverted `SHORT_SQUEEZE_RISK`). *(AUDIT-V4-029 correction, 2026-08: the audit found the sign interpretation was still inverted at four sites — cluster signal direction, LiquidityPanel labels, metrics export description, module docstring — and fixed it; regression test pins positive = short squeeze risk.)*
 - [x] Canonical LiquiditySignalKind names used everywhere (Phase 3 registry at `03-02-11`) ✓
 - [x] `cascade_risk` is the **8th** of the eight sub-dimensions (plus `overall_risk` as the 9th aggregate field). The textual reference at `03-02-06 §7` ("plus `overall_risk` as the 9th and final aggregate field") is correct; no surviving "9th dimension" error.
 - [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred per CHANGELOG §Open Items `AUDIT-V4-005`).
@@ -139,14 +141,13 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Instance identity (canonical register).** Market Instance = (symbol, exchange) container of up to four TimeframePipelines; canonical glossary: `06-01` §1.0. All other documents link to the glossary instead of restating the definition.
 
 ### 12.6 Auth / audit / operator
-- [x] `local_operator` identity model documented once in `06-01 §1` with cross-references from `06-01 §2.4` (override endpoints), `06-01 §2.9` (pre-dispatch), `06-01 §3.3` (WS control frames), `06-02 §3.10` (`risk_control_events.operator_id` column). The legacy "Authentication: None" bare assertion is replaced by the explanatory "local-operator identity model" paragraph.
-- [x] Caller-supplied identity via `X-Operator-Id` header is deferred (AUDIT-V4-076, Unscheduled).
+- [x] **Single-operator local deployment** documented once in `06-01 §1` with cross-references from `06-01 §3.3` (WS control frames) and `06-02 §3.10` (`risk_control_events.operator_id` column). Every audit event carries `operator_id = "local"`; there is no per-route authentication, no caller-supplied identity, and no multi-client model.
+- [x] Caller-supplied identity (`X-Operator-Id`) **cancelled** (AUDIT-V4-076) — the platform is a single-operator deployment by design.
 
 ### 12.7 HTTP & API contract
 - [x] `/ws` payload has a normative reference to `02-07-metrics-matrix.md §2.1`. The legacy `/* MarketSnapshot */` placeholder is replaced by the inline comment `MarketSnapshot — byte-for-byte per 02-07-metrics-matrix.md §2.1` plus the canonical reference.
 - [x] `/api/history?limit=` documented (default `100`, max `1000`).
 - [x] `/api/connection-quality` supports optional `instance_id` + `timeframe_secs` for per-scope queries; absent params return process-wide aggregate.
-- [x] `/api/pre-dispatch` resource complete: `GET /api/pre-dispatch`, `POST /api/pre-dispatch/:id/approve`, `DELETE /api/pre-dispatch/:id`; `operator_id` field captured.
 - [x] HTTP status & error envelope documented (`200/201/204/400/404/409/422/500/503`; `{ error: { code, message, details, request_id, documentation_url } }`).
 - [x] SPA fallback scoped to non-`/api/*` paths (§5 in `06-01`).
 - [x] **API-path coverage (re-scoped, v6.4).** Every `/api/*` path referenced anywhere in the corpus is documented in `06-01` §2 — either as a served endpoint or as an entry in `06-01`'s "Planned endpoints" section (gate G10).
@@ -160,14 +161,15 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] `risk_control_events` table present with required columns (`event_id`, `gate_id`, `decision`, `operator_id`, `prior_state`, `resulting_state`, `timestamp_ms`, `retention_until_ms`).
 - [x] `order_fills` table active and consumed by PAE per-fill reconstruction (`03-05-02 §3`).
 - [x] `exit_reason`, `roi_pct` (canonical) vs `roi_percentage` (deprecated → v5.0), order-state vocabulary, `funding_rate_8h` (nullable: NULL = inherit global; `'0'` = disable) all canonical.
-- [x] `policy_id` is a configuration string key, not a relational FK.
+- [x] **v10 exit-reason vocabulary:** `setup_gone` / `confidence_drop` added to the canonical set (`06-02` §3.2 comment, `03-03-07` exit-reason vocabulary, `scripts/e2e_backtest_verify.py` `EXIT_REASONS`, `scripts/ds-verification-loop.sh` vocab).
+- [x] `setup_type` (formerly `policy_id`) is a configuration string key, not a relational FK.
 - [x] SQLite DDL uses canonical notation (`INTEGER PRIMARY KEY AUTOINCREMENT`, `TEXT CHECK (value GLOB '[+-]?[0-9]*([.][0-9]*)?')`, `TEXT CHECK (json_valid(...))`, `TEXT NOT NULL CHECK (value IN (...))`).
 - [x] `liquidity_signals_json` always serialized as a JSON array (never omitted): `DEFAULT '[]' CHECK (json_valid(...))`.
 
 ### 12.9 UI/UX
 - [x] LiquidityPanel data path uses `instance.microTerm.{liquidity, cluster, liquiditySignals}` (the `timeframes.micro` historical error is corrected in `07-04` and explained in `07-01 §2.3`).
 - [x] LiquidityPanel `cascade_asymmetry` sign convention matches canonical (`> +0.3 ⇒ SHORT_SQUEEZE_RISK`, `< -0.3 ⇒ LONG_SQUEEZE_RISK`); normative mapping block in `07-04` carries both directions.
-- [x] CSS Modules normative example block present in `07-01 §7` (kebab-case ↔ camelCase, conditional class binding, global-token vs component-styling split, 1000-line file limit).
+- [x] CSS Modules normative example block present in `07-01 §7` (kebab-case ↔ camelCase, conditional class binding, global-token vs component-styling split).
 - [x] Dashboard "18 dedicated indicator panes + PriceChart overlay layer" wording in `07-02 §4.1` matches `07-03 §4` aggregate counts.
 - [x] Connection Quality tab is instance-scoped (verified `07-02 §3`, `07-02 §4.8`, `08-05 §REST API`).
 - [x] Decision Panel enumerates all canonical Decision Matrix fields (`directional_guidance`, `market_stance`, `strategy_environment`, `entry_guidance`, `exit_guidance`, `protection_strategy`, `target_strategy`, `trade_readiness`, `confidence_assessment`, `entry_danger`, `expected_reward_risk_ratio`, `stop_loss_distance_pct`, `final_recommendation`).
@@ -186,7 +188,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
 
-- [x] Every numbered doc carries `**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
+- [x] Every numbered doc carries `**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
 - [x] Exactly three files are permitted to carry a version marker outside the numbered-doc stamp convention: `docs/README.md` (stats line; the corpus entry point), `docs/CHANGELOG.md` (the canonical single version history), and this MANIFEST (the title line). All four coherence points must read the current corpus version.
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 
@@ -198,7 +200,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Config-format consistency.** Every prose `config.json` reference that describes CURRENT operating config has been rewritten to `config.toml` (89 substitutions). The 2 historical AUDIT entries in `CHANGELOG.md` AUDIT-V4-016 / AUDIT-V4-028 that document pre-migration config decisions are intentionally preserved. **v6.10.27:** the corpus was swept again — the "legacy `config.json` fallback" claims are gone everywhere (no JSON reader exists in `config-models`; `load_config()` reads `config.toml` only); only historical CHANGELOG entries retain the phrase.
 - [x] **Binary name updated.** `cargo run --` → `cargo run --bin execution-daemon --` across `AGENTS.md`, `README.md`, and `manage.sh`.
 - [x] **manage.sh `destroy` command fixed.** Was scaffolding `config.toml` from `config.default.json` (cross-format copy). Now scaffolds from `config.default.toml`.
-- [x] **No contradiction with v4.0 corpus.** v4.0's registry-verified counts (51 indicators, 101 signal-kind declarations, 12 SignalKinds — these are v6.6+ numbers; the pre-v6.6 v4.0 baseline was 50/100) are unchanged by the workspace split — verified by spot-check of `crates/market-analyzer/src/indicators/registry.rs`.
+- [x] **No contradiction with v4.0 corpus.** v4.0's registry-verified counts (52 indicators after the v6.11 `price_trend_sharpe` addition — v6.6 had 51, the pre-v6.6 v4.0 baseline was 50; 101 signal-kind declarations, 12 SignalKinds — these are v6.6+ numbers) are unchanged by the workspace split — verified by spot-check of `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 
@@ -294,7 +296,7 @@ Any normative table found in two places is by definition a defect. Every concept
 ### 13.2 Terminology register (canonical forms)
 
 - **Market Instance** = (symbol, exchange) container of up to four TimeframePipelines; `instance_id = <symbol>@<exchange>`. Canonical glossary: `06-01` §1.0.
-- **Enum serialization:** SCREAMING_SNAKE_CASE on the wire and in JSON examples; PascalCase only when citing Rust types in prose.
+- **Enum serialization (two wire conventions):** (a) **SCREAMING_SNAKE_CASE** for the liquidity, overview, viability, `DirectionFamily`, `LevelSource`, `CandlePipelineState`, `SequenceIntegrity`, and `ReconstructionMethod` enums — these carry `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`; (b) **PascalCase** for the L2–L6 analysis / decision / risk / alignment / advisory / signal enums — `AlignState`, `MarketBias`, `MarketRegime`, `MarketPhase`, the Trend / Momentum / Structure / Volatility / Volume `Assessment` enums, `QualityLevel`, `SetupQuality`, `OpportunityType`, `TimeHorizon`, `RiskLevel`, `RiskState`, `SignalKind`, `SignalDirection`, `SignalStatus`, `IndicatorLifecycleState`, `FeedState`, `DirectionalGuidance`, `MarketStance`, `OpportunityClass`, `StrategyEnvironment`, `EntryGuidance`, `ExitGuidance`, `ProtectionStrategy`, `TargetStrategy` — these have **no** serde rename and serialize as their Rust variant names. `TimeframeSlot` serializes `snake_case`. JSON examples must use the owning enum's wire convention; PascalCase in prose may also cite Rust types.
 - **Empty-state sentinel:** UNKNOWN for every assessment/phase enum (MarketPhase = 4 phases + UNKNOWN).
 - **Confidence scales:** indicator/signal [0, 1]; alignment/risk dimension [0, 100]; pipeline-level per `02-00b`.
 - **Matrix names** per the CSR above — "Data Quality Matrix" is retired (`CandleQualityEnvelope` + `PipelineReliabilityMetrics`).

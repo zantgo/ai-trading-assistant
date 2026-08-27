@@ -1,0 +1,372 @@
+/* BacktestLauncher — installer-style wizard styles (v8.2). */
+
+.wizard {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 4px;
+}
+
+.steps {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    border-bottom: 1px solid var(--border, #2a2f3a);
+    padding-bottom: 12px;
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-muted, #94a3b8);
+    font-size: 0.85rem;
+}
+
+.stepActive {
+    color: var(--text, #e2e8f0);
+    font-weight: 600;
+}
+
+.stepDone {
+    color: var(--accent, #38bdf8);
+}
+
+.stepDot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    font-size: 0.72rem;
+}
+
+.boundNote {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.chip {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: var(--chip-bg, #1e293b);
+    color: var(--text, #e2e8f0);
+    font-size: 0.78rem;
+}
+
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sectionTitle {
+    margin: 0;
+    font-size: 1.02rem;
+    color: var(--text, #e2e8f0);
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-width: 420px;
+}
+
+.label {
+    font-size: 0.8rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.input {
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334155);
+    background: var(--input-bg, #0f172a);
+    color: var(--text, #e2e8f0);
+    font-size: 0.9rem;
+}
+
+.radioGroup {
+    display: flex;
+    gap: 10px;
+}
+
+.radioOption {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334155);
+    font-size: 0.85rem;
+}
+
+.active {
+    border-color: var(--accent, #38bdf8);
+    color: var(--text, #e2e8f0);
+}
+
+.disabled {
+    opacity: 0.45;
+}
+
+.radioBadge {
+    font-size: 0.72rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-muted, #94a3b8);
+    max-width: 640px;
+}
+
+.instanceList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 680px;
+}
+
+.instanceRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334155);
+    background: var(--card-bg, #0b1220);
+}
+
+.instancePair {
+    font-weight: 600;
+    min-width: 60px;
+}
+
+.instanceTfs {
+    flex: 1;
+    font-size: 0.82rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.instanceAlloc {
+    font-size: 0.82rem;
+    color: var(--accent, #38bdf8);
+    min-width: 44px;
+    text-align: right;
+}
+
+.removeBtn {
+    border: none;
+    background: none;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.emptyHint {
+    font-size: 0.82rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.addGroup {
+    max-width: 900px;
+}
+
+.addRow {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.baseInput {
+    width: 90px;
+}
+
+.tfField {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.tfLabel {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    color: var(--text-muted, #94a3b8);
+}
+
+.tfSelect {
+    padding: 6px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334155);
+    background: var(--input-bg, #0f172a);
+    color: var(--text, #e2e8f0);
+    font-size: 0.82rem;
+}
+
+.allocInput {
+    width: 56px;
+    padding: 6px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334155);
+    background: var(--input-bg, #0f172a);
+    color: var(--text, #e2e8f0);
+    font-size: 0.82rem;
+}
+
+.addBtn {
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--accent, #38bdf8);
+    background: transparent;
+    color: var(--accent, #38bdf8);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.summary {
+    display: flex;
+    gap: 18px;
+    font-size: 0.82rem;
+    color: var(--text-muted, #94a3b8);
+    margin-top: 6px;
+}
+
+.allocSum {
+    color: var(--accent, #38bdf8);
+}
+
+.allocOver {
+    color: var(--danger, #ef4444);
+    font-weight: 600;
+}
+
+.depthRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    max-width: 680px;
+}
+
+.depthRow input[type='range'] {
+    flex: 1;
+    min-width: 200px;
+}
+
+.depthInput {
+    width: 80px;
+}
+
+.errorChip {
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--danger-bg, #450a0a);
+    color: var(--danger, #ef4444);
+    font-size: 0.78rem;
+}
+
+.ceilingNote {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #f59e0b;
+    max-width: 680px;
+}
+
+.progressBlock {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 680px;
+}
+
+.progressHeader {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+}
+
+.phaseLabel {
+    color: var(--text, #e2e8f0);
+}
+
+.phasePct {
+    color: var(--accent, #38bdf8);
+    font-variant-numeric: tabular-nums;
+}
+
+.progressBar {
+    width: 100%;
+    height: 12px;
+    border-radius: 6px;
+    accent-color: var(--accent, #38bdf8);
+}
+
+.doneNote {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--success, #22c55e);
+}
+
+.error {
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--danger-bg, #450a0a);
+    color: var(--danger, #ef4444);
+    font-size: 0.85rem;
+}
+
+.footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--border, #2a2f3a);
+}
+
+.backButton {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334155);
+    background: transparent;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+}
+
+.continueButton {
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: none;
+    background: var(--accent, #38bdf8);
+    color: #062033;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.runButton {
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: none;
+    background: var(--success, #22c55e);
+    color: #052e16;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.cancelButton {
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: 1px solid var(--danger, #ef4444);
+    background: transparent;
+    color: var(--danger, #ef4444);
+    font-weight: 700;
+    cursor: pointer;
+}

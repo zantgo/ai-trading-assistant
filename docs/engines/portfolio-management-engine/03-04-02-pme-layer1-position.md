@@ -1,7 +1,7 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/position_layer.rs`) is implemented; dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
+**Version:** 10.1 (2026-08-24) — v7: PME is informational; this layer's math is unchanged.
+**Status:** Specified — implemented (pure math); v7 surface wiring in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4
 **Input Contract:** Exchange execution events and order fill confirmations (from TAE)
@@ -95,15 +95,15 @@ The Position Layer reads updated invalidation levels from the MME [Decision Matr
 
 ### 4.3 Thesis Invalidation (invalidation_level breach)
 
-A close at or beyond `invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-portfolio.md)). The liquidation:
+A close at or beyond `invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-overview.md)). The liquidation:
 
 - Bypasses the Position Sizing Protocol (size is copied verbatim from the Position Matrix).
-- Forces `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check).
+- Forces `reduce_only = true` and `is_emergency_liquidation = true` (v7: dispatched by the TAE stop-flatten path; there is no stance check anymore).
 - Dispatches as a `Market` order to the exchange.
 
 The breach is detected on candle close at the active timeframe (i.e. intrabar wicks through the level do not trigger the liquidation).
 
-> **Two producers, one mechanism.** This thesis-failure `LiquidateCommand` (produced by the Position Layer on `invalidation_level` breach) is distinct from the veto Hard Exit produced by the Portfolio Layer on the §4.1 veto triggers ([03-04-05 §4.2](./03-04-05-pme-layer4-portfolio.md)) — but both converge on the same Hard Exit mechanism in the TAE: size copied verbatim from the Position Matrix, `reduce_only = true`, `is_emergency_liquidation = true`, `Market` dispatch.
+> **v7 note:** the veto Hard Exit was erased. The Position Layer's `LiquidateCommand` (invalidation-level breach) remains as the *reporting* signal; the TAE bracket SL stop is what actually closes the position (see [TAE Overview §6](../trade-automation-engine/03-03-01-tae-overview-spec.md)).
 
 ---
 

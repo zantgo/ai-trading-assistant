@@ -6,32 +6,24 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum PositionState {
+    #[default]
     Opening,
     Managing,
     Closing,
 }
 
-impl Default for PositionState {
-    fn default() -> Self {
-        PositionState::Opening
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum SafetyState {
+    #[default]
     Normal,
     Warn,
     Cautious,
     Suspended,
     DrawdownStop,
-}
-
-impl Default for SafetyState {
-    fn default() -> Self {
-        SafetyState::Normal
-    }
 }
 
 impl SafetyState {
@@ -53,16 +45,6 @@ pub struct CorrelationMap {
     pub pairs: HashMap<String, f64>,
 }
 
-// ─── Veto Trigger ──────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct VetoTrigger {
-    pub condition: String,
-    pub target_stance: String,
-    pub reason: String,
-    pub hard_exit: bool,
-}
-
 // ─── L1: Position Matrix ───────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -71,7 +53,6 @@ pub struct PositionMatrix {
     pub symbol: String,
     pub direction: String,
     pub entry_price: Decimal,
-    pub average_entry_price: Decimal,
     pub size: Decimal,
     pub allocated_usd: Decimal,
     pub entry_timestamp: u64,
@@ -86,11 +67,7 @@ pub struct PositionMatrix {
     pub invalidation_level: Option<Decimal>,
     pub target_profit_ratio: Option<Decimal>,
 
-    pub current_portions: u32,
-    pub max_portions: u32,
     pub position_state: PositionState,
-    pub initial_allocated_margin: Decimal,
-    pub realized_pnl_accumulator: Decimal,
 }
 
 // ─── L2: Exposure Matrix ───────────────────────────────────────
@@ -126,10 +103,10 @@ pub struct CapitalMatrix {
     pub starting_session_equity: Decimal,
 }
 
-// ─── L4: Portfolio Matrix ──────────────────────────────────────
+// ─── L4: Overview Layer (v8.2 — renamed from "Portfolio Matrix") ────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PortfolioMatrix {
+pub struct PortfolioOverviewMatrix {
     pub current_equity: Decimal,
     pub realized_pnl: Decimal,
     pub unrealized_pnl: Decimal,
@@ -143,8 +120,6 @@ pub struct PortfolioMatrix {
     pub peak_equity: Decimal,
     pub safety_state: SafetyState,
     pub systemic_risk_score: f64,
-    pub active_stances: HashMap<String, String>,
-    pub default_stances: HashMap<String, String>,
     pub consecutive_losses: HashMap<String, u32>,
     pub position_count: u32,
 }

@@ -16,7 +16,6 @@
    progress bar; Confidence lives in the L5 header between Score and
    Dimensions. */
 .heroRiskRow { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
-.heroRiskLabel { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
 .heroRiskBar { flex: 1; height: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; overflow: hidden; }
 .heroRiskFill { height: 100%; border-radius: 6px; background: var(--risk-fill, #475569); transition: width 0.35s ease-out; }
 .heroRiskVal { font-size: 12px; font-weight: 800; color: #e2e8f0; font-variant-numeric: tabular-nums; flex-shrink: 0; }
@@ -106,9 +105,9 @@
 /* ─────────── RISK SUMMARY prose (v7.0) ─────────── */
 /* Premium always-gray card via SummaryCard — the level-tinted
    background/left-border (--risk-bg/--risk-stroke) is gone: gray is the
-   summary signal, level color belongs to badges/chips. */
-.interpretation { font-size: 12.5px; color: #cbd5e1; line-height: 1.6; }
-.interpretation :global(strong) { color: #e2e8f0; font-weight: 600; }
+   summary signal, level color belongs to badges/chips. Typography is the
+   unified SummaryCard body language (12px slate, high-contrast strong). */
+.interpretation { margin: 0; }
 
 /* ─────────── Placeholder ─────────── */
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

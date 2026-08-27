@@ -10,11 +10,11 @@
     import BottomConsole from './components/BottomConsole.svelte';
     import FullscreenChartModal from './components/FullscreenChartModal.svelte';
     import SvgIcon from './lib/SvgIcon.svelte';
-    import WelcomeGate from './WelcomeGate.svelte';
+    import LaunchSetup from './LaunchSetup.svelte';
     import QuitDialog from './QuitDialog.svelte';
 
     import styles from './styles/brutalist-grid.module.css';
-    import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList } from './lib/api.svelte';
+    import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList, postInstanceLifecycle } from './lib/api.svelte';
     import { pickInstanceLivePrice } from './lib/livePrice';
     import {
         connectWsForInstance, disconnectWsForInstance, shouldReconnect,
@@ -25,6 +25,16 @@
         applyResilientCache,
         type PairCacheEntry,
     } from './lib/resilientActivePair';
+    import {
+        ENGINE_TABS,
+        ENGINE_DEFAULT_TAB,
+        BTE_TABS_NO_INSTANCE,
+        tabsForMode,
+        type EngineKey,
+        type ExecutionMode,
+    } from './lib/engineTabs';
+    import { isExecutionMode } from './lib/modePresentation';
+    import { MODE_LABEL } from './lib/modePresentation';
 
     const app = useAppStore();
     
@@ -42,7 +52,9 @@
     let isSidebarOpen = $state(false);
     let isWorkspacePanelOpen = $state(false);
     let showQuitDialog = $state(false);
-    let confirmModal = $state<{ action: 'delete'; id: string; pair?: string } | null>(null);
+    // v10.1: row actions now include the TAE activation toggle (start /
+    // pause ride the instance lifecycle endpoint).
+    let confirmModal = $state<{ action: 'start' | 'pause' | 'delete'; id: string; pair?: string } | null>(null);
     /// Inline error surfaced beneath the right-panel list when a delete
     /// call returns 4xx. The old global banner was overkill — a single
     /// DELETE failure is local to the panel and the user needs to see
@@ -56,21 +68,15 @@
         panelDeleteErrorTimer = setTimeout(() => { panelDeleteError = null; }, 6000);
     }
 
-    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
-
-    const MARKET_TABS: { key: string; label: string }[] = [
-        { key: 'overview',  label: 'Overview' },
-        { key: 'workspace', label: 'Workspace' },
-        { key: 'settings',  label: 'Settings' },
-    ];
-
+    // v7.3: MME workspace sub-views ordered by layer (L1 → L6) — Analysis
+    // (L3) now precedes Opportunities (L4), matching the pipeline order.
     const SUB_TABS: { view: CurrentView; label: string }[] = [
         { view: 'terminal',    label: 'Charts' },
         { view: 'monitor',     label: 'Metrics' },
         { view: 'alignment',   label: 'Alignment' },
+        { view: 'analysis',    label: 'Analysis' },
         { view: 'opportunity', label: 'Opportunities' },
         { view: 'risk',        label: 'Risks' },
-        { view: 'analysis',    label: 'Analysis' },
         { view: 'recommendation', label: 'Recommendation' },
     ];
 
@@ -136,6 +142,41 @@
     const isHome = $derived(app.currentEngine === 'profile');
     const topLabel = $derived(isHome ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
 
+    // v7.2: mode-aware tab collapse. All instances created in one launch
+    // share the session-default mode; derive the tab mode from the
+    // workspace-selected instance (fallback: any known instance). The
+    // Performance engine is system-wide and uses the launch session mode.
+    //
+    // v7.3: TAE/PME fall back to the session mode when no instance is
+    // selected or known — with no instance active (or before the instance
+    // list resolves) the navbar is still deterministic from the first
+    // render instead of showing the full (non-collapsed) tab set.
+    const activeMode = $derived.by<ExecutionMode | undefined>(() => {
+        // Performance / Backtesting are session-level engines — always use sessionMode.
+        if (app.currentEngine === 'performance' || app.currentEngine === 'backtesting') {
+            return app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined;
+        }
+        // For Market Monitor / TAE / PME: prefer the selected instance's mode,
+        // but fall back to sessionMode when the instance entry has not yet
+        // been hydrated (startup race where mode is temporarily undefined).
+        // This prevents the top-bar OBSERVE chip from vanishing when
+        // entering an instance in Market Monitor.
+        const instMode = app.selectedInstance ? app.instancesMap[app.selectedInstance]?.mode : undefined;
+        if (instMode && isExecutionMode(instMode)) return instMode as ExecutionMode;
+        if (app.sessionMode && isExecutionMode(app.sessionMode)) return app.sessionMode as ExecutionMode;
+        const firstMode = Object.values(app.instancesMap)[0]?.mode;
+        if (firstMode && isExecutionMode(firstMode)) return firstMode as ExecutionMode;
+        return undefined;
+    });
+    const engineTabs = $derived.by(() => {
+        // v10.1: BTE dynamic navbar — Overview/History/Settings until a
+        // bound instance or loaded run exists, then the full set.
+        if (app.currentEngine === 'backtesting' && !app.btSessionActive) {
+            return BTE_TABS_NO_INSTANCE;
+        }
+        return tabsForMode(app.currentEngine as EngineKey, activeMode);
+    });
+
     const livePrice = $derived.by(() => {
         if (!resilientActivePair) return '--';
         return pickInstanceLivePrice(
@@ -184,7 +225,7 @@
         const map: Record<string, string> = {
             data_infra: 'DATA INFRASTRUCTURE', market_monitor: 'MARKET MONITOR',
             trade_automation: 'TRADE AUTOMATION', portfolio: 'PORTFOLIO MANAGEMENT',
-            performance: 'PERFORMANCE ANALYTICS',
+            performance: 'PERFORMANCE ANALYTICS', backtesting: 'BACKTESTING',
         };
         return map[key]?.toUpperCase() ?? 'COMING SOON';
     }
@@ -214,13 +255,22 @@
     let routeSource: 'url' | 'state' = $state('state');
 
     function currentHash(): string {
-        const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
-        return buildEngineHash(
-            app.currentEngine,
-            app.currentEngine === 'exchange_settings' ? undefined : app.middleTab,
-            app.selectedInstance ?? undefined,
-            pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
-        );
+        // Only Market Monitor owns the instance/view segment. For every other
+        // engine (Backtesting, TAE, PME, PAE, DIE, Profile) the hash is flat:
+        // `#/engine/<engine>/<middleTab>` — the shared `selectedInstance` is
+        // kept in state for preseed (BTE) but never serialized into the URL.
+        // This prevents `#/engine/backtesting/.../instance/BTC/instance/.../view/recommendation`
+        // leaks that made the BTE navbar flip 3→10 tabs after a leak.
+        if (app.currentEngine === 'market_monitor') {
+            const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
+            return buildEngineHash(
+                app.currentEngine,
+                app.middleTab,
+                app.selectedInstance ?? undefined,
+                pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
+            );
+        }
+        return buildEngineHash(app.currentEngine, app.middleTab);
     }
 
     function applyRoute(engine: string, middleTab?: string, instance?: string, view?: string) {
@@ -236,18 +286,28 @@
         // restore `…/workspace/…` on top of the user's navigation.
         if (middleTab) {
             app.middleTab = middleTab;
-        } else if (e === 'market_monitor') {
-            app.middleTab = 'overview';
+        } else {
+            app.middleTab = ENGINE_DEFAULT_TAB[e];
         }
-        if (instance && app.instancesMap[instance]) {
+        // Only Market Monitor routes carry an instance. For every other engine
+        // the `instance`/`view` segments are ignored — the global
+        // `selectedInstance` survives in state (so BTE can preseed) but the
+        // URL never owns it. This matches the spec: BTE binds via the shared
+        // selection (right Instances panel), not via `#/.../instance/...`.
+        if (e === 'market_monitor' && instance && app.instancesMap[instance]) {
             app.selectedInstance = instance;
             app.activeTab = instance;
             app.activeEngineTab = 'instance';
             const p = app.instancesMap[instance];
             if (p) p.currentView = (view as CurrentView) ?? 'terminal';
-        } else {
-            const shouldClear = e !== 'market_monitor' || middleTab === 'overview';
+        } else if (e === 'market_monitor') {
+            const shouldClear = middleTab === 'overview';
             if (shouldClear) app.exitInstance();
+        } else {
+            // Non-MME engine: strip leaked instance/view. Keep the globally
+            // selected instance for BTE preseed, but never overwrite it from
+            // the URL and never set currentView.
+            // No-op: selectedInstance stays as-is from the MME workspace.
         }
         // `tick()` is a microtask boundary — by the time it resolves
         // the state→URL `$effect` has already observed the new state
@@ -342,6 +402,10 @@
 
     onDestroy(() => {
         for (const sym of Object.keys(wssMap)) {
+            // AUDIT-FE-H2: `disconnectWsForInstance` now also cancels the
+            // pending trailing connect timers — previously a rapid
+            // navigation burst followed by teardown opened sockets after
+            // unmount with no cleanup path.
             disconnectWsForInstance(wssMap, sym);
         }
         app.stopOverviewPolling();
@@ -383,12 +447,11 @@
     // ─── Workspace panel confirm actions ───────────────────────────────
     //
     // The dashboard model is binary: an instance is either running or it
-    // doesn't exist. There's no pause/start/stop — DELETE is a single
-    // call that the backend accepts on any state. On 4xx we surface the
-    // error verbatim in the panel; on 2xx we do the local cleanup so
-    // the row disappears immediately without waiting for the next
-    // session-status refetch.
-    function requestRowConfirm(id: string, action: 'delete', pair?: string) {
+    // v10.1: DELETE is a single call the backend accepts on any state;
+    // START/PAUSE ride the instance lifecycle endpoint (TAE activation).
+    // On 4xx the error is surfaced verbatim in the panel; on 2xx the
+    // panel's 3s polling backstop refreshes the row.
+    function requestRowConfirm(id: string, action: 'start' | 'pause' | 'delete', pair?: string) {
         confirmModal = { id, action, pair };
     }
 
@@ -414,9 +477,20 @@
 
     async function executeRowConfirm() {
         if (!confirmModal) return;
-        const { id, pair } = confirmModal;
+        const { action, id, pair } = confirmModal;
         confirmModal = null;
-        await executeDelete(id, pair);
+        if (action === 'delete') {
+            await executeDelete(id, pair);
+            return;
+        }
+        // TAE activation toggle — lifecycle start/pause.
+        const res = await postInstanceLifecycle(id, action);
+        if (res.error) {
+            surfacePanelError(res.error);
+        } else {
+            await syncInstanceIdsFromList(app);
+            await app.fetchSessionStatus();
+        }
     }
 
     /** Single-step delete: the backend's `registry::delete_instance`
@@ -454,7 +528,7 @@
 {#if !app.sessionChecked}
     <div class={styles.loading}><div class={styles.spinner}></div><span>Connecting to Trading Platform…</span></div>
 {:else if !app.sessionActive}
-    <WelcomeGate />
+    <LaunchSetup />
 {:else}
     <div class={styles.gridContainer}>
 
@@ -468,6 +542,13 @@
                 </span>
             </div>
             <div class="{styles.cell} {styles.cellMono} {styles.cellNavbar}" style="justify-content: flex-start;">
+                {#if activeMode}
+                    <span class="{styles.modeNavChip} {activeMode === 'observe'
+                        ? styles.modeNavObserve
+                        : activeMode === 'paper'
+                          ? styles.modeNavPaper
+                          : styles.modeNavLive}">{MODE_LABEL[activeMode]}</span>
+                {/if}
                 <span class={styles.exchangeChip}>{app.sessionExchange} · {app.sessionCurrency}</span>
             </div>
             <div class="{styles.cell} {styles.cellNavbar}"></div>
@@ -489,10 +570,10 @@
             </div>
         </header>
 
-        <!-- Middle tabs -->
-        {#if app.currentEngine === 'market_monitor'}
+        <!-- Middle tabs (engine navbar rows) -->
+        {#if engineTabs}
             <nav class="{styles.row} {styles.rowTabs}">
-                {#each MARKET_TABS as tab (tab.key)}
+                {#each engineTabs as tab (tab.key)}
                     <a href={buildEngineHash(app.currentEngine, tab.key)} class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}" onclick={(e) => { handleNavClick(e); app.middleTab = tab.key; }}>
                         {tab.label}
                     </a>
@@ -523,8 +604,10 @@
             errorMessage={panelDeleteError}
         />
 
-        <!-- Bottom Console (Positions / Orders / History / Plan) -->
-        {#if app.activeConsoleOpen}
+        <!-- Bottom Console (Positions / Orders / History / Plan) — hidden
+             in observe mode: the console is simulated-execution data that
+             would mislead an observing operator. -->
+        {#if app.activeConsoleOpen && activeMode !== 'observe'}
             <section class="{styles.row} {styles.rowConsole}">
                 <BottomConsole
                     bind:activeConsoleTab={app.activeConsoleTab}

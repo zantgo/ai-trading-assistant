@@ -19,8 +19,8 @@
 //!   2. No two keys collide in the `values` submap (catches `Object.entries`
 //!      dups in `IndicatorsView.svelte:398`).
 //!   3. Lifecycle transitions correctly:
-//!        `Loading(N/bars_required)` at `N = bars_required - 1`,
-//!        `Live` at `N >= bars_required`.
+//!      - `Loading(N/bars_required)` at `N = bars_required - 1`,
+//!      - `Live` at `N >= bars_required`.
 //!   4. After the calculator reaches its warm-up gate, the entry exists in
 //!      the indicators map with a non-empty `state_label`.
 //!
@@ -84,9 +84,12 @@ pub fn synthesize_candles(n: usize, pattern: Pattern) -> Vec<NormalizedCandle> {
             Pattern::Uptrend => (100.0 + t * 0.5, 100.0 + t * 5.0, 1.5, 1.0),
             Pattern::Downtrend => (200.0 - t * 0.5, 80.0 + t * 2.0, 1.0, 1.5),
             Pattern::Range => (100.0 + (t * 0.3).sin() * 5.0, 50.0, 1.0, 1.0),
-            Pattern::Volatile => {
-                (100.0 + (t * 0.7).sin() * 10.0 + (t * 1.3).cos() * 5.0, 150.0, 4.0, 4.0)
-            }
+            Pattern::Volatile => (
+                100.0 + (t * 0.7).sin() * 10.0 + (t * 1.3).cos() * 5.0,
+                150.0,
+                4.0,
+                4.0,
+            ),
         };
         let open = base_close - (hi - lo) * 0.3;
         let high = base_close + hi;
@@ -209,28 +212,28 @@ pub fn run_pipeline_snapshot(
     let lc = lifecycle.get(key);
 
     // Debug trace for early bars in each test to surface lifecycle/entry anomalies.
-//    (kept commented — re-enable when triaging a specific indicator's lifecycle.)
-//     if bar_count == bars_required || bar_count == 200 {
-//         let present = entry.is_some();
-//         let label_or_warming = entry
-//             .map(|e| e.state_label.as_str())
-//             .unwrap_or("<absent>");
-//         let lc_state = lc
-//             .map(|l| match l.state {
-//                 IndicatorLifecycleState::Live => "Live",
-//                 IndicatorLifecycleState::Loading => "Loading",
-//                 IndicatorLifecycleState::Stale => "Stale",
-//                 IndicatorLifecycleState::Failed => "Failed",
-//             })
-//             .unwrap_or("<absent>");
-//         eprintln!(
-//             "[debug {key}] bar={bar_count} present={present} state_label={label_or_warming} lifecycle={lc_state} signal_count={}",
-//             signals.len()
-//         );
-//         for (i, s) in signals.iter().enumerate() {
-//             eprintln!("    signal[{i}]: {} ({:?}, {:?})", s.label, s.kind, s.direction);
-//         }
-//     }
+    //    (kept commented — re-enable when triaging a specific indicator's lifecycle.)
+    //     if bar_count == bars_required || bar_count == 200 {
+    //         let present = entry.is_some();
+    //         let label_or_warming = entry
+    //             .map(|e| e.state_label.as_str())
+    //             .unwrap_or("<absent>");
+    //         let lc_state = lc
+    //             .map(|l| match l.state {
+    //                 IndicatorLifecycleState::Live => "Live",
+    //                 IndicatorLifecycleState::Loading => "Loading",
+    //                 IndicatorLifecycleState::Stale => "Stale",
+    //                 IndicatorLifecycleState::Failed => "Failed",
+    //             })
+    //             .unwrap_or("<absent>");
+    //         eprintln!(
+    //             "[debug {key}] bar={bar_count} present={present} state_label={label_or_warming} lifecycle={lc_state} signal_count={}",
+    //             signals.len()
+    //         );
+    //         for (i, s) in signals.iter().enumerate() {
+    //             eprintln!("    signal[{i}]: {} ({:?}, {:?})", s.label, s.kind, s.direction);
+    //         }
+    //     }
 
     IndicatorSnapshot {
         bar_count,
@@ -269,7 +272,8 @@ where
     let mut out = Vec::with_capacity(candles.len());
     for (i, c) in candles.iter().enumerate() {
         let (inputs, ctx) = build_inputs_for_bar(c, i);
-        let snap = run_pipeline_snapshot(key, bars_required, &inputs, &ctx, (i + 1) as u32, is_shadow);
+        let snap =
+            run_pipeline_snapshot(key, bars_required, &inputs, &ctx, (i + 1) as u32, is_shadow);
         out.push(snap);
     }
     out
@@ -287,8 +291,8 @@ pub fn assert_no_duplicate_signal_keys(name: &str, snap: &IndicatorSnapshot) {
         if !seen.insert(key.clone()) {
             let first_i = first_seen_at.get(&key).copied().unwrap_or(0);
             panic!(
-                "[{name}] DUPLICATE (label, kind) signal pair detected:\n  pair: {}\n  first emitted at signal index {first_i}, re-pushed at index {i}\n  → would trigger `each_key_duplicate` in any frontend {{#each}} block using `(sig.label + sig.kind)` as the key",
-                format!("{}|{:?}", sig.label, sig.kind),
+                "[{name}] DUPLICATE (label, kind) signal pair detected:\n  pair: {}-{:?}\n  first emitted at signal index {first_i}, re-pushed at index {i}\n  → would trigger `each_key_duplicate` in any frontend {{#each}} block using `(sig.label + sig.kind)` as the key",
+                sig.label, sig.kind,
             );
         }
         first_seen_at.insert(key, i);
@@ -331,7 +335,11 @@ pub fn assert_lifecycle_transitions(name: &str, snaps: &[IndicatorSnapshot], bar
 }
 
 /// Verify the indicator reaches a non-empty state_label after its warm-up gate.
-pub fn assert_state_label_after_warmup(name: &str, snaps: &[IndicatorSnapshot], bars_required: u32) {
+pub fn assert_state_label_after_warmup(
+    name: &str,
+    snaps: &[IndicatorSnapshot],
+    bars_required: u32,
+) {
     if bars_required == 0 || snaps.len() < bars_required as usize {
         return;
     }
@@ -393,7 +401,10 @@ fn build_supertrend_inputs(
     (inputs, ctx)
 }
 
-fn build_donchian_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_donchian_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
     let ctx = NormalizationContext {
         price: cl,
@@ -419,7 +430,10 @@ fn build_donchian_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, N
     (inputs, ctx)
 }
 
-fn build_keltner_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_keltner_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
     let ctx = NormalizationContext {
         price: cl,
@@ -464,7 +478,10 @@ fn build_adx_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normal
     (inputs, ctx)
 }
 
-fn build_bollinger_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_bollinger_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
     let ctx = NormalizationContext {
         price: cl,
@@ -492,7 +509,10 @@ fn build_bollinger_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, 
 
 fn build_bbwp_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let ctx = NormalizationContext { price: cl, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         bbwp: Some(40.0),
         bb_upper: Some(cl + 2.0),
@@ -606,9 +626,15 @@ fn build_stochastic_inputs(
     (inputs, ctx)
 }
 
-fn build_chandemo_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_chandemo_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let cmo = (cl - 100.0) * 0.4;
     let inputs = IndicatorInputs {
         chandemo: Some(cmo),
@@ -623,7 +649,10 @@ fn build_chandemo_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, N
 
 fn build_mfi_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, v) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let mfi = 50.0 + ((cl - 100.0) * 0.5).clamp(-30.0, 30.0);
     let inputs = IndicatorInputs {
         mfi: Some(mfi),
@@ -662,7 +691,10 @@ fn build_mfi_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normal
 
 fn build_cci_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let cci = ((cl - 100.0) * 2.0).clamp(-200.0, 200.0);
     let inputs = IndicatorInputs {
         cci: Some(cci),
@@ -701,8 +733,11 @@ fn build_williams_r_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
-    let wr = ((cl - 100.0) * -1.0).clamp(-100.0, 0.0);
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
+    let wr = (-(cl - 100.0)).clamp(-100.0, 0.0);
     let inputs = IndicatorInputs {
         williams_r: Some(wr),
         rsi: Some(50.0 + wr * -0.3),
@@ -710,7 +745,7 @@ fn build_williams_r_inputs(
         stoch_d: Some(50.0 + wr * -0.3),
         chandemo: Some(wr * -0.4),
         mfi: Some(50.0 + wr * -0.3),
-        cci: Some(wr * -1.0),
+        cci: Some(-wr),
         linreg_slope: Some(0.1),
         zscore: Some(0.5),
         atr_14: Some((h - l).max(0.01)),
@@ -724,7 +759,10 @@ fn build_williams_r_inputs(
 
 fn build_ao_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let ao = (cl - 100.0) * 0.5;
     let inputs = IndicatorInputs {
         awesome_oscillator: Some(ao),
@@ -758,7 +796,10 @@ fn build_force_index_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, v) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let fi = (cl - 100.0) * v * 0.5;
     let inputs = IndicatorInputs {
         force_index: Some(fi),
@@ -787,7 +828,10 @@ fn build_force_index_inputs(
     (inputs, ctx)
 }
 
-fn build_hull_ma_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_hull_ma_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
     let mut ctx = NormalizationContext {
         price: cl,
@@ -867,7 +911,10 @@ fn build_anchored_vwap_inputs(
     i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, v) = candle_to_floats(c);
-    let ctx = NormalizationContext { price: cl, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         avwap_weekly: Some(cl + 0.1),
         avwap_monthly: Some(cl - 0.1),
@@ -896,7 +943,10 @@ fn build_anchored_vwap_inputs(
     (inputs, ctx)
 }
 
-fn build_fibonacci_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_fibonacci_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, _) = candle_to_floats(c);
     let ctx = NormalizationContext {
         price: cl,
@@ -925,7 +975,10 @@ fn build_pivot_points_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, _) = candle_to_floats(c);
-    let ctx = NormalizationContext { price: cl, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         pivot: Some(cl),
         pivot_r1: Some(cl + 1.0),
@@ -985,7 +1038,10 @@ fn build_support_resistance_inputs(
     (inputs, ctx)
 }
 
-fn build_ichimoku_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_ichimoku_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
     let mut ctx = NormalizationContext {
         price: cl,
@@ -1054,7 +1110,10 @@ fn build_ichimoku_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, N
 
 fn build_vwap_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, _) = candle_to_floats(c);
-    let ctx = NormalizationContext { price: cl, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         vwap: Some(cl + 0.05),
         rvol: Some(1.0),
@@ -1085,7 +1144,10 @@ fn build_vwap_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Norma
 
 fn build_obv_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, v) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let obv = v * cl * 1000.0;
     let inputs = IndicatorInputs {
         obv: Some(obv),
@@ -1119,7 +1181,10 @@ fn build_obv_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normal
 
 fn build_cmf_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, v) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let cmf = ((cl - 100.0) * 0.01).clamp(-0.5, 0.5);
     let inputs = IndicatorInputs {
         cmf: Some(cmf),
@@ -1156,7 +1221,10 @@ fn build_volume_profile_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, _) = candle_to_floats(c);
-    let ctx = NormalizationContext { price: cl, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         volprofile_poc: Some(cl),
         volprofile_vah: Some(cl + 1.0),
@@ -1187,7 +1255,10 @@ fn build_volume_profile_inputs(
 
 fn build_aroon_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         aroon_up: Some((cl - l) / (h - l + 0.01) * 100.0),
         aroon_down: Some((h - cl) / (h - l + 0.01) * 100.0),
@@ -1241,7 +1312,10 @@ fn build_choppiness_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let chop = 50.0 + ((cl - 100.0) * 0.5).clamp(-30.0, 30.0);
     let inputs = IndicatorInputs {
         choppiness: Some(chop),
@@ -1288,7 +1362,10 @@ fn build_choppiness_inputs(
 
 fn build_hv_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let hv = 0.3 + (cl - 100.0).abs() * 0.01;
     let inputs = IndicatorInputs {
         hv: Some(hv),
@@ -1337,7 +1414,10 @@ fn build_hv_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normali
     (inputs, ctx)
 }
 
-fn build_squeeze_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
+fn build_squeeze_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
     let mut ctx = NormalizationContext {
         price: cl,
@@ -1407,7 +1487,10 @@ fn build_linreg_slope_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let slope = (cl - 100.0) * 0.05;
     let inputs = IndicatorInputs {
         linreg_slope: Some(slope),
@@ -1452,7 +1535,10 @@ fn build_linreg_slope_inputs(
 
 fn build_zscore_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let z = ((cl - 100.0) / 5.0).clamp(-3.0, 3.0);
     let inputs = IndicatorInputs {
         zscore: Some(z),
@@ -1497,7 +1583,10 @@ fn build_zscore_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Nor
 
 fn build_rvol_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, _, _, cl, _) = candle_to_floats(c);
-    let ctx = NormalizationContext { price: cl, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         rvol: Some(1.5),
         vwap: Some(cl),
@@ -1533,7 +1622,11 @@ fn build_ema_stack_inputs(
     let (_, h, l, cl, _) = candle_to_floats(c);
     let mut ctx = NormalizationContext {
         price: cl,
-        ema_stack_state: Some(if cl > 100.0 { "bullish".into() } else { "bearish".into() }),
+        ema_stack_state: Some(if cl > 100.0 {
+            "bullish".into()
+        } else {
+            "bearish".into()
+        }),
         ema_medium: Some(cl - 0.5),
         trend_bias: if cl > 100.0 { 1 } else { -1 },
         ..Default::default()
@@ -1588,7 +1681,10 @@ fn build_ema_stack_inputs(
 
 fn build_atr_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let atr = (h - l).max(0.5);
     let slope = 0.01;
     let inputs = IndicatorInputs {
@@ -1666,7 +1762,10 @@ fn build_stddev_channel_inputs(
     _i: usize,
 ) -> (IndicatorInputs, NormalizationContext) {
     let (_, h, l, cl, _) = candle_to_floats(c);
-    let mut ctx = NormalizationContext { price: cl, ..Default::default() };
+    let mut ctx = NormalizationContext {
+        price: cl,
+        ..Default::default()
+    };
     let inputs = IndicatorInputs {
         stddev_upper: Some(cl + 2.0),
         stddev_center: Some(cl),
@@ -1721,13 +1820,8 @@ macro_rules! probe_indicator_test {
             const BARS_REQUIRED: u32 = $bars_required;
             for pattern in Pattern::ALL {
                 let candles = synthesize_candles(200, pattern);
-                let snaps = probe_through_pipeline(
-                    $key,
-                    BARS_REQUIRED,
-                    &candles,
-                    $build_inputs,
-                    false,
-                );
+                let snaps =
+                    probe_through_pipeline($key, BARS_REQUIRED, &candles, $build_inputs, false);
                 let last = snaps.last().expect("at least one snapshot");
                 print!("{}", last.render($key, pattern));
                 assert_no_duplicate_signal_keys($key, last);
@@ -1741,12 +1835,22 @@ macro_rules! probe_indicator_test {
 
 // ── Trend group (10) ────────────────────────────────────────────
 probe_indicator_test!(ema_stack_pipeline, "ema_stack", 200, build_ema_stack_inputs);
-probe_indicator_test!(supertrend_pipeline, "supertrend", 50, build_supertrend_inputs);
+probe_indicator_test!(
+    supertrend_pipeline,
+    "supertrend",
+    50,
+    build_supertrend_inputs
+);
 probe_indicator_test!(donchian_pipeline, "donchian", 50, build_donchian_inputs);
 probe_indicator_test!(keltner_pipeline, "keltner", 50, build_keltner_inputs);
 probe_indicator_test!(adx_pipeline, "adx", 14, build_adx_inputs);
 probe_indicator_test!(vwap_pipeline, "vwap", 1, build_vwap_inputs);
-probe_indicator_test!(avwap_pipeline, "anchored_vwap", 1, build_anchored_vwap_inputs);
+probe_indicator_test!(
+    avwap_pipeline,
+    "anchored_vwap",
+    1,
+    build_anchored_vwap_inputs
+);
 probe_indicator_test!(ichimoku_pipeline, "ichimoku", 9, build_ichimoku_inputs);
 probe_indicator_test!(hull_ma_pipeline, "hull_ma", 14, build_hull_ma_inputs);
 probe_indicator_test!(psar_pipeline, "psar", 1, build_psar_inputs);
@@ -1754,36 +1858,86 @@ probe_indicator_test!(psar_pipeline, "psar", 1, build_psar_inputs);
 // ── Momentum group (12) ─────────────────────────────────────────
 probe_indicator_test!(rsi_pipeline, "rsi", 15, build_rsi_alone_inputs);
 probe_indicator_test!(macd_pipeline, "macd", 26, build_macd_inputs);
-probe_indicator_test!(stochastic_pipeline, "stochastic", 30, build_stochastic_inputs);
+probe_indicator_test!(
+    stochastic_pipeline,
+    "stochastic",
+    30,
+    build_stochastic_inputs
+);
 probe_indicator_test!(chandemo_pipeline, "chandemo", 14, build_chandemo_inputs);
 probe_indicator_test!(mfi_pipeline, "mfi", 20, build_mfi_inputs);
 probe_indicator_test!(cci_pipeline, "cci", 20, build_cci_inputs);
-probe_indicator_test!(williams_r_pipeline, "williams_r", 14, build_williams_r_inputs);
-probe_indicator_test!(awesome_oscillator_pipeline, "awesome_oscillator", 34, build_ao_inputs);
-probe_indicator_test!(force_index_pipeline, "force_index", 20, build_force_index_inputs);
+probe_indicator_test!(
+    williams_r_pipeline,
+    "williams_r",
+    14,
+    build_williams_r_inputs
+);
+probe_indicator_test!(
+    awesome_oscillator_pipeline,
+    "awesome_oscillator",
+    34,
+    build_ao_inputs
+);
+probe_indicator_test!(
+    force_index_pipeline,
+    "force_index",
+    20,
+    build_force_index_inputs
+);
 probe_indicator_test!(rvol_pipeline, "rvol", 20, build_rvol_inputs);
-probe_indicator_test!(linreg_slope_pipeline, "linreg_slope", 14, build_linreg_slope_inputs);
-probe_indicator_test!(zscore_pipeline, "zscore", 14, build_zscore_inputs);
+probe_indicator_test!(
+    linreg_slope_pipeline,
+    "linreg_slope",
+    20,
+    build_linreg_slope_inputs
+);
+probe_indicator_test!(zscore_pipeline, "zscore", 20, build_zscore_inputs);
 
 // ── Volatility group (8) ────────────────────────────────────────
 probe_indicator_test!(bollinger_pipeline, "bollinger", 20, build_bollinger_inputs);
 probe_indicator_test!(bbwp_pipeline, "bbwp", 200, build_bbwp_inputs);
 probe_indicator_test!(atr_pipeline, "atr", 14, build_atr_inputs);
 probe_indicator_test!(squeeze_pipeline, "squeeze", 39, build_squeeze_inputs);
-probe_indicator_test!(stddev_channel_pipeline, "stddev_channel", 20, build_stddev_channel_inputs);
+probe_indicator_test!(
+    stddev_channel_pipeline,
+    "stddev_channel",
+    20,
+    build_stddev_channel_inputs
+);
 probe_indicator_test!(hv_pipeline, "hv", 21, build_hv_inputs);
-probe_indicator_test!(choppiness_pipeline, "choppiness", 14, build_choppiness_inputs);
-probe_indicator_test!(aroon_pipeline, "aroon", 25, build_aroon_inputs);
+probe_indicator_test!(
+    choppiness_pipeline,
+    "choppiness",
+    14,
+    build_choppiness_inputs
+);
+probe_indicator_test!(aroon_pipeline, "aroon", 26, build_aroon_inputs);
 
 // ── Volume group (4) ────────────────────────────────────────────
-probe_indicator_test!(obv_pipeline, "obv", 1, build_obv_inputs);
+probe_indicator_test!(obv_pipeline, "obv", 21, build_obv_inputs);
 probe_indicator_test!(cmf_pipeline, "cmf", 20, build_cmf_inputs);
-probe_indicator_test!(volume_profile_pipeline, "volume_profile", 50, build_volume_profile_inputs);
+probe_indicator_test!(
+    volume_profile_pipeline,
+    "volume_profile",
+    250,
+    build_volume_profile_inputs
+);
 
 // ── Structure group (4) ─────────────────────────────────────────
 probe_indicator_test!(fibonacci_pipeline, "fibonacci", 50, build_fibonacci_inputs);
-probe_indicator_test!(pivot_points_pipeline, "pivot_points", 50, build_pivot_points_inputs);
-probe_indicator_test!(support_resistance_pipeline, "support_resistance", 50, build_support_resistance_inputs);
+probe_indicator_test!(
+    pivot_points_pipeline,
+    "pivot_points",
+    50,
+    build_pivot_points_inputs
+);
+probe_indicator_test!(
+    support_resistance_pipeline,
+    "support_resistance",
+    50,
+    build_support_resistance_inputs
+);
 
 // ── Bollinger edge-zone regression: each_key_duplicate source ──
 //
@@ -1804,30 +1958,33 @@ probe_indicator_test!(support_resistance_pipeline, "support_resistance", 50, bui
 #[test]
 fn bollinger_edge_zones_no_duplicate_signal_pairs() {
     let cases: [(&str, f64); 4] = [
-        ("upper_breakout",   103.0),  // >  bb_upper (102)  → BOLLINGER_UPPER_BREAKOUT
-        ("lower_breakout",    97.0),  // <  bb_lower  (98)  → BOLLINGER_LOWER_BREAKOUT
-        ("upper_band_touch", 101.9),  // inside, pct ≈ 0.975 → BOLLINGER_UPPER_BAND_TOUCH
-        ("lower_band_touch",  98.1),  // inside, pct ≈ 0.025 → BOLLINGER_LOWER_BAND_TOUCH
+        ("upper_breakout", 103.0), // >  bb_upper (102)  → BOLLINGER_UPPER_BREAKOUT
+        ("lower_breakout", 97.0),  // <  bb_lower  (98)  → BOLLINGER_LOWER_BREAKOUT
+        ("upper_band_touch", 101.9), // inside, pct ≈ 0.975 → BOLLINGER_UPPER_BAND_TOUCH
+        ("lower_band_touch", 98.1), // inside, pct ≈ 0.025 → BOLLINGER_LOWER_BAND_TOUCH
     ];
     for (zone, price) in cases {
         let inputs = IndicatorInputs {
-            bb_upper:        Some(102.0),
-            bb_middle:       Some(100.0),
-            bb_lower:        Some( 98.0),
-            bbwp:            Some(50.0),
-            atr_14:          Some(1.0),
-            keltner_upper:   Some(101.5),
-            keltner_middle:  Some(100.0),
-            keltner_lower:   Some( 98.5),
-            donchian_upper:  Some(102.5),
+            bb_upper: Some(102.0),
+            bb_middle: Some(100.0),
+            bb_lower: Some(98.0),
+            bbwp: Some(50.0),
+            atr_14: Some(1.0),
+            keltner_upper: Some(101.5),
+            keltner_middle: Some(100.0),
+            keltner_lower: Some(98.5),
+            donchian_upper: Some(102.5),
             donchian_middle: Some(100.0),
-            donchian_lower:  Some( 97.5),
-            stddev_upper:    Some(102.0),
-            stddev_center:   Some(100.0),
-            stddev_lower:    Some( 98.0),
+            donchian_lower: Some(97.5),
+            stddev_upper: Some(102.0),
+            stddev_center: Some(100.0),
+            stddev_lower: Some(98.0),
             ..Default::default()
         };
-        let ctx = NormalizationContext { price, ..Default::default() };
+        let ctx = NormalizationContext {
+            price,
+            ..Default::default()
+        };
         let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
         let entry = map
             .get("bollinger")
@@ -1842,8 +1999,11 @@ fn bollinger_edge_zones_no_duplicate_signal_pairs() {
             lifecycle_state: "Live".to_string(),
             bars_required: 20,
         };
-        println!("\n[bollinger:{zone}] price={price} state_label={} signals={}",
-            snap.state_label, snap.signals.len());
+        println!(
+            "\n[bollinger:{zone}] price={price} state_label={} signals={}",
+            snap.state_label,
+            snap.signals.len()
+        );
         for s in &snap.signals {
             println!("    - {} ({:?}, {:?})", s.label, s.kind, s.direction);
         }
@@ -1878,25 +2038,28 @@ fn candlestick_no_pattern_no_duplicate_signal_pairs() {
     // pattern=None, status=None. The dashboard should show
     // "NONE UNCONFIRMED", not "WARMING".
     let inputs = IndicatorInputs {
-        bb_upper:        Some(102.0),
-        bb_middle:       Some(100.0),
-        bb_lower:        Some( 98.0),
-        bbwp:            Some(50.0),
-        atr_14:          Some(1.0),
-        ema_fast:        Some(99.5),
-        ema_medium:      Some(100.5),
-        rvol:            Some(1.0),
-        choppiness:      Some(50.0),
-        candlestick:     Some(CandlestickResult {
-            pattern:   CandlestickPattern::None,
+        bb_upper: Some(102.0),
+        bb_middle: Some(100.0),
+        bb_lower: Some(98.0),
+        bbwp: Some(50.0),
+        atr_14: Some(1.0),
+        ema_fast: Some(99.5),
+        ema_medium: Some(100.5),
+        rvol: Some(1.0),
+        choppiness: Some(50.0),
+        candlestick: Some(CandlestickResult {
+            pattern: CandlestickPattern::None,
             direction: 0,
-            quality:   0.0,
-            status:    CandlestickStatus::None,
+            quality: 0.0,
+            status: CandlestickStatus::None,
         }),
         candlestick_min_confidence: 0.3,
         ..Default::default()
     };
-    let ctx = NormalizationContext { price: 100.0, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: 100.0,
+        ..Default::default()
+    };
     let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
     let entry = map
         .get("candlestick")
@@ -1937,14 +2100,17 @@ fn pivot_points_no_prior_session_no_duplicate_signal_pairs() {
         // pivot + r1..r3 + s1..s3 all default to None → the unwrap_or(0.0)
         // in normalize_pivot_points triggers the "pivot <= 0.0" early-return
         // with state_label="PIVOT_UNAVAILABLE".
-        bb_upper:        Some(102.0),
-        bb_middle:       Some(100.0),
-        bb_lower:        Some( 98.0),
-        atr_14:          Some(1.0),
+        bb_upper: Some(102.0),
+        bb_middle: Some(100.0),
+        bb_lower: Some(98.0),
+        atr_14: Some(1.0),
         pivot_proximity_pct: 0.0015,
         ..Default::default()
     };
-    let ctx = NormalizationContext { price: 100.0, ..Default::default() };
+    let ctx = NormalizationContext {
+        price: 100.0,
+        ..Default::default()
+    };
     let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
     let entry = map
         .get("pivot_points")
@@ -2067,9 +2233,7 @@ fn build_all_oscillator_divergence_inputs(
         obv_sma: Some(v * cl * 0.95),
         obv_divergence: DivergenceState::PotentialBullish,
         squeeze_momentum: Some(0.0),
-        squeeze_direction: Some(
-            market_analyzer::indicators::squeeze::MomentumDirection::Flat,
-        ),
+        squeeze_direction: Some(market_analyzer::indicators::squeeze::MomentumDirection::Flat),
         squeeze_on: Some(false),
         squeeze_release_trigger: false,
         squeeze_divergence: DivergenceState::PotentialBullish,
@@ -2185,19 +2349,22 @@ fn divergence_emission_no_duplicate_keys_potential_bullish() {
             "[{parent}] unexpected label: {}",
             div_signals[0].label
         );
-        assert_no_duplicate_signal_keys(parent, &IndicatorSnapshot {
-            bar_count: 200,
-            state_label: entry.state_label.clone(),
-            normalized: entry.normalized,
-            confidence: entry.confidence,
-            values: entry
-                .values
-                .clone()
-                .map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
-            signals: entry.signals.clone(),
-            lifecycle_state: "Live".to_string(),
-            bars_required: 0,
-        });
+        assert_no_duplicate_signal_keys(
+            parent,
+            &IndicatorSnapshot {
+                bar_count: 200,
+                state_label: entry.state_label.clone(),
+                normalized: entry.normalized,
+                confidence: entry.confidence,
+                values: entry
+                    .values
+                    .clone()
+                    .map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
+                signals: entry.signals.clone(),
+                lifecycle_state: "Live".to_string(),
+                bars_required: 0,
+            },
+        );
     }
 }
 
@@ -2245,19 +2412,22 @@ fn divergence_emission_no_duplicate_keys_confirmed_bearish() {
             entry.signals
         );
         assert_eq!(div_signals[0].label, "CONFIRMED_BEARISH_DIVERGENCE");
-        assert_no_duplicate_signal_keys(parent, &IndicatorSnapshot {
-            bar_count: 200,
-            state_label: entry.state_label.clone(),
-            normalized: entry.normalized,
-            confidence: entry.confidence,
-            values: entry
-                .values
-                .clone()
-                .map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
-            signals: entry.signals.clone(),
-            lifecycle_state: "Live".to_string(),
-            bars_required: 0,
-        });
+        assert_no_duplicate_signal_keys(
+            parent,
+            &IndicatorSnapshot {
+                bar_count: 200,
+                state_label: entry.state_label.clone(),
+                normalized: entry.normalized,
+                confidence: entry.confidence,
+                values: entry
+                    .values
+                    .clone()
+                    .map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
+                signals: entry.signals.clone(),
+                lifecycle_state: "Live".to_string(),
+                bars_required: 0,
+            },
+        );
     }
 }
 
@@ -2328,17 +2498,24 @@ fn oi_price_divergence_emission_unique_label() {
         .iter()
         .filter(|s| s.kind == market_analyzer::indicators::SignalKind::Divergence)
         .collect();
-    assert_eq!(div_signals.len(), 1, "OI-Price divergence must emit exactly 1 signal");
+    assert_eq!(
+        div_signals.len(),
+        1,
+        "OI-Price divergence must emit exactly 1 signal"
+    );
     assert_eq!(div_signals[0].label, "OI_PRICE_DIVERGENCE");
     // No duplicates within the standalone indicator's signal array.
-    assert_no_duplicate_signal_keys("oi_price_divergence", &IndicatorSnapshot {
-        bar_count: 1,
-        state_label: value.state_label.clone(),
-        normalized: value.normalized,
-        confidence: value.confidence,
-        values: None,
-        signals: value.signals.clone(),
-        lifecycle_state: "Live".to_string(),
-        bars_required: 0,
-    });
+    assert_no_duplicate_signal_keys(
+        "oi_price_divergence",
+        &IndicatorSnapshot {
+            bar_count: 1,
+            state_label: value.state_label.clone(),
+            normalized: value.normalized,
+            confidence: value.confidence,
+            values: None,
+            signals: value.signals.clone(),
+            lifecycle_state: "Live".to_string(),
+            bars_required: 0,
+        },
+    );
 }

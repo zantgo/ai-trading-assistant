@@ -118,11 +118,11 @@ fn synth_candles(count: usize, secs_per_candle: u64) -> Vec<NormalizedCandle> {
             duration_ms: secs_per_candle * 1000,
             trades_count: 10,
             reconstructed: None,
-            open: Decimal::from_f64_retain(open).unwrap(),
-            high: Decimal::from_f64_retain(high).unwrap(),
-            low: Decimal::from_f64_retain(low).unwrap(),
-            close: Decimal::from_f64_retain(close).unwrap(),
-            volume: Decimal::from_f64_retain(vol).unwrap(),
+            open: Decimal::from_f64_retain(open).unwrap_or_default(),
+            high: Decimal::from_f64_retain(high).unwrap_or_default(),
+            low: Decimal::from_f64_retain(low).unwrap_or_default(),
+            close: Decimal::from_f64_retain(close).unwrap_or_default(),
+            volume: Decimal::from_f64_retain(vol).unwrap_or_default(),
         });
     }
     candles
@@ -143,6 +143,7 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         core_domain::models::TimeframeSlot::Micro,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
+        Some(core_domain::normalized::Exchange::Hyperliquid),
     );
 
     assert!(
@@ -190,8 +191,8 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         "last warm-up volume_profile should have populated bins",
     );
     assert!(
-        last_vp.bins.len() <= 50,
-        "bin count must be within dynamic_bin_count clamp (got {})",
+        last_vp.bins.len() <= 100,
+        "bin count must not exceed the configured volume_profile_bins (got {})",
         last_vp.bins.len(),
     );
     assert!(
@@ -247,6 +248,7 @@ fn warmup_sub_minute_timeframes_also_populate() {
         core_domain::models::TimeframeSlot::Micro,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
+        Some(core_domain::normalized::Exchange::Hyperliquid),
     );
 
     let last_vp = warmed
@@ -278,6 +280,7 @@ fn seeded_volume_profile_clears_at_25_bars() {
         core_domain::models::TimeframeSlot::Micro,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
+        Some(core_domain::normalized::Exchange::Hyperliquid),
     );
 
     let populated: Vec<_> = warmed

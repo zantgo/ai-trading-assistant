@@ -14,16 +14,34 @@
 
     let { isOpen, currentEngine, onclose, onnavigate, onquit }: Props = $props();
 
-    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
+    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'backtesting' | 'exchange_settings';
 
-    const ENGINES_SIDEBAR: { key: EngineKey; label: string; status?: 'live' | 'wip'; divider?: boolean }[] = [
-        { key: 'data_infra',        label: 'Data Infrastructure',    status: 'live' },
-        { key: 'market_monitor',    label: 'Market Monitor',         status: 'live' },
-        { key: 'trade_automation',  label: 'Trade Automation',       status: 'wip' },
-        { key: 'portfolio',         label: 'Portfolio Management',   status: 'wip' },
-        { key: 'performance',       label: 'Performance Analytics',  status: 'wip' },
-        { key: 'profile', label: 'Settings', divider: true },
+    const ENGINES_SIDEBAR: { key: EngineKey; label: string; divider?: boolean }[] = [
+        { key: 'data_infra',        label: 'Data Infrastructure' },
+        { key: 'market_monitor',    label: 'Market Monitor' },
+        { key: 'backtesting',       label: 'Backtesting' },
+        { key: 'trade_automation',  label: 'Trade Automation' },
+        { key: 'portfolio',         label: 'Portfolio Management' },
+        { key: 'performance',       label: 'Performance Analytics' },
+        { key: 'profile', label: 'Home', divider: true },
     ];
+
+    // v8 BTE: mode-aware engine visibility. Observe is the research
+    // session (DIE + MME + Backtesting); paper/live are the execution
+    // sessions (TAE + PME + PAE). The backend keeps computing in every
+    // mode — this only controls the left-panel surface.
+    const VISIBLE_ENGINES: Record<'observe' | 'paper' | 'live', EngineKey[]> = {
+        observe: ['data_infra', 'market_monitor', 'backtesting', 'profile'],
+        paper: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
+        live: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
+    };
+
+    const app = useAppStore();
+    const sessionMode = $derived.by(() => {
+        const m = app.sessionMode;
+        return m === 'paper' || m === 'live' || m === 'observe' ? m : 'paper';
+    });
+    const visibleEngines = $derived(VISIBLE_ENGINES[sessionMode]);
 
     function sidebarItemClass(key: EngineKey): string {
         const base = styles.sidebarItem;
@@ -36,12 +54,13 @@
 
     function sidebarIconName(key: EngineKey): string {
         const map: Record<EngineKey, string> = {
-            profile: 'settings',
+            profile: 'home',
             data_infra: 'database',
             market_monitor: 'trend',
             trade_automation: 'cycle',
             portfolio: 'dollar',
             performance: 'search',
+            backtesting: 'flask',
             exchange_settings: 'key',
         };
         return map[key] || 'home';
@@ -57,15 +76,22 @@
 {#if isOpen}
     <div class={styles.sidebarOverlay} role="presentation" onclick={onclose}></div>
     <div class={styles.sidebarPanel}>
-        <div class={styles.sidebarBrand}>TRADING PLATFORM</div>
+        <div class={styles.sidebarBrand}>
+            TRADING PLATFORM
+            {#if app.sessionId != null}
+                <span class={styles.sessionChip}>SESSION #{String(app.sessionId).padStart(4, '0')}</span>
+            {/if}
+        </div>
         <div class={styles.sidebarNav}>
-            {#each ENGINES_SIDEBAR as engine (engine.key)}
+            {#each ENGINES_SIDEBAR.filter((e) => visibleEngines.includes(e.key)) as engine (engine.key)}
                 {#if engine.divider}
                     <div class={styles.sidebarDivider}></div>
                 {/if}
                 <a href={buildEngineHash(engine.key)} class={sidebarItemClass(engine.key)} onclick={(e) => { handleNavClick(e); onnavigate(engine.key); }}>
                     <span class={styles.navIcon}><SvgIcon name={sidebarIconName(engine.key)} size={15} /></span>{engine.label}
-                    {#if engine.status === 'wip'}<span class={styles.wipBadge} title="Work in progress — backend live, dashboard is a placeholder. See docs/ROADMAP.md">WIP</span>{/if}
+                    {#if engine.key === 'backtesting' && sessionMode === 'observe'}
+                        <span class={styles.wipBadge} title="work in progress">WIP</span>
+                    {/if}
                 </a>
             {/each}
         </div>

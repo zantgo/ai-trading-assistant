@@ -10,7 +10,6 @@
 
 use api_gateway::{self, AppState};
 use core_domain::snapshot_export::SnapshotExportRuntime;
-use database_storage;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::workspace_state::WorkspaceState;
@@ -45,10 +44,16 @@ async fn setup_test_state() -> Arc<AppState> {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
         snapshot_export: Arc::new(RwLock::new(SnapshotExportRuntime::default())),
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }
 

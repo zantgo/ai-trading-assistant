@@ -167,7 +167,7 @@ pub enum ReconstructionMethod {
     /// Filled by EMA projection of recent closes (used for sub-1m).
     ExponentialMovingAverage,
     /// Filled by linear interpolation of the two most recent closes.
-    LinearInterpolation,
+    LinearExtrapolation,
     /// Reconstruction was attempted but no source data was available.
     Unavailable,
     /// Clock-driven heartbeat Doji candle — no trade occurred during

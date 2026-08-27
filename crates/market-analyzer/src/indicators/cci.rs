@@ -40,10 +40,10 @@ impl Cci {
             .map(|t| (*t - sma).abs())
             .sum::<Decimal>()
             / Decimal::from(self.period);
-        if mean_dev < Decimal::from_f64_retain(1e-9).unwrap() {
+        if mean_dev < Decimal::from_f64_retain(1e-9).unwrap_or_default() {
             return Some(Decimal::ZERO);
         }
-        let cci = (tp - sma) / (Decimal::from_f64_retain(0.015).unwrap() * mean_dev);
+        let cci = (tp - sma) / (Decimal::from_f64_retain(0.015).unwrap_or_default() * mean_dev);
         Some(cci)
     }
 }
@@ -85,7 +85,7 @@ mod tests {
         }
         let out = cci.update(101.0, 99.0, 100.0).unwrap();
         assert!(
-            out.abs() < Decimal::from_f64_retain(1.0).unwrap(),
+            out.abs() < Decimal::from_f64_retain(1.0).unwrap_or_default(),
             "flat prices should produce near-zero CCI, got {}",
             out
         );
@@ -97,6 +97,6 @@ mod tests {
         feed(&mut cci, 20, 100.0);
         // Strong uptrend spike at the end → positive CCI.
         let out = cci.update(140.0, 119.0, 135.0).unwrap();
-        assert!(out > Decimal::from_f64_retain(0.0).unwrap());
+        assert!(out > Decimal::from_f64_retain(0.0).unwrap_or_default());
     }
 }

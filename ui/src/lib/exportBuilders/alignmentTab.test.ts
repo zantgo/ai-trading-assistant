@@ -16,7 +16,7 @@ const headerSpec: LayerHeaderSpec = {
 function makeAlignment(): AlignmentMatrix {
   return {
     mtf_overall_score: 75,
-    mtf_overall_label: 'STRONG_BULLISH',
+    mtf_overall_label: 'STRONG_BULL_MTF',
     timeframes_present: 4,
     signal_cross_tf_count: 3,
     trend_agreement_pct: 75,
@@ -30,16 +30,16 @@ function makeAlignment(): AlignmentMatrix {
     dimensions: [
       // Confidence is 0..100 on the wire (Rust `alignment.rs`),
       // mirroring the screen's `confidence.toFixed(0)%` reading.
-      { score: 75, state: 'STRONG_BULLISH', confidence: 78 },
-      { score: 60, state: 'BULLISH', confidence: 72 },
-      { score: 45, state: 'NEUTRAL', confidence: 65 },
-      { score: 30, state: 'BEARISH', confidence: 58 },
-      { score: 70, state: 'STRONG_BULLISH', confidence: 75 },
-      { score: 65, state: 'BULLISH', confidence: 70 },
-      { score: 80, state: 'STRONG_BULLISH', confidence: 82 },
-      { score: 70, state: 'BULLISH', confidence: 70 },
-      { score: 55, state: 'NEUTRAL', confidence: 62 },
-      { score: 65, state: 'BULLISH', confidence: 68 },
+      { score: 75, state: 'StrongBullish', confidence: 78 },
+      { score: 60, state: 'Bullish', confidence: 72 },
+      { score: 45, state: 'Neutral', confidence: 65 },
+      { score: 30, state: 'Bearish', confidence: 58 },
+      { score: 70, state: 'StrongBullish', confidence: 75 },
+      { score: 65, state: 'Bullish', confidence: 70 },
+      { score: 80, state: 'StrongBullish', confidence: 82 },
+      { score: 70, state: 'Bullish', confidence: 70 },
+      { score: 55, state: 'Neutral', confidence: 62 },
+      { score: 65, state: 'Bullish', confidence: 68 },
     ],
   } as unknown as AlignmentMatrix;
 }
@@ -77,6 +77,10 @@ describe('buildAlignmentTabExport', () => {
       markPrice: 63390,
       headerSpec,
     }));
+    // Regression (v2026-08): with the real PascalCase wire value
+    // ('StrongBullish'), the export must render the SAME short label as
+    // the panel ('STRONG') — the old case-sensitive helper rendered
+    // 'STRONGBULLISH'.
     expect(p.dimensions[0].state).toBe('STRONG');
     expect(p.dimensions[0].score).toBe(75);
     // `confidence` is already 0..100 on the wire — the export mirrors the
@@ -209,8 +213,8 @@ describe('buildAlignmentTabExport', () => {
       alignment: {
         ...makeAlignment(),
         dimensions: [
-          { score: 0, state: 'NO_DATA', confidence: 0 },
-          { score: 60, state: 'BULLISH', confidence: 72 },
+          { score: 0, state: 'NoData', confidence: 0 },
+          { score: 60, state: 'Bullish', confidence: 72 },
         ],
       } as unknown as AlignmentMatrix,
       symbol: 'BTC-USDT',

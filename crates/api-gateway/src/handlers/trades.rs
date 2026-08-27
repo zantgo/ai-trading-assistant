@@ -61,7 +61,9 @@ pub async fn serve_trade_journal(
     State(state): State<Arc<AppState>>,
     Query(query): Query<TradeJournalQuery>,
 ) -> impl IntoResponse {
-    let records = database_storage::query_trade_journal(&state.pool, query.limit).await;
+    // AUDIT-F4: cap the unbounded limit (was `?limit=2_000_000_000`).
+    let limit = query.limit.min(crate::types::API_MAX_LIMIT);
+    let records = database_storage::query_trade_journal(&state.pool, limit).await;
     Json(records)
 }
 
@@ -84,27 +86,50 @@ pub async fn serve_update_journal_notes(
     }
 }
 
+/// Neutralize spreadsheet formula injection in CSV output. Any cell whose
+/// (trimmed) content starts with `=`, `+`, `-`, `@` — or a tab/CR variant
+/// of those — is prefixed with a single quote so Excel/Sheets treat it as
+/// text. Also escapes embedded double quotes. Applied to every
+/// operator-authored / exchange-sourced string field (AUDIT-H9: notes and
+/// analysis are free text; `=HYPERLINK(...)`/`=cmd|...` cells executed
+/// when the file was opened).
+fn csv_cell(s: &str) -> String {
+    let trimmed = s.trim_start();
+    let dangerous = trimmed
+        .chars()
+        .next()
+        .map(|c| matches!(c, '=' | '+' | '-' | '@' | '\t' | '\r'))
+        .unwrap_or(false);
+    let mut out = String::with_capacity(s.len() + 2);
+    if dangerous {
+        out.push('\'');
+    }
+    out.push_str(s);
+    out
+}
+
+fn csv_quoted(s: &str) -> String {
+    format!("\"{}\"", csv_cell(s).replace('"', "\"\""))
+}
+
 pub async fn serve_export_journal_csv(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let records = database_storage::query_trade_journal(&state.pool, 1000).await;
     let mut csv = String::from("id,trade_id,entry_date,exit_date,asset,direction,entry_reason,roi_pct,final_analysis,execution_score,human_notes,symbol,realized_pnl,t_roi_pct\n");
     for r in &records {
-        let escaped_analysis = r.final_analysis.replace('"', "\"\"");
-        let escaped_reason = r.entry_reason.replace('"', "\"\"");
-        let escaped_notes = r.human_notes.replace('"', "\"\"");
         csv.push_str(&format!(
-            "{},{},{},{},{},{},\"{}\",{:.2},\"{}\",{:.1},\"{}\",{},{:.2},{:.2}\n",
+            "{},{},{},{},{},{},{},{:.2},{},{:.1},{},{},{:.2},{:.2}\n",
             r.id,
             r.trade_id,
             r.entry_date,
             r.exit_date,
-            r.asset,
-            r.direction,
-            escaped_reason,
+            csv_quoted(&r.asset),
+            csv_quoted(&r.direction),
+            csv_quoted(&r.entry_reason),
             r.roi_pct,
-            escaped_analysis,
+            csv_quoted(&r.final_analysis),
             r.execution_score,
-            escaped_notes,
-            r.symbol,
+            csv_quoted(&r.human_notes),
+            csv_quoted(&r.symbol),
             r.realized_pnl,
             r.t_roi_pct,
         ));
@@ -123,7 +148,9 @@ pub async fn serve_trade_ledger(
     State(state): State<Arc<AppState>>,
     Query(query): Query<TradeLedgerQuery>,
 ) -> impl IntoResponse {
-    let trades = database_storage::trade_telemetry_query_all(&state.pool, query.limit).await;
+    // AUDIT-F4: cap the unbounded limit.
+    let limit = query.limit.min(crate::types::API_MAX_LIMIT);
+    let trades = database_storage::trade_telemetry_query_all(&state.pool, limit).await;
     Json(trades)
 }
 

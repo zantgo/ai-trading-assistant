@@ -51,6 +51,8 @@ config.toml
 telemetry.db
 telemetry.db-shm
 telemetry.db-wal
+*.backup*
+*.backup-*
 
 # Docker postgres volume data (if used in future phases)
 postgres_data/
@@ -81,3 +83,24 @@ Thumbs.db
 # Engine PID file (written by manage.sh)
 .engine.pid
 
+
+# ==============================================================================
+# 🧪 E2E harness artifacts (written by ./manage.sh e2e-backtest)
+# ==============================================================================
+.e2e-*
+e2e-backtest-report.*
+e2e-matrix.log
+rust_out
+
+# ==============================================================================
+# 📊 Data-Science export tree (./ds/ at any level — web + CLI backtest artifacts)
+# ==============================================================================
+ds/
+
+# ==============================================================================
+# 📸 Snapshot-export tree (periodic per-tab JSON dumps for offline inspection)
+# ==============================================================================
+snapshots/
+
+# Multi-session experiment folders (per-folder configs + results)
+experiments/

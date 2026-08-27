@@ -1,6 +1,6 @@
 # SMC Liquidity (Sweeps)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
 **Group:** Institutional
 
@@ -38,6 +38,9 @@ The `values` sub-map carries `sweep_buy` (0/1) and `sweep_sell` (0/1).
 |-----------|--------------|---------|-----------|
 | PatternForming | SMC_LIQUIDITY_BUY_SWEEP | Buy-side sweep detected | Bullish |
 | PatternForming | SMC_LIQUIDITY_SELL_SWEEP | Sell-side sweep detected | Bearish |
+| Threshold | SMC_LIQUIDITY_SWEEP | Emitted alongside every sweep (deriver pairs each PatternForming sweep with a Threshold marker). | Bullish / Bearish |
+
+> Registry manifest (`signal_types`): Threshold, PatternForming.
 
 ## 5. Scoring
 

@@ -54,7 +54,7 @@ describe('deriveTradePlan', () => {
                 exit_guidance: 'TrendWeakening',
                 protection_strategy: 'StructureBased',
                 target_strategy: 'ResistanceBased',
-                stop_loss_distance_pct: 0.0085,
+                stop_loss_distance_pct: 2.5,
                 confidence_assessment: 73,
                 trade_readiness: 'READY',
                 entry_danger: { level: 'Low' },
@@ -98,13 +98,12 @@ describe('deriveTradePlan', () => {
             symbol: 'BTC-USDT',
             bias: 'Bullish',
             confidence: 0.8,
-            market_regime: 'TRENDING_BULL',
+            market_regime: 'TrendingBull',
             trend_assessment: 'Strong',
             momentum_assessment: 'Stable',
             structure_assessment: 'Strong',
             volatility_assessment: 'Normal',
             volume_assessment: 'Strong',
-            opportunity_analysis: 'TrendContinuation',
             market_quality: 'Excellent',
             market_quality_score: 90,
             market_interpretation: '',
@@ -126,13 +125,12 @@ describe('deriveTradePlan', () => {
             symbol: 'BTC-USDT',
             bias: 'Bullish',
             confidence: 0.8,
-            market_regime: 'TRENDING_BULL',
+            market_regime: 'TrendingBull',
             trend_assessment: 'Strong',
             momentum_assessment: 'Stable',
             structure_assessment: 'Strong',
             volatility_assessment: 'Normal',
             volume_assessment: 'Strong',
-            opportunity_analysis: 'TrendContinuation',
             market_quality: 'Excellent',
             market_quality_score: 90,
             market_interpretation: '',
@@ -189,5 +187,22 @@ describe('deriveTradePlan', () => {
         args.advisory = { ...args.advisory, directional_guidance: 'AvoidDirectionalExposure' } as any;
         const plan = deriveTradePlan(args as any);
         expect(plan.direction).toBe('NEUTRAL');
+    });
+
+    it('uses the percent-scale advisory stop for the fallback price (no negative)', () => {
+        // Regression: stop_loss_distance_pct is percent-scale on the wire
+        // (2.5 = 2.5%). The old fraction-scale ×100 produced a LONG
+        // fallback stop of entryMid × (1 − 2.5) = a NEGATIVE price.
+        const args = makeArgs();
+        const entryMid = 68000;
+        args.advisory = { ...args.advisory, stop_loss_distance_pct: 2.5 } as any;
+
+        const plan = deriveTradePlan(args as any);
+        expect(plan.stop).not.toBeNull();
+        expect(plan.stop!.fallbackPrice).toBeDefined();
+        const fallback = Number(String(plan.stop!.fallbackPrice).replace(/[^0-9.]/g, ''));
+        expect(fallback).toBeGreaterThan(0);
+        // entryMid × (1 − 0.025) ≈ 66300.
+        expect(Math.abs(fallback - entryMid * 0.975)).toBeLessThan(50);
     });
 });

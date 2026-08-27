@@ -92,7 +92,10 @@ mod tests {
             out = feed(&mut k, 100.0, 100.0, 100.0);
         }
         let o = out.unwrap();
-        assert_eq!(o.middle, Decimal::from_f64_retain(100.0).unwrap());
+        assert_eq!(
+            o.middle,
+            Decimal::from_f64_retain(100.0).unwrap_or_default()
+        );
         assert_eq!(o.upper, o.lower);
     }
 }

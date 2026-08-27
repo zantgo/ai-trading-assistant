@@ -175,11 +175,9 @@ pub struct RiskProfile {
 }
 
 fn parse_decimal_field(s: &str, field: &str) -> Result<Decimal, sqlx::Error> {
-    Decimal::from_str(s).map_err(|e| {
-        sqlx::Error::ColumnDecode {
-            index: field.to_string(),
-            source: Box::new(e),
-        }
+    Decimal::from_str(s).map_err(|e| sqlx::Error::ColumnDecode {
+        index: field.to_string(),
+        source: Box::new(e),
     })
 }
 
@@ -228,6 +226,7 @@ pub async fn risk_profile_by_id(pool: &SqlitePool, id: i64) -> Option<RiskProfil
     .flatten()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn risk_profile_insert(
     pool: &SqlitePool,
     profile_name: &str,
@@ -250,6 +249,7 @@ pub async fn risk_profile_insert(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn risk_profile_update(
     pool: &SqlitePool,
     id: i64,

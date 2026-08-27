@@ -27,6 +27,7 @@ import {
     type HeaderBlock,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
+import { demoteBiasForCoverage } from '../layerHeader';
 import {
     computeHeroState,
     pickBestOpportunity,
@@ -40,12 +41,12 @@ import {
 } from '../tradeAggregates';
 import { computeMarketHealth } from '../marketHealth';
 import {
-    formatRR,
+    formatRewardRatio,
     signalLabel,
     directionLabel,
 } from '../dashboardColors';
 import { formatRelativeTime } from '../relTime';
-import { resolveActiveRr } from '../decisionRank';
+import { resolveActiveRr, topSetupSummary } from '../decisionRank';
 
 // ── Header chrome (LayerHeader) ───────────────────────────────────────────
 
@@ -204,7 +205,7 @@ export interface OverviewRegimeBlock {
 export type SortKey =
     | 'symbol' | 'price' | 'bias' | 'signal' | 'direction'
     | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label'
-    | 'risk' | 'updated';
+    | 'risk' | 'entry' | 'target' | 'stop' | 'updated';
 export type SortDir = 'asc' | 'desc';
 
 export interface AssetRankingRow {
@@ -226,6 +227,15 @@ export interface AssetRankingRow {
     mtf_label_display: string;
     risk: number;
     risk_display: string;
+    /** Top-setup of the Opportunity Layer — entry / target / stop-loss
+     *  levels (0 = N/A) and their compact display strings, mirroring the
+     *  table's ENTRY / TARGET / STOP columns. */
+    entry_low: number;
+    entry_display: string;
+    target_low: number;
+    target_display: string;
+    stop_level: number;
+    stop_display: string;
     updated_ms: number | null;
     updated_display: string;
     connected: boolean;
@@ -287,9 +297,9 @@ function heroSubtext(s: HeroState, n: number, best: ReturnType<typeof pickBestOp
     if (s === 'TRADE') {
         const symbol = best?.symbol ?? '—';
         const dir = best?.direction === 'LONG' ? 'LONG' : best?.direction === 'SHORT' ? 'SHORT' : '—';
-        const rr = formatRR(best?.rr);
+        const rr = formatRewardRatio(best?.rr);
         const conf = (best?.confidence ?? 0).toFixed(0);
-        return `${n} actionable setup${n === 1 ? '' : 's'} · best ${symbol} ${dir} · R:R ${rr} · confidence ${conf}%`;
+        return `${n} actionable setup${n === 1 ? '' : 's'} · best ${symbol} ${dir} · risk-reward ${rr} · confidence ${conf}%`;
     }
     if (s === 'WAIT') {
         return `${n} candidate setup${n === 1 ? '' : 's'} forming — no READY trade yet.`;
@@ -417,12 +427,33 @@ function mtfScoreDisplay(score: number): string {
     return `${score > 0 ? '+' : ''}${score.toFixed(0)}`;
 }
 
+/** Compact price-level formatter for the setup columns — "—" for N/A
+ *  (mirrors the table's ENTRY / TARGET / STOP cells). */
+function fmtLevel(v: number): string {
+    if (!v || v <= 0) return '—';
+    const digits = v >= 100 ? 2 : v >= 1 ? 4 : 6;
+    return v.toLocaleString('en-US', { maximumFractionDigits: digits });
+}
+
+/** Zone range renderer ("63,200–63,400"); "—" when the bracket is absent. */
+function fmtZone(low: number, high: number): string {
+    if (!low || low <= 0 || !high || high <= 0) return '—';
+    const a = fmtLevel(low);
+    const b = fmtLevel(high);
+    return a === b ? a : `${a}–${b}`;
+}
+
 function buildAssetRankingRow(
     inst: InstanceState,
     nowMs: number,
     actionableSymbols: Set<string>,
+    assetRanking: AssetRank[] | null = null,
 ): AssetRankingRow | null {
     if (!inst.instanceId) return null;
+    // v2026-08 (M4): one Score definition per column — prefer the canonical
+    // L7 AssetRank score (0.5 × mean_conf + 50), fall back to the local
+    // max qualifying profile score when the backend array is absent.
+    const backendRank = assetRanking?.find((r) => r.symbol === inst.symbol) ?? null;
     const opp = inst.opportunity;
     const adv = inst.advisory;
     const analysis = inst.analysis;
@@ -438,7 +469,9 @@ function buildAssetRankingRow(
     const signal = actionableSymbols.has(inst.symbol) ? signalLabel(guidance) : 'WAIT';
 
     let score = 0;
-    if (opp?.profiles && opp.profiles.length > 0) {
+    if (backendRank != null && Number.isFinite(backendRank.score)) {
+        score = backendRank.score;
+    } else if (opp?.profiles && opp.profiles.length > 0) {
         score = Math.max(...opp.profiles.map((p) => p.score ?? 0));
     } else if (opp?.opportunity_score != null) {
         score = opp.opportunity_score;
@@ -451,6 +484,14 @@ function buildAssetRankingRow(
     // was the divergence source).
     const resolvedRr = resolveActiveRr(opp, inst.decisionContext, analysis);
     const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+    // Top-setup of the Opportunity Layer — the same `topSetupSummary`
+    // derivation the table's warmup fallback and the Recommendation panel
+    // use (server-computed rows win when the L7 payload is present).
+    const setup = topSetupSummary(opp, analysis, inst.decisionContext, undefined, undefined);
+    const setupZones = setup?.zones ?? null;
+    const entryLow = setupZones?.entry.low ?? 0;
+    const targetLow = setupZones?.target.low ?? 0;
+    const stopLevel = setupZones?.invalidation ?? 0;
     const confidence = adv?.confidence_assessment ?? 0;
     const riskScore = risk?.overall_risk?.score ?? 0;
     const mtfScore = aln?.mtf_overall_score ?? 0;
@@ -465,7 +506,7 @@ function buildAssetRankingRow(
         signal,
         direction,
         rr,
-        rr_display: formatRR(rr),
+        rr_display: formatRewardRatio(rr),
         score,
         score_display: score.toFixed(0),
         confidence_pct: confidence,
@@ -476,17 +517,31 @@ function buildAssetRankingRow(
         mtf_label_display: mtfLabelDisplay(mtfLabel),
         risk: riskScore,
         risk_display: riskScore.toFixed(0),
+        entry_low: entryLow,
+        entry_display: fmtZone(entryLow, setupZones?.entry.high ?? 0),
+        target_low: targetLow,
+        target_display: fmtZone(targetLow, setupZones?.target.high ?? 0),
+        stop_level: stopLevel,
+        stop_display: fmtLevel(stopLevel),
         updated_ms: ts,
         updated_display: formatRelativeTime(ts, nowMs).label,
         connected: inst.isConnected,
     };
 }
 
+/** Numeric sort value for the setup columns (raw levels, not display). */
+function sortValue(r: AssetRankingRow, key: SortKey): number | string | null {
+    if (key === 'entry') return r.entry_low;
+    if (key === 'target') return r.target_low;
+    if (key === 'stop') return r.stop_level;
+    return (r as any)[key];
+}
+
 function sortAssetRankings(rows: AssetRankingRow[], key: SortKey, dir: SortDir): AssetRankingRow[] {
     const sign = dir === 'asc' ? 1 : -1;
     return rows.slice().sort((a, b) => {
-        const av = (a as any)[key];
-        const bv = (b as any)[key];
+        const av = sortValue(a, key);
+        const bv = sortValue(b, key);
         if (typeof av === 'string' && typeof bv === 'string') {
             return av.localeCompare(bv) * sign;
         }
@@ -569,14 +624,14 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
             best_direction: best?.direction ?? null,
             best_opportunity_score: best?.opportunityScore ?? 0,
             best_rr: best?.rr ?? 0,
-            best_rr_display: formatRR(best?.rr),
+            best_rr_display: formatRewardRatio(best?.rr),
             best_confidence_pct: best?.confidence ?? 0,
         },
         kpis: buildKpisBlock(instances, actionable, setups, best, overview),
         cards: buildCardsBlock(instances, setups, actionable, best, overview),
         market_health: buildMarketHealthBlock(instances, overview),
         regime_distribution: buildRegimeBlock(overview),
-        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, actionableSymbols),
+        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, actionableSymbols, overview?.asset_ranking ?? null),
         overview_matrix: overview,
         instance_count: instances.length,
     };
@@ -614,17 +669,32 @@ function buildKpisBlock(
                 : 'no qualifying setup',
         },
         avg_rr: {
-            label: 'AVG R:R',
-            value: formatRR(rr.avg),
+            label: 'RISK TO REWARD RATIO',
+            value: formatRewardRatio(rr.avg),
             sub: rr.count > 0
-                ? `best ${formatRR(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}`
-                : 'no R:R data',
+                ? `best ${formatRewardRatio(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}`
+                : 'no ratio data',
         },
         market_bias: {
             label: 'MARKET BIAS',
-            value: (overview?.global_market_bias ?? 'Neutral').toString(),
+            // I-10 parity: the KPI value demotes exactly like the header
+            // badge and the strip (STRONG_BULLISH → BULLISH under ≤2 pairs)
+            // and the pair-count suffix rides the sublabel.
+            value: (() => {
+                const raw = (overview?.global_market_bias ?? 'NEUTRAL').toString();
+                const lowCoverage =
+                    (overview?.low_coverage ?? false) ||
+                    (overview?.instance_count ?? 0) <= 2;
+                return demoteBiasForCoverage(raw, lowCoverage).displayBias ?? raw;
+            })(),
             sub: overview
-                ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth`
+                ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth${(() => {
+                    const raw = (overview?.global_market_bias ?? 'NEUTRAL').toString();
+                    const lowCoverage =
+                        (overview?.low_coverage ?? false) ||
+                        (overview?.instance_count ?? 0) <= 2;
+                    return demoteBiasForCoverage(raw, lowCoverage, overview?.instance_count ?? null).coverageSuffix;
+                })()}`
                 : 'local aggregation',
         },
         avg_risk: {
@@ -667,7 +737,7 @@ function buildCardsBlock(
                 symbol: best.symbol,
                 direction: best.direction,
                 rr: best.rr,
-                rr_display: formatRR(best.rr),
+                rr_display: formatRewardRatio(best.rr),
                 confidence_pct: best.confidence,
                 opportunity_score: best.opportunityScore,
             }
@@ -767,10 +837,11 @@ function buildAssetRankingsBlock(
     sortDir: SortDir,
     nowMs: number,
     actionableSymbols: Set<string>,
+    assetRanking: AssetRank[] | null,
 ): OverviewAssetRankingsBlock {
     const rows: AssetRankingRow[] = [];
     for (const inst of instances) {
-        const r = buildAssetRankingRow(inst, nowMs, actionableSymbols);
+        const r = buildAssetRankingRow(inst, nowMs, actionableSymbols, assetRanking);
         if (r) rows.push(r);
     }
     const sorted = sortAssetRankings(rows, sortKey, sortDir);

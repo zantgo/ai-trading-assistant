@@ -7,11 +7,11 @@
 //!  - `bitget_derivatives::ticker_to_mark_price` and
 //!    `ticker_to_derivatives_events` (V2 ticker funding)
 
-use rust_decimal_macros::dec;
 use core_domain::normalized::{
     Exchange, FundingRateEvent, LiquidationEvent, LiquidationSide, MarkPriceEvent, NormalizedEvent,
     OpenInterestEvent,
 };
+use rust_decimal_macros::dec;
 
 #[test]
 fn mark_price_event_round_trip() {

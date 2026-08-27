@@ -5,20 +5,20 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
-use market_analyzer::analyzer;
-use config_models::{
-    FibonacciConfig, HeatmapConfig, IntervalsConfig, LiquidityConfig, OperationalMode,
-    PositionScalingConfig, SafetyConfig, TimeframeConfig,
-};
-use database_storage;
 use crate::instance::{Instance, TimeframeBuffers};
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
-use market_analyzer::sr_engine::SrRoleTracker;
-use market_analyzer::indicators::DivergenceDetector;
-use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
+use config_models::{
+    ApiFailoverConfig, FibonacciConfig, HeatmapConfig, IntervalsConfig, LiquidityConfig,
+    OperationalMode, OrderBookConfig, SafetyConfig, StrategyConfig, TimeframeConfig,
+};
 use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
+use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
+use database_storage;
+use market_analyzer::analyzer;
+use market_analyzer::indicators::DivergenceDetector;
+use market_analyzer::sr_engine::SrRoleTracker;
 use tokio_util::sync::CancellationToken;
 
 pub struct PipelineContext {
@@ -41,18 +41,32 @@ pub struct PipelineContext {
     pub operational_mode: OperationalMode,
     #[allow(dead_code)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
-    #[allow(dead_code)]
-    pub position_scaling: Option<PositionScalingConfig>,
     pub liquidity_config: LiquidityConfig,
+    /// API-failover tolerance knobs (derivatives poller disable threshold).
+    pub api_failover: ApiFailoverConfig,
     /// Heatmap bucketing configuration (Block B). Independent from
     /// `liquidity_config` so the bucket aggregation can be disabled
     /// without affecting the rest of the liquidity pipeline. See
     /// `config_models::HeatmapConfig`.
     pub heatmap_config: HeatmapConfig,
+    /// v9 (F-04): order-book depth knobs — the `[order_book]` TOML surface
+    /// (previously the pipeline hardcoded `OrderBookConfig::default()`).
+    pub ob_config: OrderBookConfig,
+    /// v9: the effective strategy (patch-resolved).
+    pub strategy: StrategyConfig,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     pub buffer_size: usize,
     /// Per-TF stale-threshold (CB-04 / DCP-05 / ILS-07).
     pub stale_threshold_secs: u64,
+    /// Global `[activation]` block (CA-01…CA-15). Applied to every
+    /// instance; per-instance overrides union on top.
+    pub activation: config_models::ActivationConfig,
+    /// Per-instance `[instances.*.activation]` overrides (union with
+    /// global; `None` = no overrides).
+    pub activation_instance: Option<config_models::ActivationConfig>,
+    /// `WorkspaceConfig.config_version` — attributed to `metrics_config`
+    /// for change attribution (CA-10).
+    pub config_version: u64,
 }
 
 pub struct PipelineArtifacts {
@@ -116,14 +130,16 @@ pub async fn build_pipelines(
     // own handle so the 4 charts in the dashboard can show clusters at
     // their own horizons. Populated by the cluster refresh tasks spawned
     // below; read by `run_single` on every candle close.
-    let micro_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
-        Arc::new(RwLock::new(None));
+    let micro_cluster_matrix: Arc<
+        RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>,
+    > = Arc::new(RwLock::new(None));
     let fast_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
         Arc::new(RwLock::new(None));
     let slow_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
         Arc::new(RwLock::new(None));
-    let macro_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
-        Arc::new(RwLock::new(None));
+    let macro_cluster_matrix: Arc<
+        RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>,
+    > = Arc::new(RwLock::new(None));
 
     // Per-TF cluster-refresh status handles (sibling to the matrix handles).
     // The refresh task writes to both on every tick; the
@@ -131,30 +147,50 @@ pub async fn build_pipelines(
     // distinguish "no data yet" (Pending) from "refresh task failed"
     // (Skipped with reason) — without this distinction the LIQ HEATMAP can
     // appear empty for minutes at boot with zero operator feedback.
-    let micro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
-        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
-            ctx.pair_key.as_str(),
-            "micro",
-        )),
+    let micro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
+        Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "micro"),
+        ));
+    let fast_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
+        Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "fast"),
+        ));
+    let slow_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
+        Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "slow"),
+        ));
+    let macro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
+        Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "macro"),
+        ));
+
+    // v6.10 (Phase 5 / E1): build the real ActiveSet from config instead
+    // of the default all-enabled set. Global `[activation]` + per-instance
+    // `[instances.*.activation]` union (CA-06: disabled ≡ absent), with
+    // the `[liquidity] enabled` master switch folded in (CA-15). This is
+    // the single production call-site — the pipeline structs below, the
+    // run_single tasks, and the cluster-refresh spawn all read from it.
+    // v9: the strategy's `l1_5` section is the single source of truth for
+    // the liquidity pipeline (legacy `[workspace.liquidity]`/`[heatmap]`
+    // remain only as the parse fallback).
+    let eff_liq = market_analyzer::liquidity_params::effective_liquidity(
+        Some(&ctx.liquidity_config),
+        Some(&ctx.heatmap_config),
+        &ctx.strategy.l1_5,
     );
-    let fast_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
-        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
-            ctx.pair_key.as_str(),
-            "fast",
-        )),
+
+    let mut active_set = market_analyzer::active_set::ActiveSet::from_config(
+        &ctx.activation,
+        ctx.activation_instance.as_ref(),
+        ctx.config_version,
+        eff_liq.cfg.enabled,
     );
-    let slow_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
-        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
-            ctx.pair_key.as_str(),
-            "slow",
-        )),
-    );
-    let macro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
-        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
-            ctx.pair_key.as_str(),
-            "macro",
-        )),
-    );
+    // v9: the strategy's L1.5 sub-toggles override the legacy
+    // `[activation]`-derived state.
+    active_set.liquidity_enabled = eff_liq.cfg.enabled;
+    active_set.liquidation_feed = eff_liq.cfg.liquidation_feed;
+    active_set.cluster_estimation = eff_liq.cfg.cluster_estimation;
+    active_set.liquidity_signals_enabled = eff_liq.cfg.signals;
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
@@ -174,7 +210,7 @@ pub async fn build_pipelines(
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
+            active_set: active_set.clone(),
             cluster_matrix: micro_cluster_matrix.clone(),
             cluster_status: micro_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
@@ -199,7 +235,7 @@ pub async fn build_pipelines(
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
+            active_set: active_set.clone(),
             cluster_matrix: fast_cluster_matrix.clone(),
             cluster_status: fast_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
@@ -224,7 +260,7 @@ pub async fn build_pipelines(
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
+            active_set: active_set.clone(),
             cluster_matrix: slow_cluster_matrix.clone(),
             cluster_status: slow_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
@@ -249,7 +285,7 @@ pub async fn build_pipelines(
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
+            active_set: active_set.clone(),
             cluster_matrix: macro_cluster_matrix.clone(),
             cluster_status: macro_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
@@ -300,10 +336,14 @@ pub async fn build_pipelines(
         &active_pair,
         state,
         warmed_states,
-        ctx.exchange_choice.clone(),
-        ctx.quote.clone(),
+        ctx.exchange_choice,
+        ctx.quote,
         ctx.liquidity_config.clone(),
         ctx.heatmap_config.clone(),
+        ctx.api_failover,
+        // v9: wired order-book config + the effective strategy.
+        ctx.ob_config.clone(),
+        ctx.strategy.clone(),
         &micro_cluster_matrix,
         &fast_cluster_matrix,
         &slow_cluster_matrix,
@@ -313,6 +353,10 @@ pub async fn build_pipelines(
         &slow_cluster_status,
         &macro_cluster_status,
         ctx.buffer_size,
+        // AUDIT-H7: configured stale threshold (CB-04/ILS-07).
+        ctx.stale_threshold_secs,
+        // CA-15: L2.5 `cluster_estimation` toggle from the ActiveSet.
+        active_set.cluster_estimation,
     )
     .await;
 
@@ -340,7 +384,7 @@ pub async fn build_pipelines(
     let instance = Arc::new(Instance::new(
         format!("inst_{}", uuid_v4_simple()),
         (ctx.base.clone(), ctx.quote.as_str().to_string()),
-        ctx.exchange_choice.clone(),
+        ctx.exchange_choice,
         active_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),
@@ -402,6 +446,10 @@ async fn spawn_tasks(
     quote: Currency,
     liquidity_config: LiquidityConfig,
     heatmap_config: HeatmapConfig,
+    api_failover: ApiFailoverConfig,
+    // v9: wired order-book config + the effective strategy.
+    ob_config: OrderBookConfig,
+    strategy: StrategyConfig,
     micro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     fast_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     slow_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
@@ -411,7 +459,24 @@ async fn spawn_tasks(
     slow_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
     macro_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
     buffer_size: usize,
+    // AUDIT-H7: `[candle_buffer] stale_threshold_secs` (CB-04/ILS-07) —
+    // threaded into run_single (was hardcoded 300 inside the analyzer).
+    stale_threshold_secs: u64,
+    // CA-15: `[activation] cluster_estimation` (union of global +
+    // per-instance). `false` => the L2.5 refresh loop is not spawned.
+    cluster_estimation: bool,
 ) {
+    // v9: the strategy's `l1_5` section is the single source of truth for
+    // the liquidity pipeline (legacy sections remain only as the fallback
+    // baked into the EffectiveLiquidity resolver).
+    let eff_liq = market_analyzer::liquidity_params::effective_liquidity(
+        Some(&liquidity_config),
+        Some(&heatmap_config),
+        &strategy.l1_5,
+    );
+    let liquidity_config = eff_liq.cfg.clone();
+    let _ = eff_liq;
+
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (slow_chan_tx, slow_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -592,8 +657,21 @@ async fn spawn_tasks(
         }
     };
 
-    for (rx, tf_cfg, hist, snap, snap_hist, slot, label, tf_secs, bcast, div_det, candle_fwd, warmed, active_set) in
-        pipeline_specs
+    for (
+        rx,
+        tf_cfg,
+        hist,
+        snap,
+        snap_hist,
+        slot,
+        label,
+        tf_secs,
+        bcast,
+        div_det,
+        candle_fwd,
+        warmed,
+        active_set,
+    ) in pipeline_specs
     {
         let a_symbol = internal_symbol.to_string();
         let a_pair_key = pair_key.to_string();
@@ -614,8 +692,12 @@ async fn spawn_tasks(
         let a_oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> =
             Arc::new(RwLock::new(active_pair.oi_history.read().await.clone()));
         let a_funding_history = active_pair.funding_history.clone();
-        let a_liquidity_config = liquidity_config.clone();
-        let a_heatmap_config = heatmap_config.clone();
+        let a_liquidity_config = eff_liq.cfg.clone();
+        let a_heatmap_config = eff_liq.heatmap.clone();
+        // v9: capture the wired order-book config + strategy for the
+        // moved closure.
+        let a_ob_config = ob_config.clone();
+        let a_strategy = strategy.clone();
         // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
         // pipeline owns its own `Arc<RwLock<...>>` so the 4 charts in the
         // dashboard each see the cluster at their own horizon. See
@@ -662,17 +744,30 @@ async fn spawn_tasks(
         // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle handle
         // used as prev-state input AND as write-through target on every
         // completed candle emit.
-        let a_indicator_lifecycle: Arc<RwLock<core_domain::indicator_dtos::IndicatorLifecycleMap>> = match slot {
-            core_domain::models::TimeframeSlot::Micro => active_pair.micro.indicator_lifecycle.clone(),
-            core_domain::models::TimeframeSlot::Fast => active_pair.fast.indicator_lifecycle.clone(),
-            core_domain::models::TimeframeSlot::Slow => active_pair.slow.indicator_lifecycle.clone(),
-            core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.indicator_lifecycle.clone(),
-            core_domain::models::TimeframeSlot::Custom { id } => active_pair
-                .custom_pipelines
-                .get(&id)
-                .map(|p| p.indicator_lifecycle.clone())
-                .unwrap_or_else(|| Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new()))),
-        };
+        let a_indicator_lifecycle: Arc<RwLock<core_domain::indicator_dtos::IndicatorLifecycleMap>> =
+            match slot {
+                core_domain::models::TimeframeSlot::Micro => {
+                    active_pair.micro.indicator_lifecycle.clone()
+                }
+                core_domain::models::TimeframeSlot::Fast => {
+                    active_pair.fast.indicator_lifecycle.clone()
+                }
+                core_domain::models::TimeframeSlot::Slow => {
+                    active_pair.slow.indicator_lifecycle.clone()
+                }
+                core_domain::models::TimeframeSlot::Macro => {
+                    active_pair.r#macro.indicator_lifecycle.clone()
+                }
+                core_domain::models::TimeframeSlot::Custom { id } => active_pair
+                    .custom_pipelines
+                    .get(&id)
+                    .map(|p| p.indicator_lifecycle.clone())
+                    .unwrap_or_else(|| {
+                        Arc::new(RwLock::new(
+                            core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+                        ))
+                    }),
+            };
         // v6.10 (Phase 3 / C3): per-TF pipeline_state handle for write-through.
         let a_pipeline_state: Arc<RwLock<core_domain::models::CandlePipelineState>> = match slot {
             core_domain::models::TimeframeSlot::Micro => active_pair.micro.pipeline_state.clone(),
@@ -683,13 +778,19 @@ async fn spawn_tasks(
                 .custom_pipelines
                 .get(&id)
                 .map(|p| p.pipeline_state.clone())
-                .unwrap_or_else(|| Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing))),
+                .unwrap_or_else(|| {
+                    Arc::new(RwLock::new(
+                        core_domain::models::CandlePipelineState::Initializing,
+                    ))
+                }),
         };
 
         let x_micro = micro_latest.clone();
         let x_fast = fast_latest.clone();
         let x_slow = slow_latest.clone();
         let x_macro = macro_latest.clone();
+        // AUDIT-H7: capture before the `move` closure.
+        let stale_threshold_secs = stale_threshold_secs as u32;
 
         tokio::spawn(async move {
             let (ct_a, ct_b, ct_c) = match slot {
@@ -700,7 +801,12 @@ async fn spawn_tasks(
                 core_domain::models::TimeframeSlot::Custom { .. } => (x_micro, x_fast, x_slow),
             };
 
-            analyzer::run_single(
+            // v9 fix: `run_single`'s future is enormous in debug builds
+            // (~2 MB state machine). Box it so the outer task future stays
+            // tiny — constructing it on the worker stack used to overflow
+            // the default 2 MiB tokio worker stack (save_recharge_cycle
+            // abort).
+            Box::pin(analyzer::run_single(
                 rx,
                 a_telemetry,
                 bcast,
@@ -727,8 +833,9 @@ async fn spawn_tasks(
                 a_funding_history,
                 a_cluster_matrix,
                 Some(a_liquidity_config),
-                Some(a_heatmap_config),
-                config_models::OrderBookConfig::default(),
+                a_heatmap_config,
+                a_ob_config,
+                a_strategy,
                 ct_a,
                 ct_b,
                 ct_c,
@@ -739,13 +846,16 @@ async fn spawn_tasks(
                 Some(a_refetch),
                 Some(a_cq_scope),
                 a_buffer_size,
+                // AUDIT-H7: thread the configured CB-04/ILS-07 stale
+                // threshold (was hardcoded 300 inside the analyzer).
+                stale_threshold_secs,
                 // v6.10 (Phase 2 / B3): per-TF advisory handle.
                 a_advisory,
                 // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle
                 // and pipeline_state handles for write-through.
                 a_indicator_lifecycle,
                 a_pipeline_state,
-            )
+            ))
             .await;
         });
     }
@@ -764,7 +874,7 @@ async fn spawn_tasks(
     } else {
         state.ws_url.clone()
     };
-    let exchange_for_spawn = exchange_choice.clone();
+    let exchange_for_spawn = exchange_choice;
     let exchange_label = exchange_for_spawn.as_str().to_string();
     let es_tracker = state.exchange_status.clone();
     {
@@ -875,9 +985,7 @@ async fn spawn_tasks(
             let hb_cancel = ws_cancel.clone();
             let hb_lat_inner = hb_latency.clone();
             let heartbeat_task = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(
-                    std::time::Duration::from_secs(10),
-                );
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
                 let mut prev_tick = Instant::now();
                 loop {
                     tokio::select! {
@@ -1035,7 +1143,9 @@ async fn spawn_tasks(
             }
 
             es_disconnect.set_reconnecting(&es_disconnect_label).await;
-            es_disconnect.increment_reconnect(&es_disconnect_label).await;
+            es_disconnect
+                .increment_reconnect(&es_disconnect_label)
+                .await;
             let delay = network_adapters::adapters::resilience::apply_jitter(
                 std::time::Duration::from_secs(backoff_secs),
                 0.2,
@@ -1080,6 +1190,7 @@ async fn spawn_tasks(
             poller_tx,
             poller_cancel,
             poll_ms,
+            api_failover.max_consecutive_failures,
         );
     }
 
@@ -1094,18 +1205,43 @@ async fn spawn_tasks(
     // First refresh is **immediate** at startup (no 5-min delay). Each
     // tick prints the outcome (N short + M long clusters, elapsed ms) so
     // operators can see at a glance whether the cluster refresh is alive.
-    if liquidity_config.enabled {
+    // CA-15: the L2.5 refresh loop additionally requires the per-instance
+    // `cluster_estimation` toggle (union of global `[activation]` and
+    // `[instances.*.activation]`) — when disabled, no task spawns and the
+    // `cluster` field stays absent from the snapshot (CA-06 semantics).
+    if liquidity_config.enabled && cluster_estimation {
         let pair_str = pair_key.to_string();
-        let mut per_tf_handles: Vec<(
+        type ClusterRefreshHandle<'a> = (
             TimeframeSlot,
-            &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-            &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+            &'a Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+            &'a Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
             u64,
-        )> = vec![
-            (TimeframeSlot::Micro, micro_cluster_matrix, micro_cluster_status, micro_cfg.candles.duration_seconds),
-            (TimeframeSlot::Fast, fast_cluster_matrix, fast_cluster_status, fast_cfg.candles.duration_seconds),
-            (TimeframeSlot::Slow, slow_cluster_matrix, slow_cluster_status, slow_cfg.candles.duration_seconds),
-            (TimeframeSlot::Macro, macro_cluster_matrix, macro_cluster_status, macro_cfg.candles.duration_seconds),
+        );
+        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = vec![
+            (
+                TimeframeSlot::Micro,
+                micro_cluster_matrix,
+                micro_cluster_status,
+                micro_cfg.candles.duration_seconds,
+            ),
+            (
+                TimeframeSlot::Fast,
+                fast_cluster_matrix,
+                fast_cluster_status,
+                fast_cfg.candles.duration_seconds,
+            ),
+            (
+                TimeframeSlot::Slow,
+                slow_cluster_matrix,
+                slow_cluster_status,
+                slow_cfg.candles.duration_seconds,
+            ),
+            (
+                TimeframeSlot::Macro,
+                macro_cluster_matrix,
+                macro_cluster_status,
+                macro_cfg.candles.duration_seconds,
+            ),
         ];
         // PRI-07 (v6.10.7): custom slots also get a cluster refresh task
         // (previously only the four default slots did, so custom-slot charts
@@ -1136,7 +1272,7 @@ async fn spawn_tasks(
                     &slot.as_str(),
                 );
                 write_cluster_status(
-                    &status_handle,
+                    status_handle,
                     ClusterRefreshStatus::Skipped,
                     Some("per-TF leverage.enabled=false".to_string()),
                     None,
@@ -1168,9 +1304,21 @@ async fn spawn_tasks(
             let status_handle = status_handle.clone();
             let active_pair_clone = active_pair.clone();
             let refresh_config = liquidity_config.clone();
+            // v9: strategy-derived estimator overrides (L2.5 + per-TF
+            // leverage). Frozen per spawned task.
+            let cluster_overrides = ClusterOverrides::from_strategy(&strategy);
             let cancel_for_refresh = cancel.clone();
             let exchange_for_refresh = exchange_choice;
             tokio::spawn(async move {
+                // AUDIT-AIU-116: consecutive-skip counter. Every `Skipped`
+                // tick keeps the LAST successful matrix in the handle, so a
+                // dead OI feed would serve a stale estimate anchored to an
+                // old mid indefinitely. After `MAX_CONSECUTIVE_SKIPS`
+                // consecutive failures the handle is cleared (cluster → None
+                // on the wire, the heatmap/panel degrade to placeholders)
+                // instead of silently showing stale data as current.
+                const MAX_CONSECUTIVE_SKIPS: u32 = 3;
+                let mut consecutive_skips: u32 = 0;
                 // ── First fire: immediate (don't wait one tick) ──
                 let started = std::time::Instant::now();
                 match compute_cluster_for_tf(
@@ -1178,10 +1326,12 @@ async fn spawn_tasks(
                     slot,
                     &refresh_config,
                     exchange_for_refresh,
+                    &cluster_overrides,
                 )
                 .await
                 {
                     Ok(matrix) => {
+                        consecutive_skips = 0;
                         let n_short = matrix.short_clusters.len();
                         let n_long = matrix.long_clusters.len();
                         let mid = matrix.mid_price;
@@ -1201,7 +1351,8 @@ async fn spawn_tasks(
                             ClusterRefreshStatus::Ok,
                             None,
                             Some(matrix.clone()),
-                        ).await;
+                        )
+                        .await;
                         *handle.write().await = Some(matrix);
                     }
                     Err(e) => {
@@ -1216,7 +1367,8 @@ async fn spawn_tasks(
                             ClusterRefreshStatus::Skipped,
                             Some(e.to_string()),
                             None,
-                        ).await;
+                        )
+                        .await;
                     }
                 }
 
@@ -1254,10 +1406,12 @@ async fn spawn_tasks(
                         slot,
                         &refresh_config,
                         exchange_for_refresh,
+                        &cluster_overrides,
                     )
                     .await
                     {
                         Ok(matrix) => {
+                            consecutive_skips = 0;
                             let n_short = matrix.short_clusters.len();
                             let n_long = matrix.long_clusters.len();
                             let mid = matrix.mid_price;
@@ -1277,22 +1431,45 @@ async fn spawn_tasks(
                                 ClusterRefreshStatus::Ok,
                                 None,
                                 Some(matrix.clone()),
-                            ).await;
+                            )
+                            .await;
                             *handle.write().await = Some(matrix);
                         }
                         Err(e) => {
+                            consecutive_skips += 1;
                             eprintln!(
-                                "⚠️  Cluster Refresh: {} {} skipped this tick: {}",
+                                "⚠️  Cluster Refresh: {} {} skipped this tick: {} (skip {} of {})",
                                 pair_log,
                                 &slot.as_str(),
                                 e,
+                                consecutive_skips,
+                                MAX_CONSECUTIVE_SKIPS,
                             );
                             write_cluster_status(
                                 &status_handle,
                                 ClusterRefreshStatus::Skipped,
                                 Some(e.to_string()),
                                 None,
-                            ).await;
+                            )
+                            .await;
+                            if consecutive_skips >= MAX_CONSECUTIVE_SKIPS {
+                                // AUDIT-AIU-116: the feed has been down for
+                                // several refresh cycles — drop the stale
+                                // matrix so the wire carries `cluster: None`
+                                // and the frontend degrades to placeholders
+                                // instead of showing an estimate anchored to
+                                // an outdated mid.
+                                let mut guard = handle.write().await;
+                                if guard.is_some() {
+                                    println!(
+                                        "🕸️  Cluster Refresh: {} {} cleared stale matrix after {} consecutive skips",
+                                        pair_log,
+                                        &slot.as_str(),
+                                        consecutive_skips,
+                                    );
+                                }
+                                *guard = None;
+                            }
                         }
                     }
                 }
@@ -1325,10 +1502,9 @@ pub enum ClusterRefreshError {
 impl std::fmt::Display for ClusterRefreshError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClusterRefreshError::NoSnapshotYet => write!(
-                f,
-                "no snapshot yet (DIE → MME warm-up still in progress)"
-            ),
+            ClusterRefreshError::NoSnapshotYet => {
+                write!(f, "no snapshot yet (DIE → MME warm-up still in progress)")
+            }
             ClusterRefreshError::InvalidMidPrice(p) => {
                 write!(f, "invalid mid_price ({}); non-positive or NaN", p)
             }
@@ -1351,6 +1527,61 @@ impl std::fmt::Display for ClusterRefreshError {
     }
 }
 
+/// v9: strategy-derived overrides for the cluster estimator (L2.5 +
+/// per-TF leverage). `Default` reproduces the v8.2 hardcoded geometry.
+#[derive(Debug, Clone)]
+pub struct ClusterOverrides {
+    pub estimation: core_domain::liquidity::ClusterEstimationParams,
+    pub oi_split: core_domain::liquidity::ClusterOiSplitParams,
+    pub confidence: core_domain::liquidity::ClusterConfidenceParams,
+    pub funding_mod_shift: f64,
+    /// Strategy `l1_5.per_tf_leverage` — when `enabled`, replaces the
+    /// pipeline's per-TF leverage config.
+    pub per_tf_leverage: Option<config_models::L1_5TfLeverageParams>,
+}
+
+impl Default for ClusterOverrides {
+    fn default() -> Self {
+        Self {
+            estimation: core_domain::liquidity::ClusterEstimationParams::default(),
+            oi_split: core_domain::liquidity::ClusterOiSplitParams::default(),
+            confidence: core_domain::liquidity::ClusterConfidenceParams::default(),
+            funding_mod_shift: 0.05,
+            per_tf_leverage: None,
+        }
+    }
+}
+
+impl ClusterOverrides {
+    /// Build from the bound strategy's `l2_5` + `l1_5` sections.
+    pub fn from_strategy(strategy: &config_models::StrategyConfig) -> Self {
+        let l2_5 = &strategy.l2_5;
+        Self {
+            estimation: core_domain::liquidity::ClusterEstimationParams {
+                swing_window_bars: l2_5.estimation.swing_window_bars,
+                swing_lookback: l2_5.estimation.swing_lookback,
+                bin_size_pct: l2_5.estimation.bin_size_pct,
+                peak_halfwidth_divisor: l2_5.estimation.peak_halfwidth_divisor,
+                bound_decay: l2_5.estimation.bound_decay,
+                ttl_secs: l2_5.estimation.ttl_secs,
+            },
+            oi_split: core_domain::liquidity::ClusterOiSplitParams {
+                funding_anchor: l2_5.oi_split.funding_anchor,
+                funding_bias_scale: l2_5.oi_split.funding_bias_scale,
+                price_anchor_pct: l2_5.oi_split.price_anchor_pct / 100.0,
+                price_bias_scale: l2_5.oi_split.price_bias_scale,
+                clamp: l2_5.oi_split.clamp,
+            },
+            confidence: core_domain::liquidity::ClusterConfidenceParams {
+                oi_adequacy_anchor_usd: l2_5.confidence.oi_adequacy_anchor_usd,
+                funding_penalty: l2_5.confidence.funding_penalty,
+            },
+            funding_mod_shift: l2_5.funding_modulation.shift,
+            per_tf_leverage: Some(strategy.l1_5.per_tf_leverage.clone()),
+        }
+    }
+}
+
 /// Compute a cluster matrix for one specific timeframe slot. Each TF sees
 /// the same OI/funding (shared at ActivePair level) but a different
 /// price-history lookback — the last 200 candles of its own TF. This gives
@@ -1364,6 +1595,7 @@ pub async fn compute_cluster_for_tf(
     slot: core_domain::models::TimeframeSlot,
     config: &config_models::LiquidityConfig,
     exchange: ExchangeChoice,
+    overrides: &ClusterOverrides,
 ) -> Result<core_domain::liquidity::LiquidationClusterMatrix, ClusterRefreshError> {
     use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
 
@@ -1399,10 +1631,11 @@ pub async fn compute_cluster_for_tf(
         None => return Err(ClusterRefreshError::NoSnapshotYet),
     };
     let history_handle = history_arc.read().await;
+    // v9: the window is the strategy's `l2_5.estimation.swing_window_bars`.
     let price_history: Vec<f64> = history_handle
         .iter()
         .rev()
-        .take(200)
+        .take(overrides.estimation.swing_window_bars.max(5))
         .filter_map(|c| c.close.to_f64())
         .collect::<Vec<_>>()
         .into_iter()
@@ -1411,16 +1644,32 @@ pub async fn compute_cluster_for_tf(
     drop(history_handle);
 
     if price_history.len() < 5 {
-        return Err(ClusterRefreshError::InsufficientHistory(price_history.len()));
+        return Err(ClusterRefreshError::InsufficientHistory(
+            price_history.len(),
+        ));
     }
 
     // 4. Compute. v6.10 (Phase 2 / B5): pull leverage_buckets / leverage_weights
     //    / min_cluster_notional_usd from the per-TF `TfLeverageConfig` on the
     //    active pipeline, replacing the hardcoded legacy distribution.
+    //    v9: the strategy's `l1_5.per_tf_leverage` (when enabled) replaces
+    //    the pipeline config.
     let tf_cfg = active_pair
         .pipeline_for_slot(slot)
         .map(|p| p.tf_leverage_config.as_ref().clone())
         .unwrap_or_default();
+    let (buckets, weights, min_notional) = match overrides.per_tf_leverage.as_ref() {
+        Some(pl) if pl.enabled => (
+            pl.buckets.clone(),
+            pl.weights.clone(),
+            pl.min_cluster_notional_usd,
+        ),
+        _ => (
+            tf_cfg.buckets.clone(),
+            tf_cfg.weights.clone(),
+            tf_cfg.min_cluster_notional_usd,
+        ),
+    };
     let symbol = tf_snapshot.symbol.clone();
     let input = ClusterEstimateInput {
         symbol: &symbol,
@@ -1432,9 +1681,13 @@ pub async fn compute_cluster_for_tf(
         maintenance_margin_rate: config.maintenance_margin_rate,
         funding_extreme_pct: config.funding_extreme_pct,
         funding_modulation_active: true,
-        leverage_buckets: &tf_cfg.buckets,
-        leverage_weights: &tf_cfg.weights,
-        min_cluster_notional_usd: tf_cfg.min_cluster_notional_usd,
+        leverage_buckets: &buckets,
+        leverage_weights: &weights,
+        min_cluster_notional_usd: min_notional,
+        estimation: overrides.estimation.clone(),
+        oi_split: overrides.oi_split.clone(),
+        confidence: overrides.confidence.clone(),
+        funding_mod_shift: overrides.funding_mod_shift,
     };
     Ok(estimate_clusters(&input))
 }
@@ -1448,8 +1701,6 @@ async fn tf_latest_snapshot(
     pipe.latest_snapshot.read().await.clone()
 }
 
-
-
 /// Helper: get a reference to the history `VecDeque` of one TF slot.
 fn tf_history(
     active_pair: &Arc<analyzer::ActivePair>,
@@ -1459,7 +1710,6 @@ fn tf_history(
         .pipeline_for_slot(slot)
         .map(|p| p.history.clone())
 }
-
 
 /// Write the cluster-status snapshot for one TF slot after a refresh tick.
 /// Always updates `last_refresh_attempt_ms`; on success also bumps
@@ -1501,7 +1751,7 @@ fn uuid_v4_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_nanos();
     format!("{:016x}", ts)
 }

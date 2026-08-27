@@ -1,7 +1,7 @@
 # PAE Layer 1 — Trade Analytics Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/trade_analytics.rs`) is implemented and the Trade ledger panel renders live data. Backtest-runner integration lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
+**Version:** 10.1 (2026-08-24) — v7: implemented; grouping keyed by setup type.
+**Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 1 of 4
 **Input Contract:** Closed trade logs from PME

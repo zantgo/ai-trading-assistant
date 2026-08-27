@@ -66,6 +66,12 @@ pub struct SessionState {
     pub active: AtomicBool,
     pub base_currency: RwLock<Option<Currency>>,
     pub exchange: RwLock<Option<ExchangeChoice>>,
+    /// v7.1 follow-up: the operator's chosen execution mode at session
+    /// start ("paper" | "live") — becomes the default for created instances.
+    pub mode: RwLock<Option<String>>,
+    /// v7.1 follow-up: the operator's paper-session capital (USD) — the
+    /// default `portfolio_capital_usd` for instances created in this session.
+    pub portfolio_capital_usd: RwLock<Option<f64>>,
 }
 
 impl Default for SessionState {
@@ -80,6 +86,21 @@ impl SessionState {
             active: AtomicBool::new(false),
             base_currency: RwLock::new(None),
             exchange: RwLock::new(None),
+            mode: RwLock::new(None),
+            portfolio_capital_usd: RwLock::new(None),
         }
+    }
+
+    pub async fn session_mode(&self) -> Option<String> {
+        self.mode.read().await.clone()
+    }
+
+    pub async fn session_capital(&self) -> Option<f64> {
+        *self.portfolio_capital_usd.read().await
+    }
+
+    pub async fn set_session_defaults(&self, mode: Option<String>, capital: Option<f64>) {
+        *self.mode.write().await = mode;
+        *self.portfolio_capital_usd.write().await = capital;
     }
 }

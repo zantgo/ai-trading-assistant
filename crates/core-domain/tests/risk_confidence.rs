@@ -29,7 +29,6 @@ fn make_analysis(state_confidence: f64) -> AnalysisMatrix {
         structure_assessment: core_domain::analysis::StructureAssessment::Healthy,
         volatility_assessment: core_domain::analysis::VolatilityAssessment::Normal,
         volume_assessment: core_domain::analysis::VolumeAssessment::Normal,
-        opportunity_analysis: core_domain::analysis::OpportunityType::NoClearOpportunity,
         market_quality: core_domain::analysis::QualityLevel::Average,
         trend_score: None,
         momentum_score: None,
@@ -53,7 +52,18 @@ fn confidence_propagates_from_state_confidence() {
     // EXCEPT cascade_risk, which also reads 85.0 because flow is present.
     let analysis = make_analysis(0.85);
     let indicators = HashMap::new();
-    let risk = compute_risk("BTC-USDT", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+    let risk = compute_risk(
+        "BTC-USDT",
+        &analysis,
+        &indicators,
+        None,
+        None,
+        0.0,
+        &[],
+        None,
+        &[],
+        &core_domain::risk::RiskParams::default(),
+    );
 
     assert!((risk.market_risk.confidence - 85.0).abs() < 1e-9);
     assert!((risk.volatility_risk.confidence - 85.0).abs() < 1e-9);
@@ -70,7 +80,18 @@ fn confidence_low_with_low_state_confidence() {
     // state_confidence = 0.30 → expected confidence = 30.0
     let analysis = make_analysis(0.30);
     let indicators = HashMap::new();
-    let risk = compute_risk("BTC-USDT", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+    let risk = compute_risk(
+        "BTC-USDT",
+        &analysis,
+        &indicators,
+        None,
+        None,
+        0.0,
+        &[],
+        None,
+        &[],
+        &core_domain::risk::RiskParams::default(),
+    );
 
     assert!((risk.market_risk.confidence - 30.0).abs() < 1e-9);
     assert!((risk.volatility_risk.confidence - 30.0).abs() < 1e-9);
@@ -88,7 +109,18 @@ fn cascade_risk_confidence_zero_when_liquidity_off() {
     // (docs §CA-15: cascade_risk NO_DATA + confidence 0 when liquidity off).
     let analysis = make_analysis(0.85);
     let indicators = HashMap::new();
-    let risk = compute_risk("BTC-USDT", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+    let risk = compute_risk(
+        "BTC-USDT",
+        &analysis,
+        &indicators,
+        None,
+        None,
+        0.0,
+        &[],
+        None,
+        &[],
+        &core_domain::risk::RiskParams::default(),
+    );
 
     assert_eq!(risk.cascade_risk.confidence, 0.0);
 }
@@ -99,7 +131,18 @@ fn cascade_risk_confidence_propagates_when_flow_present() {
     let analysis = make_analysis(0.72);
     let indicators = HashMap::new();
     let flow = LiquidityFlow::default();
-    let risk = compute_risk("BTC-USDT", &analysis, &indicators, Some(&flow), None, 0.0, &[], None, &[]);
+    let risk = compute_risk(
+        "BTC-USDT",
+        &analysis,
+        &indicators,
+        Some(&flow),
+        None,
+        0.0,
+        &[],
+        None,
+        &[],
+        &core_domain::risk::RiskParams::default(),
+    );
 
     assert!((risk.cascade_risk.confidence - 72.0).abs() < 1e-9);
 }

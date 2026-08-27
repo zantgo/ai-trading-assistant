@@ -39,7 +39,6 @@ use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::SymbolMapper;
-use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -131,8 +130,8 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         micro: new_pipe(
             60,
@@ -204,8 +203,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
     // Pre-seed an empty WorkspaceConfig so handlers that synthesize defaults
     // have something to read from — they will push a new entry on save.
     {
-        let mut cfg: WorkspaceConfig = WorkspaceConfig::default();
-        cfg.instances = Vec::new();
+        let cfg: WorkspaceConfig = WorkspaceConfig::default();
         workspace.set_config(cfg).await;
     }
 
@@ -226,12 +224,20 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }
 

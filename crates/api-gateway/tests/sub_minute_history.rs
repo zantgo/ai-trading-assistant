@@ -14,7 +14,6 @@ use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, SymbolMapper};
-use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -109,8 +108,8 @@ async fn build_router_with_snapshots(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
@@ -153,8 +152,7 @@ async fn build_router_with_snapshots(
     workspace.insert(PAIR_KEY.to_string(), instance).await;
 
     {
-        let mut cfg: WorkspaceConfig = WorkspaceConfig::default();
-        cfg.instances = Vec::new();
+        let cfg: WorkspaceConfig = WorkspaceConfig::default();
         workspace.set_config(cfg).await;
     }
 
@@ -173,23 +171,31 @@ async fn build_router_with_snapshots(
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(Default::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     (api_gateway::build_router(state.clone()), state)
 }
 
 fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
-    let close = rust_decimal::Decimal::from_f64_retain(close_val).unwrap();
-    let open = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap();
-    let high = rust_decimal::Decimal::from_f64_retain(close_val + 5.0).unwrap();
-    let low = rust_decimal::Decimal::from_f64_retain(close_val - 10.0).unwrap();
-    let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap();
-    let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap();
+    let close = rust_decimal::Decimal::from_f64_retain(close_val).unwrap_or_default();
+    let open = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap_or_default();
+    let high = rust_decimal::Decimal::from_f64_retain(close_val + 5.0).unwrap_or_default();
+    let low = rust_decimal::Decimal::from_f64_retain(close_val - 10.0).unwrap_or_default();
+    let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap_or_default();
+    let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap_or_default();
     MarketSnapshot {
         timeframe_slot: Some(TimeframeSlot::Micro),
         exchange: Some(Exchange::Hyperliquid),
@@ -213,8 +219,8 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         high: Some(high),
         low: Some(low),
         close: Some(close),
-        volume: Some(rust_decimal::Decimal::from_f64_retain(1.5).unwrap()),
-        average_volume: Some(rust_decimal::Decimal::from_f64_retain(1.2).unwrap()),
+        volume: Some(rust_decimal::Decimal::from_f64_retain(1.5).unwrap_or_default()),
+        average_volume: Some(rust_decimal::Decimal::from_f64_retain(1.2).unwrap_or_default()),
         context: None,
         decision_context: None,
         statistical_context: None,
@@ -276,7 +282,7 @@ async fn history_endpoint_returns_candles_for_sub_minute_timeframe() {
             .and_then(|v| v.as_array())
             .expect("candles array");
         assert!(
-            candles.len() >= 1,
+            !candles.is_empty(),
             "expected >= 1 candles for sub-minute history, got {candles:?}"
         );
 
@@ -511,10 +517,7 @@ async fn history_endpoint_marks_gap_fill_dojis_as_synthetic() {
             );
             synthetic_count += 1;
         }
-        assert_eq!(
-            synthetic_count, 11,
-            "expected 11 gap-fill Doji entries"
-        );
+        assert_eq!(synthetic_count, 11, "expected 11 gap-fill Doji entries");
     })
     .await
     .expect("gap-fill synthetic tagging test timed out");
@@ -558,8 +561,7 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
             validated_at: 0,
         });
 
-        let (_router, state) =
-            build_router_with_snapshots(1, vec![real, doji]).await;
+        let (_router, state) = build_router_with_snapshots(1, vec![real, doji]).await;
         let addr = serve_for(state.clone()).await;
         let client = reqwest::Client::new();
 
@@ -584,7 +586,10 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
             .expect("real candle present");
         assert!(
             real_candle.get("reconstructed").is_none()
-                || real_candle.get("reconstructed").and_then(|v| v.as_str()).is_none(),
+                || real_candle
+                    .get("reconstructed")
+                    .and_then(|v| v.as_str())
+                    .is_none(),
             "real snapshot must NOT carry a reconstructed flag: {:?}",
             real_candle.get("reconstructed")
         );
@@ -594,9 +599,7 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
             .find(|c| c.get("time").and_then(|t| t.as_u64()) == Some(1_718_000_002_000))
             .expect("doji candle present");
         assert_eq!(
-            doji_candle
-                .get("reconstructed")
-                .and_then(|v| v.as_str()),
+            doji_candle.get("reconstructed").and_then(|v| v.as_str()),
             Some("SYNTHETIC"),
             "gap-filled heartbeat snapshot must carry reconstructed=\"SYNTHETIC\": {:?}",
             doji_candle
@@ -622,11 +625,8 @@ async fn history_aligns_indicator_arrays_to_gap_filled_axis() {
             let mut s = make_snapshot(1, ts, ema);
             let mut vals = std::collections::HashMap::new();
             vals.insert("fast".to_string(), ema);
-            let mut entry = NormalizedIndicatorValue::scalar(
-                ema,
-                0.0,
-                "CONSOLIDATED_TANGLED_STACK",
-            );
+            let mut entry =
+                NormalizedIndicatorValue::scalar(ema, 0.0, "CONSOLIDATED_TANGLED_STACK");
             entry.values = Some(vals);
             let mut indicators = std::collections::HashMap::new();
             indicators.insert("ema_stack".to_string(), entry);

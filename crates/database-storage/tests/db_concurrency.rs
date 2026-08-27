@@ -1,6 +1,6 @@
+use core_domain::models::MarketSnapshot;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal_macros::dec;
-use core_domain::models::MarketSnapshot;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::Barrier;
@@ -93,8 +93,8 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     cluster: None,
                     volume_profile: None,
                     quality_envelope: None,
-                pipeline_state: core_domain::models::CandlePipelineState::default(),
-                indicator_lifecycle: std::collections::HashMap::new(),
+                    pipeline_state: core_domain::models::CandlePipelineState::default(),
+                    indicator_lifecycle: std::collections::HashMap::new(),
                 };
 
                 let result = sqlx::query(

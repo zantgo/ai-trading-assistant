@@ -6,7 +6,6 @@
 
 use api_gateway::{self, AppState};
 use core_domain::normalized::SymbolMapper;
-use database_storage;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use rust_decimal::Decimal;
@@ -34,7 +33,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
 
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90, 180, None).await;
     });
 
     database_storage::risk_profile_insert(
@@ -66,12 +65,20 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
     let router = api_gateway::build_router(state.clone());
@@ -185,7 +192,7 @@ async fn setup_override_state() -> (Arc<AppState>, String, i64) {
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90, 180, None).await;
     });
 
     let profile_id = database_storage::risk_profile_insert(
@@ -217,12 +224,18 @@ async fn setup_override_state() -> (Arc<AppState>, String, i64) {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
         snapshot_export: Arc::new(RwLock::new(
             core_domain::snapshot_export::SnapshotExportRuntime::default(),
         )),
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
     let router = api_gateway::build_router(state.clone());
@@ -259,12 +272,20 @@ async fn risk_calculate_prefers_payload_overrides_over_profile() {
         .await
         .expect("POST /api/risk/calculate");
 
-    assert!(res.status().is_success(), "expected 200, got {}", res.status());
+    assert!(
+        res.status().is_success(),
+        "expected 200, got {}",
+        res.status()
+    );
     let body: serde_json::Value = res.json().await.expect("response is JSON");
 
     assert_eq!(body["leverage_selected"], 10, "payload leverage must win");
     let num = |k: &str| -> f64 {
-        body[k].as_str().unwrap_or_default().parse::<f64>().unwrap_or(f64::NAN)
+        body[k]
+            .as_str()
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or(f64::NAN)
     };
     assert!(
         (num("position_notional") - 50.0).abs() < 1e-9,

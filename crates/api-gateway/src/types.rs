@@ -135,6 +135,56 @@ pub struct ConfigResponse {
     pub indicators: config_models::IndicatorsConfig,
     pub instances: Vec<config_models::InstanceEntry>,
     pub indicator_registry: Vec<market_analyzer::indicators::IndicatorMeta>,
+    pub api_failover: config_models::ApiFailoverConfig,
+    /// v7.2 parity: the workspace's slow/macro timeframe defaults — the
+    /// same values the registry falls back to when an instance is created
+    /// without a config entry. The Launch Setup wizard derives its
+    /// per-instance TF defaults from these, so GUI, CLI, and registry
+    /// always agree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slow_timeframe: Option<config_models::SlowTimeframeConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macro_timeframe: Option<config_models::SlowTimeframeConfig>,
+    /// v7.3: workspace liquidity config (retentions, feed toggles) —
+    /// surfaced so DIE Settings can render the true retention values and
+    /// the PME can derive data-retention facts from one source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidity: Option<config_models::LiquidityConfig>,
+    /// v7.3: v7 setup-executor config — PME "Risk per trade" and TAE
+    /// surfaces render the real sizing knob instead of a hardcoded 1%.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimal_tae: Option<config_models::MinimalTaeConfig>,
+    /// v7.3: PAE significance treatment (α, Monte Carlo runs, min trades).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<config_models::AnalyticsConfig>,
+    /// v7.3: portfolio risk limits — concentration / exposure / correlation
+    /// caps the PME Exposure tab renders and the backend enforces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_limits: Option<config_models::RiskLimitsConfig>,
+    /// v7.3: safety ladder thresholds — the PME Safety ladder and the engine
+    /// Settings tabs render the real values (previously the PME read
+    /// `cfg.safety` which this response never carried, silently falling
+    /// back to hardcoded defaults).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety: Option<config_models::SafetyConfig>,
+    /// v7.3: fee schedule (maker/taker/funding) — TAE/PME Settings tabs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fees: Option<config_models::FeesConfig>,
+    /// v7.3: cross leverage — TAE/PME Settings tabs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leverage: Option<config_models::LeverageConfig>,
+    /// v7.3: execution layer config (slippage ceiling) — TAE Settings tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<config_models::ExecutionConfig>,
+    /// v7.4: workspace-wide indicator/signal activation defaults — the MME
+    /// Workspace Settings "Indicator Activation" card falls back to these
+    /// when an instance carries no per-instance `activation` override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<config_models::ActivationConfig>,
+    /// v8: Backtesting Engine config (archive depth 1..=365, warmup bars,
+    /// per-exchange paging limits) — BTE Settings tab + run form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backtest: Option<config_models::BacktestConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +193,13 @@ pub struct HistoryQuery {
     pub symbol: String,
     #[serde(default)]
     pub timeframe_secs: Option<u64>,
+    /// AUDIT-AIU-121: optional slot hint (`micro|fast|slow|macro|custom-N`).
+    /// When present the pipeline is resolved BY SLOT first, so two slots
+    /// sharing one duration (which the UI permits) each get their OWN
+    /// history instead of both falling back to the micro pipeline via the
+    /// duration-only `pipeline_for_duration` shim.
+    #[serde(default)]
+    pub slot: Option<String>,
     #[serde(default = "default_history_limit")]
     pub limit: usize,
 }
@@ -529,6 +586,9 @@ pub struct IndicatorHistoryArrays {
 
 #[derive(Debug, Serialize)]
 pub struct HistoryResponse {
+    // AUDIT-F1: the API contract (06-01 §2.2) documents a top-level
+    // `symbol` member that was never serialized.
+    pub symbol: String,
     pub prices: Vec<String>,
     pub candles: Vec<HistoryCandle>,
     pub indicator_history: IndicatorHistoryArrays,
@@ -857,7 +917,8 @@ pub struct FeeTableQuery {
 #[derive(Debug, Deserialize)]
 pub struct StatsQuery {
     #[serde(default)]
-    pub initial_capital: Option<f64>,
+    #[serde(alias = "initial_capital")]
+    pub portfolio_capital_usd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -868,6 +929,12 @@ pub struct TradeJournalQuery {
 fn default_journal_limit() -> u32 {
     50
 }
+
+/// AUDIT-F4: shared cap for journal/ledger/analytics `limit` params —
+/// the documented `/api/history` ceiling is 1000; the unbounded journal/
+/// ledger/optimization endpoints previously allowed `?limit=2_000_000_000`
+/// which dumped entire tables in one response.
+pub const API_MAX_LIMIT: u32 = 1000;
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateJournalNotesRequest {
@@ -883,7 +950,6 @@ pub struct TradeLedgerQuery {
 fn default_limit() -> u32 {
     200
 }
-
 #[derive(Debug, Deserialize)]
 pub struct TradeTelemetryRequest {
     pub exchange: String,
@@ -911,6 +977,15 @@ fn default_trigger() -> String {
 pub struct SessionInitRequest {
     pub exchange: String,
     pub currency: String,
+    /// "observe" | "paper" | "live" — default execution mode for created
+    /// instances. Observe is market-monitoring only (no orders dispatched).
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Paper-session capital (USD) — default `portfolio_capital_usd`
+    /// (v9 F-07: ONE capital dial; the session default overrides the
+    /// workspace value for new sessions).
+    #[serde(default)]
+    pub portfolio_capital_usd: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -919,6 +994,27 @@ pub struct SessionStatusResponse {
     pub currency: Option<String>,
     pub exchange: Option<String>,
     pub instance_count: usize,
+    /// Default execution mode for created instances
+    /// ("observe" | "paper" | "live").
+    pub mode: Option<String>,
+    /// Paper-session capital (USD).
+    pub capital: Option<f64>,
+    /// v10: the persisted session number (monotonic, never reused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
+}
+
+/// v10: one persisted session row (list + history).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionListRow {
+    pub id: i64,
+    pub mode: String,
+    pub exchange: Option<String>,
+    pub currency: Option<String>,
+    pub portfolio_capital_usd: Option<f64>,
+    pub started_at_ms: i64,
+    pub ended_at_ms: Option<i64>,
+    pub status: String,
 }
 
 // ─── Instance ──────────────────────────────────────────────────
@@ -941,6 +1037,8 @@ pub struct InstanceDetailQuery {
     pub id: String,
     #[serde(default)]
     pub pair_key: Option<String>,
+    #[serde(default)]
+    pub slot: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -961,7 +1059,11 @@ pub struct InstanceConfigPayload {
     #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
-    pub position_scaling: Option<config_models::PositionScalingConfig>,
+    pub activation: Option<config_models::ActivationConfig>,
+    /// v9: bind the instance to a strategy (by name). Recharges fully at
+    /// the next candle boundary.
+    #[serde(default)]
+    pub strategy: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

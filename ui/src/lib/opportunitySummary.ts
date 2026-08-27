@@ -8,7 +8,7 @@
 import type { OpportunityMatrix } from '../types';
 
 /** Kicker label rendered by SummaryCard on the Opportunities panel. */
-export const OPPORTUNITY_SUMMARY_LABEL = 'OPPORTUNITY SUMMARY';
+export const OPPORTUNITY_SUMMARY_LABEL = 'SUMMARY';
 
 const CONVICTION: Array<{ min: number; word: string }> = [
     { min: 85, word: 'high-conviction' },
@@ -81,4 +81,31 @@ export function buildOpportunitySummary(opportunity: OpportunityMatrix | null | 
         ? `${profiles.length} candidate profile${profiles.length === 1 ? '' : 's'} evaluated, the strongest scoring ${best.score.toFixed(0)} with ${best.preconditions_met}/${best.preconditions_total} preconditions met.`
         : `${profiles.length} candidate profile${profiles.length === 1 ? '' : 's'} evaluated, none currently meeting their preconditions.`;
     return `${s1} ${s2} ${s3}`;
+}
+
+/**
+ * Wrap the panel-rendered OPPORTUNITY SUMMARY keywords with `<strong>`
+ * markup so the operator can scan the qualitative state at a glance:
+ * the conviction tier ("strong-conviction"), the setup quality rating
+ * ("rated PRIME"), and the strongest candidate's score figure. Ordered
+ * alternation keeps the conviction tokens atomic — a later quality match
+ * can never re-wrap text already consumed by a conviction token, so no
+ * nested `<strong>` pairs are produced. Mirrors `highlightKeywords` in
+ * `lib/prettifyPhase.ts`; the raw `buildOpportunitySummary` string stays
+ * untouched for the export.
+ */
+export function highlightOpportunitySummary(text: string): string {
+    // M9 (production audit): escape first (the summary interpolates
+    // backend strings — profile types, quality ratings, horizons), then
+    // wrap keywords — the wrappers are added post-escape so they survive.
+    const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    return escaped
+        .replace(/\b(high|strong|moderate|low|uncertain)-conviction\b/gi, '<strong>$&</strong>')
+        .replace(/rated ([A-Za-z]+)/g, 'rated <strong>$1</strong>')
+        .replace(/strongest scoring (\d+(?:\.\d+)?)/, 'strongest scoring <strong>$1</strong>');
 }

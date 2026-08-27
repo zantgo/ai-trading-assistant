@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -43,28 +43,32 @@ The Decision Matrix is realized by two complementary structures:
 | `exit_guidance` | `ExitGuidance` | Early-warning exit trigger (§3.5). |
 | `protection_strategy` | `ProtectionStrategy` | How to place the stop (§3.6). |
 | `target_strategy` | `TargetStrategy` | How to place the target (§3.7). |
-| `stop_loss_distance_pct` | `f64` | Concrete stop-loss distance as a raw percentage float (e.g. `1.5` = 1.5%). Type-boundary handoff from MME (f64) to TAE (Decimal cast at the execution boundary). Computed from the active `protection_strategy` (§3.6) and the current volatility/structure inputs. |
+| `stop_loss_distance_pct` | `f64` | Concrete stop-loss distance as a raw percentage float (e.g. `1.5` = 1.5%). Type-boundary handoff from MME (f64) to TAE (Decimal cast at the execution boundary). Computed from the active `protection_strategy` (§3.6) and the current volatility inputs — **not** ATR-derived (see §3.6 for the exact formula). |
 | `confidence_assessment` | `f64` | Guidance confidence in `[0, 100]`. |
-| `trade_readiness` | `TradeReadiness` | Headline readiness state (§4). `READY` / `FORMING` / `WATCH` / `STAND_ASIDE`. *(Added to the schema in the institutional redesign; previously documented in §4 but missing from §2.1.)* |
-| `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `risk_favorability` in v2.1; semantic successor of `Risk.expected_rr`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `risk_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
-| `expected_reward_risk_ratio` | `f64` | Synthesized from the active-side R:R (`L4.long_expected_rr_internal` for bullish bias, `L4.short_expected_rr_internal` for bearish, 0 for Neutral) × `(1 − L5.overall_risk / 100.0)`. The legacy matrix-level `L4.expected_rr_internal` was removed in v6.9. *(Added in the institutional redesign.)* **UI label (v6.10.12): `Risk-Adj R:R`** — distinct from the L4 geometric `R:R`; the Safety-Flags KPI, the why-bullets, and the plan strip use this label (v6.10.19d D: the L6 header chip was removed — the KPI row is the single header-adjacent surface). |
-
-> **`expected_reward_risk_ratio` formula — unit normalization.** `overall_risk` is on the canonical `[0, 100]` scale; the formula divides by `100.0` before the subtraction: `active-side R:R × (1 − L5.overall_risk / 100.0) = 2.5 × (1 − 0.283) = 1.79`. Without the `/100.0` normalization the formula produces nonsensical values for any non-trivial risk score (e.g. with `overall_risk = 28.3`, the unnormalized form gives `2.5 × (1 − 28.3) = −68.25`). The same formula appears in the canonical ownership map at [02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md).
+| `opportunity_classification` | `OpportunityClass` | Bucketed L4 classification (`Intraday`/`Swing`/`Position`) carried into the advisory. |
+| `cascade_risk_score` | `f64` | L5 cascade dimension score (0–100) surfaced for the environment assessment. |
+| `environment_favorability` | `f64` | Synoptic L3+L4 favorability (0–100) for entering. |
 | `quality_to_risk_ratio` | `f64?` | **v6.11.** Setup-efficiency metric — the forward-looking "is the risk justified by the setup?" ratio: `analysis.market_quality_score ÷ risk.overall_risk.score` (both unipolar `[0, 100]`; higher = better). Rendered as the **Quality/Risk** KPI on the Recommendation panel, adjacent to Entry Danger. `null`/absent when `overall_risk.score == 0` (division guard). |
 | `final_recommendation` | `string` | Natural-language recommendation summary. |
+
+> **Field placement (wire contract).** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` live on **`DecisionContext`** (§2.2), **not** on `AdvisoryMatrix` — the wire nests them under `decision_context`. `AdvisoryMatrix` carries the guidance enums, `stop_loss_distance_pct`, `confidence_assessment`, `quality_to_risk_ratio`, and `final_recommendation`.
 
 ### 2.2 DecisionContext Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `score` | `f64` | Quantitative confluence score. |
-| `bias` | `MarketBias` (5-state) | `STRONG_BULLISH` / `BULLISH` / `NEUTRAL` / `BEARISH` / `STRONG_BEARISH`. **Same 5-state vocabulary as `Analysis.bias`** — no 3-state collapse is applied. |
+| `bias` | `MarketBias` (5-state) | `STRONG_BULLISH` / `BULLISH` / `NEUTRAL` / `BEARISH` / `STRONG_BEARISH`. **Same 5-state vocabulary as `Analysis.bias`** — no 3-state collapse is applied. Wire value is the PascalCase serde form (`"StrongBullish"`, …). |
 | `score_confidence` | `f64` | `[0, 1]` derived from `|score| / 100`. *(Renamed from `confidence` in the institutional redesign; see [02-00b-confidence-hierarchy.md](02-00b-confidence-hierarchy.md).)* |
 | `contributing_indicators` | `string[]` | Indicators driving the decision. |
+| `trade_readiness` | `TradeReadiness` | Headline readiness state (§4). `READY` / `FORMING` / `WATCH` / `STAND_ASIDE` — a plain wire `String` carrying the SCREAMING values (not a serde enum). *(Populated on `DecisionContext`; previously documented in §2.1 as an `AdvisoryMatrix` field.)* |
+| `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `risk_favorability` in v2.1; semantic successor of `Risk.expected_rr`.)* |
+| `expected_reward_risk_ratio` | `f64` | Synthesized from the active-side R:R (`L4.long_expected_rr_internal` for bullish bias, `L4.short_expected_rr_internal` for bearish, 0 for Neutral) × `(1 − L5.overall_risk / 100.0)`. The legacy matrix-level `L4.expected_rr_internal` was removed in v6.9. **UI label (v6.10.12): `Risk-Adj R:R`** — distinct from the L4 geometric `R:R`; the Safety-Flags KPI, the why-bullets, and the plan strip use this label (v6.10.19d D: the L6 header chip was removed — the KPI row is the single header-adjacent surface). |
 | `long_probability` | `f64` | **Canonical source of truth.** Long-side normalized probability (0–100, integer). Sums to 100 with `short_probability` + `hold_probability`. Computed server-side from the signed confluence score modulated by directional guidance, market stance, and R:R — see §2.4 for the derivation formula. |
 | `short_probability` | `f64` | Short-side normalized probability (0–100, integer). |
 | `hold_probability` | `f64` | Hold (no-position) normalized probability (0–100, integer). |
 | `net_bias_pct` | `f64` | Net directional bias in percentage points (`long − short`), range `[−100, +100]`. Positive = net long-leaning, negative = net short-leaning. |
+| `lean_floor_applied` | `bool` | **v6.10.19 (P6).** `true` when the graded-lean floors actually adjusted the split (HOLD capped at 60% and/or the directional arm raised to 15%) — see the §4 lean-floor transparency note. |
 
 ### 2.3 `confluence_score` formula (canonical)
 
@@ -133,6 +137,8 @@ The computation above is **identical on the backend and the frontend fallback** 
 ### 3.1 DirectionalGuidance
 `STRONG_LONG`, `LONG`, `NEUTRAL`, `SHORT`, `STRONG_SHORT`, `AVOID_DIRECTIONAL_EXPOSURE`.
 
+**Wire values (PascalCase):** `StrongLong` / `Long` / `Neutral` / `Short` / `StrongShort` / `AvoidDirectionalExposure`.
+
 Derived from `bias × overall_risk × market_stance`:
 ```
 # Priority order (first match wins):
@@ -166,6 +172,8 @@ All six `DirectionalGuidance` values are reachable. The `AVOID_DIRECTIONAL_EXPOS
 ### 3.2 MarketStance
 `AGGRESSIVE`, `CONSTRUCTIVE`, `NEUTRAL`, `CAUTIOUS`, `AVOID`.
 
+**Wire values (PascalCase):** `Aggressive` / `Constructive` / `Neutral` / `Cautious` / `Avoid`.
+
 Derived from `market_quality × overall_risk` (exact mirror of `compute_advisory`, v6.10.17 — the previous table claimed `POOR` alone → `AVOID`, but the code requires `POOR` **and** `overall_risk ≥ 80`; a poor-quality-but-calm market is `CAUTIOUS`, not `AVOID`):
 ```
 # Priority order (first match wins):
@@ -188,6 +196,8 @@ All five `MarketStance` values are reachable. `AVOID` requires a **combination**
 ### 3.3 StrategyEnvironment
 `TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` — from `market_regime` ([Analysis Matrix §3.2](../matrices/02-02-analysis-matrix.md)):
 
+**Wire values (PascalCase):** `TrendFollowing` / `Breakout` / `MeanReversion` / `HighVolatility` / `LowActivity` / `Unfavorable`.
+
 | `MarketRegime` | `StrategyEnvironment` |
 |----------------|-----------------------|
 | `TRENDING_BULL` / `TRENDING_BEAR` | `TREND_FOLLOWING` |
@@ -201,6 +211,8 @@ The mapping is total over all 8 `MarketRegime` values (2 + 2 + 1 + 1 + 1 + 1), a
 
 ### 3.4 EntryGuidance
 `IMMEDIATE`, `WAIT_FOR_CONFIRMATION`, `PULLBACK`, `BREAKOUT`, `NO_ENTRY_CONTEXT` — from `trend_assessment × volatility_risk` (the L5 Risk Matrix `volatility_risk.score` on the canonical `[0, 100]` scale). Ordered first-match rules:
+
+**Wire values (PascalCase):** `Immediate` / `WaitForConfirmation` / `Pullback` / `Breakout` / `NoEntryContext`.
 
 ```
 # Priority order (first match wins):
@@ -217,6 +229,8 @@ The rules tile the input space with no gap or overlap: `volatility_risk ≥ 60` 
 ### 3.5 ExitGuidance
 `TREND_WEAKENING`, `MOMENTUM_EXHAUSTION`, `STRUCTURE_BREAKDOWN`, `RISK_INCREASING`, `NO_WARNING` — from `momentum_assessment × structure_assessment × overall_risk`. Ordered first-match rules:
 
+**Wire values (PascalCase):** `TrendWeakening` / `MomentumExhaustion` / `StructureBreakdown` / `RiskIncreasing` / `NoWarning`.
+
 ```
 # Priority order (first match wins):
 1. overall_risk ≥ 80                                       → RISK_INCREASING
@@ -231,6 +245,8 @@ The rules tile the input space with no gap or overlap: `volatility_risk ≥ 60` 
 ### 3.6 ProtectionStrategy (Dynamic Stops)
 `STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION`.
 
+**Wire values (PascalCase):** `StructureBased` / `VolatilityBased` / `ATRBased` / `SRBased` / `NoRecommendation`.
+
 ```
 volatility_assessment = COMPRESSED                                              → STRUCTURE_BASED
 VolatilityAssessment-risk score > 60  AND  volatility_assessment ∈ {EXPANDING, EXTREME} → VOLATILITY_BASED
@@ -241,22 +257,38 @@ otherwise                                                                       
 
 All five `ProtectionStrategy` values are reachable from the documented rules. `STRUCTURE_BASED` consumes `volatility_assessment = COMPRESSED` (from `02-02-analysis-matrix.md §3.6`). `VOLATILITY_BASED` requires a high `volatility_risk` score (from the L5 Risk Matrix). `SR_BASED` requires range regime with healthy structure and proximity to a structural S/R level. `ATR_BASED` is the production default. `NO_RECOMMENDATION` is reached only on the empty-state fallback path (no indicators completed; see §7).
 
+**`stop_loss_distance_pct` formula (canonical — NOT ATR-based).** The concrete stop distance is computed in `crates/core-domain/src/advisory.rs::compute_advisory` from the volatility-risk dimension and structure assessment, **not** from ATR or structural levels:
+
+```
+base_multiplier = 1.0  if structure_assessment ∈ {STRONG, HEALTHY}
+                  1.5  otherwise
+base_pct        = (base_multiplier × 2.0).clamp(0.5, 5.0)        // 2.0% or 3.0% base
+risk_bump       = (risk.volatility_risk.score / 100.0) × 10.0   // 0–10% additive
+stop_loss_distance_pct = (base_pct + risk_bump).clamp(0.5, 15.0) // percent
+```
+
+The structural multiplier does the heavy lifting (strong/healthy structure → 1× stop, weak structure → 1.5× stop); `volatility_risk` (an L5 0-100 risk score, not the underlying ATR) contributes the additive bump. The `[0.5, 15.0]` percent clamp is the canonical platform stop-distance band.
+
 ### 3.7 TargetStrategy (Target Zones)
 `RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION`.
 
+**Wire values (PascalCase):** `ResistanceBased` / `RRBased` / `VolatilityBased` / `TrailingMethod` / `NoRecommendation`.
+
 ```
-structure_assessment ∈ {STRONG, HEALTHY}                                         → RESISTANCE_BASED
-entry_danger.level ∈ {VERY_LOW, LOW}                                             → RR_BASED
-entry_danger.level = MODERATE  AND  a confirmed trailing-signal sequence is active → TRAILING_METHOD
-no indicators available (empty state per §7)                                     → NO_RECOMMENDATION
-otherwise                                                                       → VOLATILITY_BASED
+structure_assessment ∈ {STRONG, HEALTHY}      → RESISTANCE_BASED
+L5 overall_risk.score < 40                    → RR_BASED
+L5 overall_risk.score < 60                    → TRAILING_METHOD
+no indicators available (empty state per §7)  → NO_RECOMMENDATION
+otherwise                                     → VOLATILITY_BASED
 ```
 
-All five `TargetStrategy` values are reachable from the documented rules. `RESISTANCE_BASED` consumes `structure_assessment ∈ {STRONG, HEALTHY}` (from `02-02-analysis-matrix.md §3.5`). `RR_BASED` requires low entry danger (the setup is clean enough to commit to a fixed R:R target). `TRAILING_METHOD` requires a confirmed trailing-signal sequence. `VOLATILITY_BASED` is the production default. `NO_RECOMMENDATION` is reached only on the empty-state fallback path (see §7).
+All five `TargetStrategy` values are reachable from the documented rules. `RESISTANCE_BASED` consumes `structure_assessment ∈ {STRONG, HEALTHY}` (from `02-02-analysis-matrix.md §3.5`). `RR_BASED` / `TRAILING_METHOD` key on the **L5 overall-risk score** (the engine's ordering-first-match implementation in `core-domain/src/advisory.rs`; low risk = clean enough to commit to a fixed R:R target, moderate = trail the stop). `VOLATILITY_BASED` is the production default. `NO_RECOMMENDATION` is reached only on the empty-state fallback path (see §7).
 
 ### 3.8 `entry_danger` (Synoptic Danger)
 
-`entry_danger` is a `RiskDimension` (score, level, state, confidence, evidence) — renamed from `risk_favorability` in v2.1 to disambiguate the semantic convention. The RiskDimension convention is that **high score = danger, low score = safe** (consistent with all other Risk Matrix dimensions). The previous name `risk_favorability` was semantically misleading: a high `risk_favorability` would intuitively mean "favorable conditions", but the actual formula produces a danger measure (high = dangerous).
+`entry_danger` is a `RiskDimension` (score, level, state, confidence, evidence) — renamed from `risk_favorability` in v2.1 to disambiguate the semantic convention. The RiskDimension convention is that **high score = danger, low score = safe** (consistent with all other Risk Matrix dimensions).
+
+> **`evidence` is not populated.** The backend constructs `entry_danger` via `RiskDimension::from_score_with_confidence`, which leaves `evidence` as an empty vector — the wire **omits** the `evidence` key entirely (`skip_serializing_if = "Vec::is_empty"`, matching the other Risk dimensions). The TypeScript type still declares `evidence: string[]` for legacy-payload compatibility; consumers must not expect the key on current payloads.
 
 `entry_danger` synthesizes the **danger of entering a new position in the current interpretive state** by combining L3 `market_quality` and L4 `opportunity_score` — the two forward-looking signals most relevant to "is the environment dangerous for a new trade?".
 
@@ -345,11 +377,11 @@ The Decision Matrix carries the structural invalidation and target context used 
 
 | Concept | Source | Consumer |
 |---------|--------|----------|
-| **Stop-loss distance (`D_sl`, %)** | `protection_strategy` applied to ATR / structure levels. | TAE Execution ($S = \frac{E \times R}{D_{sl} / 100}$). |
+| **Stop-loss distance (`D_sl`, %)** | `stop_loss_distance_pct` (§3.6 — the volatility/structure-scaled percentage formula). | TAE Execution ($S = \frac{E \times R}{D_{sl} / 100}$). |
 | **Target zone** | `target_strategy` applied to resistance / R:R / volatility. | TAE Execution, PME trailing. |
 | **Invalidation level** (`invalidation_level`) | Structural level whose breach nullifies the thesis. | PME dynamic stop management. |
 
-> **`invalidation_level` vs `stop_loss_distance_pct`.** Both fields govern stop distance but serve different roles: `invalidation_level` is an absolute **price level** from L4 — a structural point (Fibonacci Golden Pocket, S/R, trend line) whose breach nullifies the trade thesis (consumed by PME for dynamic stop trailing). `stop_loss_distance_pct` is a **percentage** from L6 — the output of `protection_strategy` (ATR-based, volatility-based, etc.) that feeds the TAE Position Sizing Protocol as $D_{sl}$ (resolution priority: `fixed_stop_loss_pct` → `stop_loss_distance_pct` → system default `2.0`; see [TAE L2 §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
+> **`invalidation_level` vs `stop_loss_distance_pct`.** Both fields govern stop distance but serve different roles: `invalidation_level` is an absolute **price level** from L4 — a structural point (Fibonacci Golden Pocket, S/R, trend line) whose breach nullifies the trade thesis (consumed by PME for dynamic stop trailing). `stop_loss_distance_pct` is a **percentage** from L6 — the §3.6 formula output (volatility-risk scaled, **not** ATR-based) that feeds the TAE Position Sizing Protocol as $D_{sl}$ (resolution priority: `fixed_stop_loss_pct` → `stop_loss_distance_pct` → system default `2.0`; see [TAE L2 §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 | **Bull / Bear scenario** | Conditional pathways described in `final_recommendation`. | Human operator / observability. |
 
 ---
@@ -360,30 +392,31 @@ The Decision Matrix carries the structural invalidation and target context used 
 {
   "advisory": {
     "symbol": "BTC-USDT",
-    "directional_guidance": "STRONG_LONG",
-    "market_stance": "CONSTRUCTIVE",
-    "strategy_environment": "TREND_FOLLOWING",
-    "entry_guidance": "IMMEDIATE",
-    "exit_guidance": "NO_WARNING",
-    "protection_strategy": "ATR_BASED",
-    "target_strategy": "RESISTANCE_BASED",
+    "directional_guidance": "StrongLong",
+    "market_stance": "Constructive",
+    "strategy_environment": "TrendFollowing",
+    "entry_guidance": "Immediate",
+    "exit_guidance": "NoWarning",
+    "protection_strategy": "ATRBased",
+    "target_strategy": "ResistanceBased",
     "stop_loss_distance_pct": 1.5,
     "confidence_assessment": 71.7,
-    "trade_readiness": "READY",
-    "entry_danger": { "score": 12.5, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
-    "expected_reward_risk_ratio": 1.79,
     "quality_to_risk_ratio": 3.53,
-    "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 71% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
+    "final_recommendation": "Strong long bias: StrongBullish bias with 71% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
   },
   "decision_context": {
     "score": 97.0,
-    "bias": "STRONG_BULLISH",
+    "bias": "StrongBullish",
     "score_confidence": 0.97,
+    "trade_readiness": "READY",
+    "entry_danger": { "score": 12.5, "level": "VeryLow", "state": "Stable", "confidence": 50.0 },
+    "expected_reward_risk_ratio": 1.79,
     "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"],
     "long_probability": 67.0,
     "short_probability": 5.0,
     "hold_probability": 28.0,
-    "net_bias_pct": 62.0
+    "net_bias_pct": 62.0,
+    "lean_floor_applied": false
   }
 }
 ```
@@ -397,13 +430,13 @@ The Decision Matrix carries the structural invalidation and target context used 
 - `decision_context.score = 97.0` per the §2.3 confluence-score formula: with `alignment.tradability_dim = 100`, `analysis.market_quality_score = 100` (EXCELLENT → 100), and `opportunity.opportunity_score = 85`, the formula yields `0.50·100 + 0.30·100 + 0.20·85 = 97.0` ⇒ `score_confidence = |score| / 100 = 0.97` per the §2.2 mapping ✓
 - `expected_reward_risk_ratio = (active-side R:R) × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.long_expected_rr_internal = 2.5` from the Opportunity Matrix example — active side for the bullish `STRONG_BULLISH` bias — and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
 - `quality_to_risk_ratio = market_quality_score ÷ overall_risk.score = 100 ÷ 28.3 ≈ 3.53` (v6.11 — the setup-efficiency KPI; `None` when the risk score is 0) ✓
-- `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals) ✓
-- `trade_readiness = READY` per the §4 ordered rules: rule 1 does not fire (`market_stance = CONSTRUCTIVE`, `confidence_assessment = 71.7 ≥ 20`); rule 2 fires — non-neutral guidance (`STRONG_LONG`), `71.7 ≥ 60`, `market_stance = CONSTRUCTIVE ∈ {AGGRESSIVE, CONSTRUCTIVE}`, `entry_guidance = IMMEDIATE ≠ WAIT_FOR_CONFIRMATION` ✓
-- `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary.
+- `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals); the `evidence` array is empty and omitted from the wire (§3.8) ✓
+- `trade_readiness = READY` per the §4 ordered rules: rule 1 does not fire (`market_stance = CONSTRUCTIVE`, `confidence_assessment = 71.7 ≥ 20`); rule 2 fires — non-neutral guidance (`STRONG_LONG`), `71.7 ≥ 60`, `market_stance = CONSTRUCTIVE ∈ {AGGRESSIVE, CONSTRUCTIVE}`, `entry_guidance = IMMEDIATE ≠ WAIT_FOR_CONFIRMATION` ✓. `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` are nested under `decision_context` on the wire (§2.2) ✓
+- `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary. (Note: the §3.6 formula yields `(1.0 × 2.0).clamp(0.5, 5.0) + (volatility_risk.score/100 × 10)` for strong structure — the worked `1.5` value is illustrative.)
 
 > Scenario A (alignment score 40) is worked end-to-end in 01-01-ontology.md §A.2–A.6.
 
-Enum values serialize as `SCREAMING_SNAKE_CASE`.
+Enum values serialize as **PascalCase** on the wire (`"StrongLong"`, `"Constructive"`, `"VeryLow"`, `"StrongBullish"`, …); the SCREAMING_SNAKE forms in the prose above are the `Display` vocabulary. Two exceptions: `trade_readiness` is a plain `String` carrying `"READY"` / `"FORMING"` / `"WATCH"` / `"STAND_ASIDE"`, and `DecisionContext.bias` is a `String` carrying the PascalCase `MarketBias` values (`"StrongBullish"`).
 
 ---
 
@@ -429,5 +462,5 @@ When `analysis.timeframes_considered == 0`, `compute_advisory` returns `Advisory
 - [Analysis Matrix](02-02-analysis-matrix.md) · [Opportunity Matrix](02-08-opportunity-matrix.md) · [Risk Matrix](02-11-risk-matrix.md) — Inputs.
 - [Overview Matrix](02-09-overview-matrix.md) — Aggregates Decision matrices across symbols.
 - [MME Layer 6 — Decision Support](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md) — Producing-layer specification.
-- [TAE Layer 1 — Policy](../engines/trade-automation-engine/03-03-02-tae-layer1-policy.md) — Primary downstream consumer.
+- [TAE Setup Executor](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — Primary downstream consumer.
 - [TAE Layer 2 — Execution](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — Position Sizing Protocol.

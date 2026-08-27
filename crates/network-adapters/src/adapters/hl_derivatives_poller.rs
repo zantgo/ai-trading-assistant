@@ -28,7 +28,6 @@ use crate::adapters::hyperliquid_rest::{
     derivatives_ctx_to_events, fetch_meta_and_asset_ctxs, HlDerivativesCtx,
 };
 
-const MAX_CONSECUTIVE_FAILURES: u32 = 30;
 const INITIAL_BACKOFF_SECS: u64 = 5;
 const MAX_BACKOFF_SECS: u64 = 60;
 const HTTP_429_COOLDOWN_SECS: u64 = 300;
@@ -61,6 +60,7 @@ pub async fn run_hl_derivatives_poller(
     event_tx: Sender<NormalizedEvent>,
     cancel: CancellationToken,
     poll_ms: u64,
+    max_consecutive_failures: u32,
 ) {
     println!(
         "💹 HL Derivatives Poller: Started for {} ({}ms cadence)",
@@ -106,8 +106,7 @@ pub async fn run_hl_derivatives_poller(
                         }
                         _ => None,
                     };
-                    let events =
-                        derivatives_ctx_to_events(&internal_symbol, ctx, prev_oi_usd);
+                    let events = derivatives_ctx_to_events(&internal_symbol, ctx, prev_oi_usd);
                     if this_oi_usd.is_some() {
                         prev_oi_usd = this_oi_usd;
                     }
@@ -122,7 +121,7 @@ pub async fn run_hl_derivatives_poller(
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
 
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                if consecutive_failures >= max_consecutive_failures.max(1) {
                     eprintln!(
                         "🛑 HL Derivatives Poller: {} permanently disabled after {} consecutive failures.",
                         raw_symbol, consecutive_failures
@@ -130,8 +129,8 @@ pub async fn run_hl_derivatives_poller(
                     break;
                 }
 
-                let suppressed = consecutive_failures > 5
-                    && consecutive_failures % LOG_SUPPRESS_INTERVAL != 0;
+                let suppressed =
+                    consecutive_failures > 5 && consecutive_failures % LOG_SUPPRESS_INTERVAL != 0;
                 if !suppressed {
                     eprintln!(
                         "⚠️  HL Derivatives Poller: {} failed ({} consecutive): {}",
@@ -176,6 +175,7 @@ pub fn spawn_hl_derivatives_poller(
     event_tx: Arc<Sender<NormalizedEvent>>,
     cancel: CancellationToken,
     poll_ms: u64,
+    max_consecutive_failures: u32,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if raw_symbol.is_empty() || info_url.is_empty() {
         return None;
@@ -188,6 +188,7 @@ pub fn spawn_hl_derivatives_poller(
             event_tx.as_ref().clone(),
             cancel,
             poll_ms,
+            max_consecutive_failures,
         )
         .await;
     }))

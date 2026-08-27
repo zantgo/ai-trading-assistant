@@ -88,7 +88,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const pts = pairsFromHistory(h, 'awesome_oscillator');
             if (pts.length > 0) {

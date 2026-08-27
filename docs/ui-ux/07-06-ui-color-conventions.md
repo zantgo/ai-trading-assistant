@@ -1,6 +1,6 @@
 # UI Color Conventions — Canonical Reference
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
 This document is the **single authoritative source** for every color used in the platform UI. Any component, indicator spec, or state-machine doc that references a color must resolve to the semantic categories defined here. No other document may introduce a new color meaning without updating this reference.
 
@@ -96,6 +96,10 @@ Every file in the docs corpus that references colors should explicitly note its 
 | `03-02-07-mme-layer6-decision-support.md` | Environment header color-coded by `directional_guidance` | ✅ Conforms |
 
 **Legend.** ✅ Conforms = already maps to the semantic categories in §1. ⚠️ Needs update = currently uses green for connected and red for error; must be updated to blue for connected and grey for error per §1.
+
+### 2.4 Direction-first discipline (v10.1)
+
+> **Amendment v10.1 (quant-metrics hardening).** Green = LONG only, red = SHORT only, amber = every caution/state (dashed = broken bracket), grey = informational. Reference brackets are amber/grey (never red); geometry-inverted is dashed amber; STOP-LOSS rows are red only on actionable cards; scores are 3-band green/amber/grey; confluence tags never wear direction colors; evaluated-setup cards tint by resolved side. `riskDangerColor` keeps danger-red. This refines §1 without changing the five semantic categories.
 
 ### 3.1 Indicator-specific color references
 

@@ -196,11 +196,11 @@ describe('RiskPanel — v7.1 five-tone level palette (summary tiles + overall ba
   });
 });
 
-describe('RiskPanel — v7.0 RISK SUMMARY head card (weight strip erased)', () => {
+describe('RiskPanel — v7.0 SUMMARY head card (weight strip erased)', () => {
   it('the summary card renders under the header, above the risk progress bar', () => {
     seed(makeRisk('Stable'));
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
-    const card = screen.getByLabelText('RISK SUMMARY');
+    const card = screen.getByLabelText('SUMMARY');
     expect(card).toBeTruthy();
     const hero = document.querySelector('[class*="heroRiskRow"]')!;
     expect(card.compareDocumentPosition(hero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

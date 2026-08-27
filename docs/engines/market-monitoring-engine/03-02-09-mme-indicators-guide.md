@@ -1,6 +1,6 @@
 # MME Indicators Guide — Readable Technical Rulebook
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
@@ -52,8 +52,8 @@ ATR (gate), Bollinger, BBWP (gate), TTM Squeeze, HV (gate), StdDev Channel. Vola
 ### 2.5 Structure (5)
 Fibonacci, Support/Resistance, Pivot Points, Chart Patterns, Candlestick. Structure indicators define the levels that confirm signals (e.g. divergence confirmation requires an S/R break) and anchor targets/invalidation.
 
-### 2.6 Regime (4)
-Aroon, Choppiness (gate), LinReg Slope, Z-Score. Regime indicators classify trending vs ranging conditions and gate the interpretation of everything else.
+### 2.6 Regime (5)
+Aroon, Choppiness (gate), LinReg Slope, Z-Score, price_trend_sharpe. Regime indicators classify trending vs ranging conditions and gate the interpretation of everything else.
 
 ### 2.7 Institutional (4)
 SMC Structure (CHoCH), Liquidity, Fair Value Gap, Order Blocks. Smart-money-concept indicators track structural breaks and institutional footprints.

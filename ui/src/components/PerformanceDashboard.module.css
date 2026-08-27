@@ -1,239 +1,110 @@
-.dashboard {
-    display: flex;
-    height: 100%;
-    background: #000;
-    color: #fff;
-    font-family: var(--mono);
-}
+/* PerformanceDashboard — local layout details only. The shared vocabulary
+   (headers, badges, KPI cards, tables, banners) lives in
+   ../styles/engine-dashboard.module.css. */
 
-.sidebar {
-    width: 200px;
-    border-right: 1px solid rgba(255, 255, 255, 0.07);
-    padding: 1rem 0;
-    flex-shrink: 0;
-}
-
-.sidebarTitle {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.35);
-    padding: 0 1rem;
-    margin-bottom: 0.75rem;
-}
-
-.sidebarBtn {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 0.5rem 1rem;
-    border: none;
-    background: transparent;
+.infoLine {
+    font-size: 11px;
     color: rgba(255, 255, 255, 0.45);
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-family: var(--mono);
-    transition: background 0.15s;
+    margin: 0 0 10px;
+    line-height: 1.5;
 }
 
-.sidebarBtn:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-.sidebarBtnActive {
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
-}
-
-.content {
-    flex: 1;
-    padding: 1.5rem;
-    overflow-y: auto;
-}
-
-.sectionTitle {
-    font-size: 1rem;
-    margin-bottom: 0.5rem;
-}
-
-.sectionDesc {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 0.8rem;
-    margin-bottom: 1rem;
-}
-
-/* ─── Stats grid ─── */
-.statsGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-}
-
-.statCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.statLabel {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.35rem;
-}
-
-.statValue {
-    font-size: 1.3rem;
-    font-weight: 600;
-}
-
-.statPositive { color: #4caf50; }
-.statNegative { color: #ef5350; }
-.statNeutral { color: #ffb74d; }
-
-.statSub {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-/* ─── Table ─── */
-.table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.78rem;
-}
-
-.table th {
-    text-align: left;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.table td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
-}
-
-.table tr:hover {
-    background: rgba(255, 255, 255, 0.03);
-}
+.statPositive { color: #22c55e; }
+.statNegative { color: #ef4444; }
+.statNeutral { color: #fbbf24; }
 
 /* ─── Regime heatmap ─── */
+
 .regimeGrid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 0.75rem;
+    gap: 12px;
 }
 
 .regimeCard {
     border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 8px;
-    padding: 0.75rem 1rem;
+    padding: 10px 14px;
     background: rgba(255, 255, 255, 0.02);
 }
 
 .regimeName {
-    font-size: 0.85rem;
+    font-size: 13px;
     font-weight: 600;
-    margin-bottom: 0.5rem;
+    margin-bottom: 8px;
 }
 
 .regimeStats {
     display: flex;
-    gap: 1rem;
-    font-size: 0.75rem;
-    color: #aaa;
-    margin-bottom: 0.4rem;
+    gap: 16px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 6px;
 }
 
 .regimeLabel {
     display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
 }
 
-.labelStrong { background: #1b5e20; color: #4caf50; }
-.labelFavorable { background: rgba(255, 255, 255, 0.06); color: #64ffda; }
-.labelMarginal { background: #e65100; color: #ffb74d; }
-.labelAvoid { background: #b71c1c; color: #ef5350; }
-
-/* ─── Classification badge ─── */
-.badge {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.badgeStrong { background: #1b5e20; color: #4caf50; }
-.badgeModerate { background: rgba(255, 255, 255, 0.06); color: #64ffda; }
-.badgeWeak { background: #e65100; color: #ffb74d; }
-.badgeNone { background: #b71c1c; color: #ef5350; }
-.badgeInsufficient { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); }
-
-/* ─── Gauge bars ─── */
-.gaugeBar {
-    width: 100%;
-    height: 8px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    margin-top: 0.35rem;
-}
-
-.gaugeFill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.4s ease;
-}
-
-.gaugeGreen { background: #4caf50; }
-.gaugeBlue { background: #64ffda; }
-.gaugeOrange { background: #ffb74d; }
-.gaugeRed { background: #ef5350; }
-
-/* ─── Equity curve placeholder ─── */
-.equityPlaceholder {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 2rem;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.85rem;
-    background: rgba(255, 255, 255, 0.02);
-}
+.labelStrong { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+.labelFavorable { background: rgba(125, 211, 252, 0.1); color: #7dd3fc; }
+.labelMarginal { background: rgba(245, 158, 11, 0.1); color: #fbbf24; }
+.labelAvoid { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 
 /* ─── Recommendations ─── */
+
 .recommendation {
-    padding: 0.5rem 0.75rem;
-    border-left: 3px solid #ffb74d;
-    margin-bottom: 0.5rem;
-    font-size: 0.78rem;
+    padding: 8px 12px;
+    border-left: 3px solid #fbbf24;
+    margin-bottom: 8px;
+    font-size: 12px;
     color: rgba(255, 255, 255, 0.85);
     background: rgba(255, 255, 255, 0.03);
     border-radius: 0 4px 4px 0;
 }
 
-.loading {
+/* ─── Edge verdict card ─── */
+
+.edgeCard {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 200px;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.85rem;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.edgeSig {
+    background: rgba(34, 197, 94, 0.06);
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+.edgeNo {
+    background: rgba(245, 158, 11, 0.06);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.edgeLabel {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.edgeTitle {
+    font-size: 16px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.edgeDetail {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.5;
 }

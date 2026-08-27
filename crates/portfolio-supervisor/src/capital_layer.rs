@@ -64,7 +64,12 @@ pub fn compute_capital_matrix(
         .sum();
 
     let current_equity = initial_balance + realized_pnl + unrealized_pnl;
-    let available = available_margin(initial_balance, realized_pnl, unrealized_pnl, committed_margin);
+    let available = available_margin(
+        initial_balance,
+        realized_pnl,
+        unrealized_pnl,
+        committed_margin,
+    );
 
     let margin_usage_ratio = if current_equity > dec!(0) {
         committed_margin / current_equity

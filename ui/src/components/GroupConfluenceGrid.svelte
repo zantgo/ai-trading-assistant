@@ -10,9 +10,9 @@
     //   - A count breakdown ("4 bull / 1 bear / 2 inactive")
     //   - Gate count (filtered out of the main count)
     //
-    // Clicking a card scrolls to and expands that group in the active facet
-    // body — communication is via the `onGroupClick` callback so this
-    // component stays generic.
+    // v7.3: the cards are fully static display containers — the old
+    // click-to-focus affordance (hover light-up + cursor + onGroupClick)
+    // was removed so they never read as interactive.
 
     import type { ContextDimension, IndicatorDto, IndicatorMeta, MarketContext } from '../types';
     import { GROUP_ORDER, GROUP_META } from '../lib/groupMeta';
@@ -32,15 +32,13 @@
     interface Props {
         registry: IndicatorMeta[];
         indicators: Record<string, IndicatorDto>;
-        activeGroup?: string | null;
-        onGroupClick?: (group: string) => void;
         /** Per-TF L1 MarketContext — the 4 owning group cards render their
          *  matching dimension score (same values as the export's
          *  `market_context` block, exactly once each). */
         context?: MarketContext | null;
     }
 
-    let { registry, indicators, activeGroup = null, onGroupClick, context = null }: Props = $props();
+    let { registry, indicators, context = null }: Props = $props();
 
     // 1:1 mapping of the 5 L1 synthesis dimensions onto the surfaces that
     // own the same concept (liquidity lives on the Structural Anchors
@@ -96,11 +94,18 @@
             const bucket = map.get(m.group);
             if (!bucket) continue;
             const dto = indicators[m.key];
-            bucket.total += 1;
+            // Audit fix (m7): the header comment claims gates are
+            // "filtered out of the main count", but `total` was
+            // incremented BEFORE the gate branch — the total drifted
+            // from the bull/bear/flat split (e.g. "7" total with "◐ 2
+            // gates" while the 5 dots sum to 5). Count only
+            // directional indicators in the total; gates are reported
+            // separately.
             if (!m.directional) {
                 bucket.gates += 1;
                 continue;
             }
+            bucket.total += 1;
             const n = dto?.normalized ?? 0;
             if (n > BULL_THRESHOLD) bucket.bullish += 1;
             else if (n < BEAR_THRESHOLD) bucket.bearish += 1;
@@ -113,7 +118,11 @@
         }
         return GROUP_ORDER
             .map((g) => map.get(g)!)
-            .filter((s) => s.total > 0);
+            // A group with ANY configured member keeps its card (a
+            // gates-only group — all non-directional — still shows the
+            // context dimension chip and its "◐ N gates" line); `total`
+            // itself only counts directional indicators.
+            .filter((s) => s.total > 0 || s.gates > 0);
     });
 
     function dominantKind(s: GroupStats): 'bull' | 'bear' | 'neutral' {
@@ -126,8 +135,16 @@
         const total = Math.max(s.bullish + s.bearish + s.neutral, 1);
         const out: Array<'bull' | 'bear' | 'neutral'> = [];
         const slots = Math.min(total, 5);
-        const bullSlots = Math.round((s.bullish / total) * slots);
-        const bearSlots = Math.round((s.bearish / total) * slots);
+        // AUDIT-FE-L1: `Math.round` on both shares independently could sum
+        // to 6 dots in a 5-slot row (4:4 split → round(2.5)+round(2.5)).
+        // Allocate by rounding the CUMULATIVE boundary instead so the
+        // output always has exactly `slots` dots.
+        let bullSlots = 0;
+        let bearSlots = 0;
+        if (s.bullish > 0) bullSlots = Math.round((s.bullish / total) * slots);
+        if (s.bearish > 0) bearSlots = Math.round(((s.bullish + s.bearish) / total) * slots) - bullSlots;
+        bullSlots = Math.min(bullSlots, slots);
+        bearSlots = Math.max(0, Math.min(bearSlots, slots - bullSlots));
         for (let i = 0; i < bullSlots; i++) out.push('bull');
         for (let i = 0; i < bearSlots; i++) out.push('bear');
         while (out.length < slots) out.push('neutral');
@@ -140,12 +157,10 @@
         {@const meta = GROUP_META[s.group as keyof typeof GROUP_META]}
         {@const dom = dominantKind(s)}
         {@const dots = buildDots(s)}
-        {@const isActive = activeGroup === s.group}
         {@const ctxDim = dimFor(s.group)}
-        <button
-            class="{styles.card} {isActive ? styles.cardActive : ''}"
+        <div
+            class={styles.card}
             style="--accent: {meta.accent}"
-            onclick={() => onGroupClick?.(s.group)}
             title={meta.description}
         >
             <div class={styles.cardHeader}>
@@ -182,6 +197,6 @@
                 </span>
             {/if}
             <div class="{styles.cardBias} {styles[`bias_${dom}`]}"></div>
-        </button>
+        </div>
     {/each}
 </div>

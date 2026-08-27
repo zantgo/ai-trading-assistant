@@ -2,7 +2,7 @@
 
 # LiquidityPanel UI Specification (Phase 4)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** ARCHIVED — the standalone LiquidityPanel tab was removed in v6.0. The full specification below is retained for historical reference and to document the component's contract in case of future re-integration as an inline panel.
 **Component path:** `ui/src/components/LiquidityPanel.svelte` (kept on disk for future inline rendering).
 **View key:** `liquidity` — removed from the `CurrentView` enum in v6.0.
@@ -47,8 +47,8 @@ The panel follows the platform-wide **Premium Dark Cockpit** palette (see [07-02
 | `--text` | `#f5f5f7` | Primary stat values, signal kinds |
 | `--text-dim` | `rgba(245, 245, 247, 0.55)` | Sub-section labels, signal evidence text |
 | `--line` | `rgba(255, 255, 255, 0.06)` | Sub-section card borders |
-| `.bullish` | `#26a69a` | Teal — short liquidations, long-context signals, `cascade_asymmetry < 0` |
-| `.bearish` | `#ef5350` | Red — long liquidations, short-context signals, `cascade_asymmetry > 0` |
+| `.bullish` | `#26a69a` | Teal — short liquidations, long-context signals, `cascade_asymmetry > 0` (short-squeeze risk — canonical 02-13 §v2.1) |
+| `.bearish` | `#ef5350` | Red — long liquidations, short-context signals, `cascade_asymmetry < 0` (long-squeeze risk — canonical 02-13 §v2.1) |
 | `.cascadeNormal` | bg `rgba(255,255,255,0.06)` / text `rgba(255,255,255,0.7)` | Cascade state `None` |
 | `.cascadeWarning` | bg `rgba(255,152,0,0.15)` / text `#ffb74d` | Cascade state `Detected` |
 | `.cascadeDanger` | bg `rgba(239,83,80,0.15)` / text `#ef5350` | Cascade state `Sustained` |
@@ -229,7 +229,7 @@ A simple key:value row showing total open interest on each side:
 ### 5.5 Cluster Empty State
 
 ```
-Cluster matrix refreshes every 5 minutes. Awaiting first computation…
+Cluster matrix refreshes at each candle cadence. Awaiting first computation…
 ```
 
 Or, when the matrix exists but a side has no clusters above the noise threshold:
@@ -294,7 +294,7 @@ No active signals.
 | Tab | Placeholder text |
 |-----|------------------|
 | Flow (no completed bar yet) | `Awaiting first completed bar with liquidation data…` |
-| Cluster (matrix not yet computed) | `Cluster matrix refreshes every 5 minutes. Awaiting first computation…` |
+| Cluster (matrix not yet computed) | `Cluster matrix refreshes at each candle cadence. Awaiting first computation…` |
 | Cluster (side has no clusters) | `No short-side clusters above noise threshold.` / `No long-side clusters above noise threshold.` |
 | Context (no signals) | `No active signals.` |
 

@@ -21,6 +21,7 @@ import type {
     LiquidationCluster,
     LiquidationClusterMatrix,
 } from '../types';
+import { isClusterStale } from './liquidationHeatmap';
 
 function makeCluster(overrides: Partial<LiquidationCluster> = {}): LiquidationCluster {
     return {
@@ -105,6 +106,25 @@ describe('LiquidationClusterMatrix wire format', () => {
         const back = JSON.parse(JSON.stringify(m)) as LiquidationClusterMatrix;
         expect(back.short_clusters.length).toBe(0);
         expect(back.long_clusters.length).toBe(0);
+    });
+});
+
+describe('isClusterStale() (AUDIT-AIU-116)', () => {
+    it('returns true once the matrix TTL has elapsed', () => {
+        const stale = makeMatrix({ valid_until_ms: Date.now() - 1000 });
+        expect(isClusterStale(stale)).toBe(true);
+    });
+
+    it('returns false while the matrix TTL is still valid', () => {
+        const fresh = makeMatrix({ valid_until_ms: Date.now() + 60_000 });
+        expect(isClusterStale(fresh)).toBe(false);
+    });
+
+    it('returns false for absent/zero TTL (legacy fixtures)', () => {
+        const noTtl = makeMatrix({ valid_until_ms: 0 });
+        expect(isClusterStale(noTtl)).toBe(false);
+        expect(isClusterStale(null)).toBe(false);
+        expect(isClusterStale(undefined)).toBe(false);
     });
 });
 

@@ -1,6 +1,6 @@
 # MME Layer 7 — Overview Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved — feature status is tracked in [README §Feature Status](../../README.md).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7
@@ -33,7 +33,7 @@ $$\text{breadth\_pct} = \frac{\text{long\_count} - \text{short\_count}}{\text{to
 
 This drives `global_market_bias` (STRONG_BULLISH … MIXED), `market_breadth` (STRONG_POSITIVE … STRONG_NEGATIVE), and `market_synchronization` (HIGHLY_SYNCHRONIZED … HIGHLY_FRAGMENTED). Bands in [Overview Matrix §3](../../matrices/02-09-overview-matrix.md).
 
-L7 aggregates each instance's slow-tier (300 s) Decision Matrix; the tier is a documented constant, not currently configurable.
+L7 aggregates **all four timeframe windows** per instance (micro / fast / slow / macro — I-2, v6.10.18); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
 
 ---
 
@@ -64,7 +64,7 @@ Correlated downside elevates `sync_penalty` (0–100), because synchronized decl
 | `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_FRAGMENTED` | 0 |
 | `global_market_bias ∉ {BEARISH, STRONG_BEARISH}` | 0 |
 
-The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA` — canonical derivation rule table in [Overview Matrix §2.3](../../matrices/02-09-overview-matrix.md)) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA` — canonical derivation rule table in [Overview Matrix §2.3](../../matrices/02-09-overview-matrix.md)) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-overview.md).
 
 > **STRONG_BEARISH coverage (correction).** A previous version of this section used the informal phrase "unless the global bias is bearish" — this excluded `STRONG_BEARISH`. The corrected condition is member-set inclusion over `GlobalBias`'s bearish family (`BEARISH` ∪ `STRONG_BEARISH`), matching the canonical table in [Overview Matrix §4](../../matrices/02-09-overview-matrix.md).
 
@@ -78,7 +78,7 @@ The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / 
 
 ## 6. Alignment Aggregation (v6.10.3+)
 
-The Overview Layer consumes a `&[AlignmentMatrix]` slice (one per active symbol) and synthesizes three system-wide fields. The slice is sourced from each instance's slow-tier (300 s) `MarketSnapshot.alignment` by the periodic aggregation task in `crates/execution-daemon/src/main.rs` (§ L7 task, ~720–752). For full field semantics see [Overview Matrix §3.5](../../matrices/02-09-overview-matrix.md).
+The Overview Layer consumes a `&[AlignmentMatrix]` slice (one per active symbol) and synthesizes three system-wide fields. The slice is sourced by the periodic aggregation task in `crates/execution-daemon/src/main.rs` (§ L7 task, ~1368–1422) — one alignment per symbol, pushed **once from the fastest present window** (not the slow tier). For full field semantics see [Overview Matrix §3.5](../../matrices/02-09-overview-matrix.md).
 
 | Field | Formula | Range |
 |-------|---------|-------|
@@ -88,7 +88,7 @@ The Overview Layer consumes a `&[AlignmentMatrix]` slice (one per active symbol)
 
 The per-asset `AssetRank` (see [Overview Matrix §2.2](../../matrices/02-09-overview-matrix.md)) is also enriched in the same pass — each rank carries a `mtf_score` and `mtf_label` mirror of `AlignmentMatrix.mtf_overall_score` / `mtf_overall_label`. When a symbol is present in `advisories` but absent from `alignments` (cold start / transient snapshot gap), the AssetRank defaults to `(mtf_score = 0.0, mtf_label = "NO_DATA")` so downstream consumers can detect the gap explicitly rather than reading a misleading zero.
 
-**Empty-input semantics.** When `alignments.is_empty()` but L6 inputs are populated (e.g. the engine has just booted and no instance has produced a slow-tier Alignment Matrix yet), the three aggregate fields default to neutral values:
+**Empty-input semantics.** When `alignments.is_empty()` but L6 inputs are populated (e.g. the engine has just booted and no instance has produced an Alignment Matrix yet), the three aggregate fields default to neutral values:
 
 | Field | Default |
 |-------|---------|
@@ -119,4 +119,4 @@ The remaining breadth / bias / sync / risk aggregates are unaffected. The dashbo
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Per-asset L6 input.
 - [Alignment Matrix](../../matrices/02-01-alignment-matrix.md) — Per-asset L2 input (v6.10.3+).
 - [Overview Matrix](../../matrices/02-09-overview-matrix.md) — Output contract.
-- [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Systemic Risk consumer.
+- [PME Layer 4 — Overview](../portfolio-management-engine/03-04-05-pme-layer4-overview.md) — Systemic Risk consumer.

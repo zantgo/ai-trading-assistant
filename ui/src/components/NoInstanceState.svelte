@@ -1,0 +1,47 @@
+<script lang="ts">
+    // NoInstanceState — the shared "no active instance" empty state (v7.3).
+    //
+    // Mirrors the MME InstancePicker empty state: an SVG icon + a title +
+    // engine-specific guidance. Used by TAE / PME / PAE whenever no
+    // instance is active — data surfaces must NEVER show fallback data or
+    // a loading message in this state. The Settings tab is exempt (it
+    // renders instance-independent config).
+    import SvgIcon from '../lib/SvgIcon.svelte';
+    import styles from './NoInstanceState.module.css';
+
+    interface Props {
+        /** Engine key drives the guidance copy. */
+        engine: 'trade_automation' | 'portfolio' | 'performance' | 'backtesting' | 'market_monitor';
+    }
+
+    let { engine }: Props = $props();
+
+    const COPY: Record<Props['engine'], { title: string; body: string }> = {
+        trade_automation: {
+            title: 'No active instance',
+            body: 'Trade automation runs per instance. Launch one from the Instances panel (top-right) to see setups, orders, activity and trade history.',
+        },
+        portfolio: {
+            title: 'No active instance',
+            body: 'Portfolio management runs per instance. Launch one from the Instances panel (top-right) to see positions, exposure, capital, portfolio and safety.',
+        },
+        performance: {
+            title: 'No active instance',
+            body: 'Performance analytics evaluate recorded decisions per instance. Launch one from the Instances panel (top-right) to run backtests and review the edge.',
+        },
+        backtesting: {
+            title: 'No instance selected',
+            body: 'The Backtesting Engine binds to one running instance (exchange, base currency, timeframe ladder). Select an instance from the right-side Instances panel or the Market Monitor Workspace tab to backfill history and run backtests.',
+        },
+        market_monitor: {
+            title: 'No active instance',
+            body: 'Select a workspace instance from the top-right panel to configure timeframes, indicators, and visual overlays.',
+        },
+    };
+</script>
+
+<div class={styles.state} role="status">
+    <div class={styles.icon}><SvgIcon name="layoutDashboard" size={44} /></div>
+    <h3 class={styles.title}>{COPY[engine].title}</h3>
+    <p class={styles.body}>{COPY[engine].body}</p>
+</div>

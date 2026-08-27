@@ -1,6 +1,9 @@
 <script lang="ts">
     import type { ClockStatusResponse } from '../types';
-    import styles from './ClockMonitorPanel.module.css';
+    import KpiStrip from './KpiStrip.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
+    import styles from '../styles/engine-dashboard.module.css';
 
     let report: ClockStatusResponse | null = $state(null);
     let loading = $state(true);
@@ -30,70 +33,79 @@
         };
     });
 
-    function driftClass(driftUs: number | null | undefined, threshold: number): string {
-        if (driftUs == null) return styles.driftUnknown;
+    function driftColor(driftUs: number | null | undefined, threshold: number): string {
+        if (driftUs == null) return 'rgba(255,255,255,0.4)';
         const absDrift = Math.abs(driftUs);
-        if (absDrift <= threshold * 0.5) return styles.driftGood;
-        if (absDrift <= threshold) return styles.driftWarn;
-        return styles.driftBad;
+        if (absDrift <= threshold * 0.5) return '#22c55e';
+        if (absDrift <= threshold) return '#f59e0b';
+        return '#ef4444';
     }
 
-    function thresholdStatus(withinThreshold: boolean | null | undefined, breachAction: string): string {
-        if (withinThreshold == null) return styles.statusUnknown;
-        if (withinThreshold) return styles.statusGood;
-        return breachAction === 'Panic' ? styles.statusCritical : styles.statusBad;
+    function statusBadge(withinThreshold: boolean | null | undefined, breachAction: string): string {
+        if (withinThreshold == null) return styles.badgeEmpty;
+        if (withinThreshold) return styles.badgeLong;
+        return breachAction === 'Panic' ? styles.badgeError : styles.badgeNeutral;
+    }
+
+    function statusLabel(withinThreshold: boolean | null | undefined, breachAction: string): string {
+        if (withinThreshold == null) return 'NO SAMPLES';
+        if (withinThreshold) return 'WITHIN THRESHOLD';
+        return breachAction === 'Panic' ? 'BREACH (PANIC)' : 'BREACH';
+    }
+
+    function buildExport(): string {
+        return buildEngineExport('data_infra', 'clock_monitor', null, {
+            loading,
+            error,
+            report: report ? {
+                within_threshold: report.within_threshold,
+                drift_us: report.drift_us,
+                jitter_rms_us: report.jitter_rms_us,
+                last_poll_ms: report.last_poll_ms,
+                breach_count: report.breach_count,
+                breach_action: report.breach_action,
+                ntp_servers: report.ntp_servers,
+                sample_count: report.sample_count,
+                threshold_micros: report.threshold_micros,
+            } : null,
+        });
     }
 </script>
 
-<div class={styles.container}>
-    <div class={styles.header}>
-        <h2 class={styles.title}>NTP Clock Monitor</h2>
+<div style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <div style="display:flex; align-items:center; gap:8px">
+            {#if report}
+                <span class="{styles.badge} {statusBadge(report.within_threshold, report.breach_action)}">
+                    {statusLabel(report.within_threshold, report.breach_action)}
+                </span>
+                <span class={styles.metaChip}><span class={styles.metaChipLabel}>action</span><span class={styles.metaChipValue}>{report.breach_action}</span></span>
+            {/if}
+        </div>
+        <ExportDataButton onExport={buildExport} title="Copy all NTP Clock Monitor data as JSON" />
     </div>
 
     {#if loading}
-        <div class={styles.placeholder}>Loading...</div>
+        <div class={styles.empty}>Loading…</div>
     {:else if error}
-        <div class={styles.error}>Error: {error}</div>
+        <div class="{styles.alertBanner} {styles.alertError}">Error: {error}</div>
     {:else if report}
-        <div class={styles.metrics}>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Status</div>
-                <div class="{styles.metricValue} {thresholdStatus(report.within_threshold, report.breach_action)}">
-                    {report.within_threshold ? 'Within Threshold' : report.breach_action === 'Panic' ? 'BREACH (PANIC)' : 'BREACH'}
-                </div>
-            </div>
-            <div class={styles.metric}>
-                  <div class={styles.metricLabel}>Drift</div>
-                  <div class="{styles.metricValue} {driftClass(report.drift_us, report.threshold_micros)}">
-                      {report.drift_us != null ? `${report.drift_us}µs` : 'No samples yet'}
-                  </div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Threshold</div>
-                <div class={styles.metricValue}>{report.threshold_micros}µs</div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>RMS Jitter</div>
-                <div class={styles.metricValue}>{report.jitter_rms_us != null ? `${report.jitter_rms_us.toFixed(2)}µs` : '—'}</div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Breach Action</div>
-                <div class={styles.metricValue}>{report.breach_action}</div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Samples</div>
-                <div class={styles.metricValue}>{report.sample_count}</div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>NTP Servers</div>
-                <div class={styles.metricList}>
-                    {#each report.ntp_servers as server}
-                        <div class={styles.serverItem}>{server}</div>
-                    {/each}
-                </div>
+        <KpiStrip items={[
+            { label: 'Drift', value: report.drift_us != null ? `${report.drift_us}µs` : 'No samples yet', sub: 'vs UTC', color: driftColor(report.drift_us, report.threshold_micros) },
+            { label: 'Threshold', value: `${report.threshold_micros}µs`, sub: 'drift budget' },
+            { label: 'RMS Jitter', value: report.jitter_rms_us != null ? `${report.jitter_rms_us.toFixed(2)}µs` : '—', sub: 'across samples' },
+            { label: 'Breaches', value: String(report.breach_count), sub: 'total', color: report.breach_count > 0 ? '#ef4444' : '#22c55e' },
+            { label: 'Samples', value: String(report.sample_count), sub: 'collected' },
+        ]} />
+        <div class={styles.card}>
+            <h3 class={styles.cardTitle}>NTP Servers</h3>
+            <div class={styles.monoList}>
+                {#each report.ntp_servers as server (server)}
+                    <span>{server}</span>
+                {/each}
             </div>
         </div>
     {:else}
-        <div class={styles.placeholder}>Clock monitor not active (disabled in config)</div>
+        <div class={styles.empty}>Clock monitor not active (disabled in config)</div>
     {/if}
 </div>

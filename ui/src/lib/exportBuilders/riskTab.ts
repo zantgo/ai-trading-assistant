@@ -248,22 +248,25 @@ function buildCascadeExtras(
   const sign = asym != null && asym > 0 ? '+' : asym != null && asym < 0 ? '-' : '';
   // The screen renders the magnitude as a percentage: `(asym * 100).toFixed(1)`.
   const magnitude = asym != null ? Math.abs(asym) * 100 : null;
+  // v2026-08: display-band parity with LiquidityPanel / metricsTab — the
+  // ±0.3 dead-band (03-02-11 L4/L5 threshold) and the canonical
+  // SHORT_SQUEEZE_RISK / LONG_SQUEEZE_RISK vocabulary.
   const description =
     asym == null
       ? null
-      : asym > 0
-        ? 'short squeeze'
-        : asym < 0
-          ? 'long cascade'
-          : 'balanced';
+      : asym > 0.3
+        ? 'SHORT_SQUEEZE_RISK'
+        : asym < -0.3
+          ? 'LONG_SQUEEZE_RISK'
+          : 'NEUTRAL';
   const display =
     asym == null
       ? null
-      : asym > 0
-        ? `↑${(asym * 100).toFixed(1)}% (short squeeze)`
-        : asym < 0
-          ? `↓${(Math.abs(asym) * 100).toFixed(1)}% (long cascade)`
-          : '0.0% (balanced)';
+      : asym > 0.3
+        ? `↑${(asym * 100).toFixed(1)}% (SHORT_SQUEEZE_RISK)`
+        : asym < -0.3
+          ? `↓${(Math.abs(asym) * 100).toFixed(1)}% (LONG_SQUEEZE_RISK)`
+          : '0.0% (NEUTRAL)';
   return {
     state_label:
       !flow?.cascade_state || String(flow.cascade_state).toUpperCase() === 'NONE'
@@ -445,7 +448,7 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
   const payload: RiskPayload = {
     source_tab: 'risk',
     meta,
-    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'RISK SUMMARY' },
+    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero,
     summary_counts: buildSummaryCounts(risk),
     dimensions: buildDimensionsBlock(risk, args.flow, args.cluster),

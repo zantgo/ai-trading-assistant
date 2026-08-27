@@ -1,7 +1,7 @@
 # PAE Layer 2 — Strategy Analytics Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/strategy_analytics.rs`) is implemented and the Strategy panel renders live data. Backtest-runner integration lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
+**Version:** 10.1 (2026-08-24) — v7: implemented; grouping keyed by setup type.
+**Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 2 of 4
 **Input Contract:** Trade Analytics Matrix (L1)
@@ -24,7 +24,7 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `policy_id` | `string` | Originating execution policy. |
+| `setup_type` | `string` | Originating setup type (e.g. `TrendContinuation`) — the v7 successor of the erased per-policy grouping. |
 | `total_trades` | `u32` | Number of closed trades under this policy. |
 | `win_count` | `u32` | Profitable trades (net PnL > 0). |
 | `loss_count` | `u32` | Losing trades (net PnL < 0). |
@@ -53,6 +53,13 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 >
 > - `gross_loss = Σ |pnl|` over losing trades (positive)
 > - `average_loss = Σ |pnl| / loss_count` (positive)
+>
+> **v10.1 long/short symmetry.** `compare_direction_symmetry(trades)` runs a Welch
+> two-sample t-test over per-trade `roi_pct` (size-normalized; USD expectancy is context
+> only). H0: long and short returns are statistically equal. A verdict is produced only
+> with ≥10 trades per side: `SYMMETRIC` / `LONG_BETTER` / `SHORT_BETTER` at α = 0.05
+> (two-tailed). Surfaced on the PAE Overview card, the BTE Study Report, and the CLI
+> monitor; persisted per backtest as the `dir_*` metric keys.
 >
 > Under this convention, the `expectancy` formula `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` is sign-consistent: the loss term is properly subtracted, giving `0.5 × 20 − 0.5 × 10 = 5` (correct). The runtime in `crates/core-domain/src/strategy_analytics.rs` (when implemented) MUST compute `average_loss = average_loss_raw.abs()` before storing, and the persistence layer MUST store the absolute value. This convention is mirrored in the [Database Schema `strategy_analytics_history.expectancy` column](../../integration-and-api/06-02-database-schema-spec.md), which receives the post-correction value.
 

@@ -8,7 +8,7 @@ function profile(partial: Partial<OpportunityProfile> & { opportunity_type: stri
     preconditions_met: 0,
     preconditions_total: 3,
     notes: '',
-    direction_family: 'TrendRiding',
+    direction_family: 'TREND_RIDING',
     long_entry_zone: null,
     long_target_zone: null,
     long_invalidation_level: null,
@@ -65,7 +65,7 @@ describe('resolveEffectiveDirection', () => {
       profiles: [
         profile({
           opportunity_type: 'MeanReversion',
-          direction_family: 'CounterTrend',
+          direction_family: 'COUNTER_TREND',
           preconditions_met: 2,
           preconditions_total: 2,
           long_entry_zone: null,
@@ -169,7 +169,7 @@ describe('computeOpportunityBars', () => {
       profiles: [
         profile({
           opportunity_type: 'TrendContinuation',
-          direction_family: 'TrendRiding',
+          direction_family: 'TREND_RIDING',
           preconditions_met: 3,
           preconditions_total: 3,
           long_entry_zone: { low: 10, high: 11 },
@@ -196,7 +196,7 @@ describe('computeOpportunityBars', () => {
       profiles: [
         profile({
           opportunity_type: 'Breakout',
-          direction_family: 'TrendRiding',
+          direction_family: 'TREND_RIDING',
           preconditions_met: 2,
           preconditions_total: 2,
           long_entry_zone: { low: 10, high: 11 },
@@ -223,7 +223,7 @@ describe('computeOpportunityBars', () => {
       profiles: [
         profile({
           opportunity_type: 'MeanReversion',
-          direction_family: 'CounterTrend',
+          direction_family: 'COUNTER_TREND',
           preconditions_met: 2,
           preconditions_total: 2,
           short_entry_zone: { low: 100.5, high: 101 },

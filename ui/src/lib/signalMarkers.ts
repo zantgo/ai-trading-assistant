@@ -10,6 +10,7 @@ const ABBR: Record<string, string> = {
     Divergence: 'DIV', Breakout: 'BO', Threshold: 'TH', TrendFlip: 'FLIP',
     CompressionRelease: 'SQZ', Crossover: 'X', ZeroLineCross: '0X',
     LevelTest: 'LV', BandTouch: 'BT', VolumeClimax: 'VOL', PatternForming: 'PAT',
+    StackChange: 'STK',
 };
 
 export interface SignalMarkerController {

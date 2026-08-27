@@ -2,8 +2,11 @@ export class SessionStore {
     sessionActive = $state(false);
     sessionCurrency = $state<string>('USDT');
     sessionExchange = $state<string>('Hyperliquid');
-    sessionCapital = $state(10000);
+    sessionCapital = $state(1000);
+    sessionMode = $state<'observe' | 'paper' | 'live'>('observe');
     sessionInstanceCount = $state(0);
+    /** v10: persisted session number (monotonic). */
+    sessionId = $state<number | null>(null);
     sessionLoading = $state(false);
     sessionChecked = $state(false);
     sessionError = $state<string | null>(null);
@@ -20,24 +23,36 @@ export class SessionStore {
                 if (this.sessionActive && !wasActive && this.onSessionActivated) this.onSessionActivated();
                 this.sessionCurrency = data.currency || 'USDT';
                 this.sessionExchange = data.exchange || 'Hyperliquid';
-                this.sessionCapital = data.capital || 10000;
+                if (data.capital) this.sessionCapital = data.capital;
+                if (data.mode === 'observe' || data.mode === 'paper' || data.mode === 'live') {
+                    this.sessionMode = data.mode;
+                }
                 this.sessionInstanceCount = data.instance_count || 0;
+                if (data.session_id != null) this.sessionId = data.session_id;
             }
         } catch (_) { /* backend may not be ready yet */ } finally { this.sessionChecked = true; }
     }
 
-    async initSession(currency: string, exchange: string): Promise<{ success: boolean; error?: string }> {
+    async initSession(
+        currency: string,
+        exchange: string,
+        mode: 'observe' | 'paper' | 'live' = 'observe',
+        capital?: number,
+    ): Promise<{ success: boolean; error?: string }> {
         this.sessionLoading = true; this.sessionError = null;
         try {
+            const body: Record<string, unknown> = { currency, exchange, mode };
+            if (capital != null && capital > 0) body.portfolio_capital_usd = capital;
             const res = await fetch('/api/session/init', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ currency, exchange }),
+                body: JSON.stringify(body),
             });
             const data = await res.json();
             if (res.ok && data.success) {
                 const wasActive = this.sessionActive;
                 this.sessionActive = true; this.sessionCurrency = currency;
-                this.sessionExchange = exchange;
+                this.sessionExchange = exchange; this.sessionMode = mode;
+                if (capital != null && capital > 0) this.sessionCapital = capital;
                 if (!wasActive && this.onSessionActivated) this.onSessionActivated();
                 this.sessionLoading = false; return { success: true };
             }
@@ -54,7 +69,8 @@ export class SessionStore {
             const data = await res.json();
             if (res.ok && data.success) {
                 this.sessionActive = false; this.sessionCurrency = 'USDT';
-                this.sessionExchange = 'Hyperliquid'; this.sessionInstanceCount = 0;
+                this.sessionExchange = 'Hyperliquid';
+                this.sessionMode = 'paper'; this.sessionInstanceCount = 0;
                 this.sessionLoading = false; return true;
             }
         } catch (_) {}

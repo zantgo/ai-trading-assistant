@@ -6,15 +6,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use market_analyzer::analyzer;
 use config_models::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use market_analyzer::indicators::DivergenceDetector;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{
     Exchange, LiquidationEvent, LiquidationSide, NormalizedEvent, NormalizedTrade, TradeSide,
 };
+use market_analyzer::analyzer;
+use market_analyzer::indicators::DivergenceDetector;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 fn make_test_config() -> TimeframeConfig {
     use config_models::IndicatorsConfig;
@@ -85,7 +85,7 @@ fn make_test_config() -> TimeframeConfig {
             volume_profile_bins: 50,
             volume_profile_window: 500,
             volume_profile_value_area: 0.7,
-        ..Default::default()
+            ..Default::default()
         },
         leverage: Default::default(),
     }
@@ -107,6 +107,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
     let analyzer_handle = tokio::spawn({
         let cancel = cancel.clone();
         let symbol = "BTC-USDT".to_string();
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -137,6 +138,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             None, // liquidity_config (None → cascade defaults)
             None, // heatmap_config (None → default 0.1% / 24h)
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -147,9 +149,14 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             None,
             None,
             1,
+            300,
             Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            Arc::new(RwLock::new(
+                core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+            )),
+            Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
         )
     });
 

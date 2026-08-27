@@ -2,45 +2,49 @@
 //!
 //! Headless orchestrator binary. Reads configuration, initializes the
 //! SQLite database, builds the Axum `AppState`, spawns background tasks,
-//! then runs the Axum HTTP server on `127.0.0.1:3000`.
+//! then runs the launch surface.
 //!
 //! ## Launch modes
 //!
 //! - `--mode web` (default): starts the Axum server + serves the Svelte
-//!   dashboard. The Welcome Gate prompts the user to select an exchange and
-//!   currency before adding instances.
-//! - `--mode headless`: auto-initialises the session from CLI args (or
-//!   workspace config defaults), auto-spawns all instances declared in
-//!   `workspace.instances[]`, then starts the Axum server for monitoring
-//!   (accessible via SSH tunnel). No Welcome Gate prompt appears.
+//!   dashboard. The Launch Setup wizard prompts the user to choose a mode
+//!   (Observe / Simulate / Execute), exchange, currency, and instances
+//!   before entering the workspace.
+//! - `--mode cli`: interactive terminal launch (exchange, currency,
+//!   instances with per-TF durations), then a live terminal monitor that
+//!   redraws the L7 overview + per-instance rows. Supports
+//!   `--trading observe|paper|live` (default observe); paper reuses the
+//!   same `PaperSimulation` engine as `--mode web`. No HTTP server is bound;
+//!   the SQLite telemetry DB is still used for analytics.
 //!
 //! ## CLI flags
 //!
-//! - `--exchange <hyperliquid|bitget>` — overrides the workspace
-//!   `default_exchange`. Only meaningful in `headless` mode.
-//! - `--currency <USDC|USDT>` — overrides the workspace `default_currency`.
-//!   Only meaningful in `headless` mode.
+//! - `--exchange <hyperliquid|bitget>` — pre-fills the interactive prompt
+//!   (both modes).
+//! - `--currency <USDC|USDT>` — pre-fills the interactive prompt.
 //! - `--config <path>` — path to `config.toml`. Overrides the
 //!   `MARKET_MONITOR_CONFIG` env var.
+//! - `--interval <secs>` — CLI monitor redraw interval (default 5).
+//! - `--save` — CLI mode: enable snapshot-export JSON dumps.
 //!
 //! ## Config sharing workflow
 //!
 //! 1. GUI machine: `./manage.sh run`, configure settings + instances via
 //!    the dashboard, click "Download Config" → `config.toml` saved.
 //! 2. Headless machine: `scp config.toml ec2-user@host:/app/`
-//! 3. Start: `cargo run --bin execution-daemon -- --mode headless --exchange hyperliquid --currency USDC`
-//! 4. Or point at config directly:
-//!    `MARKET_MONITOR_CONFIG=/mnt/efs/config.toml cargo run --bin execution-daemon -- --mode headless`
+//! 3. Start: `cargo run --bin execution-daemon -- --mode cli --config config.toml`
 //!
 //! See `docs/conceptual-foundations/01-07-data-model-hierarchy.md` for the
 //! canonical design document.
 
+use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use api_gateway::{build_router, AppState};
 use config_models::{load_platform, load_workspace, ClockMonitorBreachAction};
+use core_domain::portfolio::SafetyState;
 use database_storage::{init_db, run_telemetry_logger, verify_encryption_or_panic};
 use network_adapters::{
     clock_monitor::{BreachAction, ClockMonitor, ClockMonitorConfig},
@@ -50,13 +54,18 @@ use network_adapters::{
 };
 use performance_analytics::{performance_evaluator, strategy_optimizer};
 use portfolio_supervisor::{
-    portfolio_equity, registry, workspace_state::WorkspaceState,
+    portfolio_equity, registry,
     session::{Currency, ExchangeChoice},
+    workspace_state::WorkspaceState,
 };
-use core_domain::portfolio::SafetyState;
 
 // `snapshot_export` is owned by `lib.rs` so `api-gateway` can re-use
 // its types without the daemon's CLI surface.
+
+mod cli_backtest;
+mod cli_compare;
+mod cli_ds;
+mod cli_ops;
 
 // ─── CLI argument parsing ────────────────────────────────────────────
 
@@ -65,25 +74,49 @@ struct CliArgs {
     exchange: Option<String>,
     currency: Option<String>,
     config_path: Option<String>,
-    /// When `Some`, run the interactive setup flow that writes
-    /// `config.toml` + (optionally) starts the daemon in headless
-    /// mode. Value is the sub-mode: `"interactive"` (default), or
-    /// `"status"` to print current snapshot-export state without
-    /// writing anything.
-    setup_mode: Option<String>,
-    /// `--dry-run` for the setup subcommand — print what *would* be
-    /// written but don't touch `config.toml`.
-    dry_run: bool,
-    /// When `true`, the setup flow auto-spawns the daemon in
-    /// headless mode at the end (equivalent to answering "yes" to
-    /// the "Start now?" prompt).
-    auto_start: bool,
+    /// CLI monitor redraw interval in seconds (default 5).
+    interval_secs: u64,
+    /// CLI mode: enable snapshot-export JSON dumps at boot.
+    save_snapshots: bool,
+    /// v8.2: run a headless backtest (E2E harness hook).
+    backtest: bool,
+    bt_symbols: Option<String>,
+    bt_tf: Option<String>,
+    bt_depth: Option<u32>,
+    bt_capital: Option<f64>,
+    bt_allocation: Option<f64>,
+    /// v9: strategy bound to the backtest (default "default").
+    bt_strategy: Option<String>,
+    /// v10: headless data-science commands.
+    sessions: bool,
+    session_report: Option<i64>,
+    backtest_show: Option<i64>,
+    backtest_gates: Option<i64>,
+    /// v9: headless strategy/account/instance ops.
+    ops: Vec<cli_ops::StrategyOp>,
+    account_ops: Vec<cli_ops::AccountOp>,
+    lifecycle_op: Option<(String, String)>,
+    instance_bind: Option<(String, String)>,
+    /// v10.1: HTTP bind override — `--port`/`--bind` beat `PLATFORM_PORT`/
+    /// `PLATFORM_BIND` env, which beat `[server]` in config.toml. Per-folder
+    /// sessions run side by side on one machine via distinct ports.
+    port: Option<u16>,
+    bind: Option<String>,
+    /// v10.1: cross-folder comparison — one or more folder roots whose
+    /// `ds/` trees (backtests + sessions) are aggregated into one table.
+    compare_folders: Vec<String>,
+    /// v10.1: TAE activation for CLI-launched instances (`--tae-on`).
+    /// Default OFF — the instance runs but the TAE does not activate
+    /// unless explicitly specified.
+    tae_on: bool,
+    /// v10.2: CLI trading mode — `observe` (default), `paper`, or `live`.
+    /// Controls `ExecutionMode` and `dispatch` for `--mode cli`.
+    trading: Option<String>,
 }
 
 enum LaunchMode {
     Web,
-    Headless,
-    Setup,
+    Cli,
 }
 
 fn parse_args() -> CliArgs {
@@ -92,9 +125,28 @@ fn parse_args() -> CliArgs {
     let mut exchange = None;
     let mut currency = None;
     let mut config_path = None;
-    let mut setup_mode = None;
-    let mut dry_run = false;
-    let mut auto_start = false;
+    let mut interval_secs = 5u64;
+    let mut save_snapshots = false;
+    let mut backtest = false;
+    let mut bt_symbols = None;
+    let mut bt_tf = None;
+    let mut bt_depth = None;
+    let mut bt_capital = None;
+    let mut bt_allocation = None;
+    let mut bt_strategy = None;
+    let mut sessions = false;
+    let mut session_report: Option<i64> = None;
+    let mut backtest_show: Option<i64> = None;
+    let mut backtest_gates: Option<i64> = None;
+    let mut ops: Vec<cli_ops::StrategyOp> = Vec::new();
+    let mut account_ops: Vec<cli_ops::AccountOp> = Vec::new();
+    let mut lifecycle_op = None;
+    let mut instance_bind = None;
+    let mut port: Option<u16> = None;
+    let mut bind: Option<String> = None;
+    let mut compare_folders: Vec<String> = Vec::new();
+    let mut tae_on = false;
+    let mut trading: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -103,8 +155,17 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 if i < args.len() {
                     mode = match args[i].as_str() {
-                        "headless" => LaunchMode::Headless,
-                        "setup" => LaunchMode::Setup,
+                        "cli" | "monitor" => LaunchMode::Cli,
+                        // Legacy modes retired in v7.2 — map to the new CLI
+                        // terminal monitor with an explicit notice instead of
+                        // silently booting the web server.
+                        "headless" | "setup" => {
+                            eprintln!(
+                                "⚠️  `--mode {}` was retired. Use `--mode cli` (terminal monitor) or `--mode web` (dashboard).",
+                                args[i]
+                            );
+                            LaunchMode::Cli
+                        }
                         _ => LaunchMode::Web,
                     };
                 }
@@ -127,21 +188,181 @@ fn parse_args() -> CliArgs {
                     config_path = Some(args[i].clone());
                 }
             }
-            "--sub" => {
+            "--interval" => {
                 i += 1;
                 if i < args.len() {
-                    setup_mode = Some(args[i].clone());
+                    if let Ok(n) = args[i].parse::<u64>() {
+                        interval_secs = n.max(1);
+                    }
                 }
             }
-            "--dry-run" => dry_run = true,
-            "--auto-start" => auto_start = true,
+            "--save" => save_snapshots = true,
+            "--backtest" => {
+                backtest = true;
+                mode = LaunchMode::Cli;
+            }
+            "--symbols" => {
+                i += 1;
+                if i < args.len() {
+                    bt_symbols = Some(args[i].clone());
+                }
+            }
+            "--tf" => {
+                i += 1;
+                if i < args.len() {
+                    bt_tf = Some(args[i].clone());
+                }
+            }
+            "--depth" => {
+                i += 1;
+                if i < args.len() {
+                    bt_depth = args[i].parse::<u32>().ok();
+                }
+            }
+            "--portfolio-capital" => {
+                i += 1;
+                if i < args.len() {
+                    bt_capital = args[i].parse::<f64>().ok();
+                }
+            }
+            "--strategy" => {
+                i += 1;
+                if i < args.len() {
+                    bt_strategy = Some(args[i].clone());
+                }
+            }
+            "--sessions" => sessions = true,
+            "--session-report" => {
+                i += 1;
+                if i < args.len() {
+                    session_report = args[i].parse::<i64>().ok();
+                }
+            }
+            "--backtest-show" => {
+                i += 1;
+                if i < args.len() {
+                    backtest_show = args[i].parse::<i64>().ok();
+                }
+            }
+            "--backtest-gates" => {
+                i += 1;
+                if i < args.len() {
+                    backtest_gates = args[i].parse::<i64>().ok();
+                }
+            }
+            "--strategy-list" => ops.push(cli_ops::StrategyOp::List),
+            "--strategy-export" => {
+                i += 1;
+                if i < args.len() {
+                    let name = args[i].clone();
+                    let path = if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                        i += 1;
+                        Some(args[i].clone())
+                    } else {
+                        None
+                    };
+                    ops.push(cli_ops::StrategyOp::Export { name, path });
+                }
+            }
+            "--strategy-create" | "--strategy-update" => {
+                let is_create = args[i].starts_with("--strategy-create");
+                i += 1;
+                if i + 1 < args.len() {
+                    let name = args[i].clone();
+                    let path = args[i + 1].clone();
+                    i += 1;
+                    let _ = is_create;
+                    ops.push(cli_ops::StrategyOp::Upsert { name, path });
+                }
+            }
+            "--strategy-delete" => {
+                i += 1;
+                if i < args.len() {
+                    ops.push(cli_ops::StrategyOp::Delete {
+                        name: args[i].clone(),
+                    });
+                }
+            }
+            "--strategy-clone" => {
+                i += 1;
+                if i + 1 < args.len() {
+                    ops.push(cli_ops::StrategyOp::Clone {
+                        source: args[i].clone(),
+                        target: args[i + 1].clone(),
+                    });
+                    i += 1;
+                }
+            }
+            "--account-summary" => account_ops.push(cli_ops::AccountOp::Summary),
+            "--account-set-capital" => {
+                i += 1;
+                if i < args.len() {
+                    if let Ok(usd) = args[i].parse::<f64>() {
+                        account_ops.push(cli_ops::AccountOp::SetCapital { usd });
+                    }
+                }
+            }
+            "--account-reset" => account_ops.push(cli_ops::AccountOp::Reset),
+            "--instance-set-strategy" => {
+                i += 1;
+                if i + 1 < args.len() {
+                    instance_bind = Some((args[i].clone(), args[i + 1].clone()));
+                    i += 1;
+                }
+            }
+            "--instance-start" | "--instance-pause" | "--instance-terminate" => {
+                let action = args[i].trim_start_matches("--instance-").to_string();
+                i += 1;
+                if i < args.len() {
+                    lifecycle_op = Some((args[i].clone(), action));
+                }
+            }
+            "--allocation" => {
+                i += 1;
+                if i < args.len() {
+                    bt_allocation = args[i].parse::<f64>().ok();
+                }
+            }
             "--web" | "--gui" => {
                 mode = LaunchMode::Web;
             }
-            "setup" => {
-                // Positional shorthand: `execution-daemon setup` ≡
-                // `execution-daemon --mode setup`.
-                mode = LaunchMode::Setup;
+            "--port" => {
+                i += 1;
+                if i < args.len() {
+                    port = args[i].parse::<u16>().ok();
+                    if port.is_none() {
+                        eprintln!("⚠️  Invalid --port value '{}' — ignoring.", args[i]);
+                    }
+                }
+            }
+            "--bind" => {
+                i += 1;
+                if i < args.len() {
+                    bind = Some(args[i].clone());
+                }
+            }
+            "--tae-on" => {
+                tae_on = true;
+            }
+            "--trading" => {
+                i += 1;
+                if i < args.len() {
+                    let v = args[i].to_lowercase();
+                    match v.as_str() {
+                        "observe" | "paper" | "live" => trading = Some(v),
+                        _ => eprintln!("⚠️  Invalid --trading value '{}' — expected observe|paper|live, ignoring.", args[i]),
+                    }
+                }
+            }
+            "--compare-folders" => {
+                // Consume every following non-flag arg (shell glob expands
+                // `experiments/*` into one arg per folder).
+                i += 1;
+                while i < args.len() && !args[i].starts_with("--") {
+                    compare_folders.push(args[i].clone());
+                    i += 1;
+                }
+                i -= 1;
             }
             _ => { /* ignore unknown args */ }
         }
@@ -153,9 +374,28 @@ fn parse_args() -> CliArgs {
         exchange,
         currency,
         config_path,
-        setup_mode,
-        dry_run,
-        auto_start,
+        interval_secs,
+        save_snapshots,
+        backtest,
+        bt_symbols,
+        bt_tf,
+        bt_depth,
+        bt_capital,
+        bt_allocation,
+        bt_strategy,
+        ops,
+        account_ops,
+        lifecycle_op,
+        instance_bind,
+        port,
+        bind,
+        compare_folders,
+        sessions,
+        session_report,
+        backtest_show,
+        backtest_gates,
+        tae_on,
+        trading,
     }
 }
 
@@ -179,27 +419,26 @@ impl CliArgs {
     }
 }
 
-// ─── Setup CLI (interactive + status) ──────────────────────────────────
+// ─── CLI launch flow (--mode cli) ─────────────────────────────────────
 //
 // Hand-rolled minimal stdin/stdout prompts. We deliberately avoid
 // pulling in `inquire` or `dialoguer` for this single-purpose flow —
-// the surface is small (text input + single-select + confirm) and
-// staying dep-free keeps the binary slim. If more interactive flows
-// are added later, consider migrating to `inquire`.
+// the surface is small (text input + confirm) and staying dep-free
+// keeps the binary slim. If more interactive flows are added later,
+// consider migrating to `inquire`.
 //
-// The setup flow:
-//   1. Loads `config.toml` (if any) to seed the prompts with the
-//      existing defaults.
-//   2. Asks for: exchange, settlement currency, trading pair,
-//      which timeframes to enable (multi-select), per-timeframe
-//      `timeframe_secs`, snapshot-export enabled + interval.
-//   3. Validates: symbol existence on the chosen exchange (live
-//      REST call), each timeframe against the per-TF floor/ceiling.
-//   4. Writes `config.toml` (preserving platform-level sections
-//      via `save_workspace` + a small platform-section rewrite).
-//   5. Prints a summary + asks "Start the daemon now? [y/N]".
-//      On `y` (or `--auto-start`), re-execs itself as a child
-//      process in `--mode headless`.
+// The flow mirrors the GUI Launch Setup wizard (observe-only for now):
+//   1. Exchange          — pre-filled from --exchange or workspace default.
+//   2. Settlement currency — forced per exchange (HL=USDC, Bitget=USDT).
+//   3. Instances         — one or more (base symbol + per-TF durations),
+//                          pre-filled from existing workspace.instances[].
+//   4. Confirm           — then the instances just run in the terminal
+//                          monitor. No config.toml is rewritten by the
+//                          prompts; created instances persist via the
+//                          registry's normal save_workspace path.
+//
+// Paper/live parity is planned — `--mode cli` currently boots an
+// observe session (no orders ever dispatched).
 
 /// One prompt of an interactive CLI flow — printed to stdout, the
 /// answer is read from stdin.
@@ -212,12 +451,10 @@ fn prompt(label: &str, default: &str) -> String {
         std::io::Write::flush(&mut std::io::stdout()).ok();
     }
     let mut buf = String::new();
-    std::io::stdin()
-        .read_line(&mut buf)
-        .unwrap_or_else(|e| {
-            eprintln!("stdin read error: {}", e);
-            0
-        });
+    std::io::stdin().read_line(&mut buf).unwrap_or_else(|e| {
+        eprintln!("stdin read error: {}", e);
+        0
+    });
     let trimmed = buf.trim();
     if trimmed.is_empty() {
         default.to_string()
@@ -243,48 +480,14 @@ fn confirm(label: &str, default_yes: bool) -> bool {
     }
 }
 
-/// Multi-select prompt — reads a comma-separated list of integers
-/// (1-based, per the menu shown to the user). Returns the 0-based
-/// indices. Empty input returns the default set.
-fn prompt_multi_select(label: &str, options: &[(&str, &str)], defaults: &[usize]) -> Vec<usize> {
-    println!("\n{}", label);
-    for (i, (key, desc)) in options.iter().enumerate() {
-        println!("  {}. {} — {}", i + 1, key, desc);
-    }
-    print!("\nChoose (comma-separated, blank = default): ");
-    std::io::Write::flush(&mut std::io::stdout()).ok();
-    let mut buf = String::new();
-    std::io::stdin().read_line(&mut buf).ok();
-    let trimmed = buf.trim();
-    if trimmed.is_empty() {
-        return defaults.to_vec();
-    }
-    let mut out = Vec::new();
-    for token in trimmed.split(|c: char| c == ',' || c == ' ' || c == '\t') {
-        if let Ok(n) = token.parse::<usize>() {
-            if n >= 1 && n <= options.len() {
-                let idx = n - 1;
-                if !out.contains(&idx) {
-                    out.push(idx);
-                }
-            }
-        }
-    }
-    if out.is_empty() {
-        defaults.to_vec()
-    } else {
-        out
-    }
-}
-
-const TIMEFRAME_FLOOR_SECS: u64 = 10;
+const TIMEFRAME_FLOOR_SECS: u64 = 1;
 const TIMEFRAME_CEIL_SECS: u64 = 86_400;
 
 fn prompt_timeframe_secs(label: &str, default_secs: u64) -> u64 {
     loop {
         let raw = prompt(label, &default_secs.to_string());
         match raw.parse::<u64>() {
-            Ok(n) if n >= TIMEFRAME_FLOOR_SECS && n <= TIMEFRAME_CEIL_SECS => return n,
+            Ok(n) if (TIMEFRAME_FLOOR_SECS..=TIMEFRAME_CEIL_SECS).contains(&n) => return n,
             Ok(n) => {
                 eprintln!(
                     "  ⚠️  {}s is outside the allowed range [{}, {}].",
@@ -298,202 +501,89 @@ fn prompt_timeframe_secs(label: &str, default_secs: u64) -> u64 {
     }
 }
 
-fn prompt_snapshot_interval() -> u64 {
-    loop {
-        let raw = prompt("Snapshot interval in seconds", "60");
-        match raw.parse::<u64>() {
-            Ok(n) if (5..=3600).contains(&n) => return n,
-            Ok(n) => eprintln!(
-                "  ⚠️  {}s is outside the allowed range [5, 3600].",
-                n
-            ),
-            Err(_) => eprintln!("  ⚠️  '{}' is not a number.", raw),
-        }
+/// One instance configured in the CLI launch prompt.
+struct CliInstance {
+    base: String,
+    micro: u64,
+    fast: u64,
+    slow: Option<u64>,
+    r#macro: Option<u64>,
+}
+
+/// The full CLI launch plan: exchange + currency + instances.
+struct CliLaunchPlan {
+    exchange: String,
+    currency: String,
+    instances: Vec<CliInstance>,
+    /// v10.1: TAE activation requested at launch (default OFF — the
+    /// instance runs but the TAE is not activated unless specified).
+    tae_on: bool,
+    /// v10.2: trading mode for CLI (observe|paper|live). Controls
+    /// ExecutionMode and session.
+    trading: String,
+}
+
+/// v7.2 parity: the default timeframe ladder is the registry's ladder
+/// (`registry::add_instance` fallback): micro 60s, fast 180s, slow/macro
+/// from the workspace defaults — one canonical source for CLI, GUI, and
+/// registry.
+fn tf_default(slot: &str, workspace: &config_models::WorkspaceConfig) -> u64 {
+    let (micro, fast, slow, r#macro) = workspace.tf_ladder_defaults();
+    match slot {
+        "micro" => micro,
+        "fast" => fast,
+        "slow" => slow,
+        "macro" => r#macro,
+        _ => slow,
     }
 }
 
-fn render_setup_summary(
-    exchange: &str,
-    currency: &str,
-    pair: &str,
-    selected_tfs: &[(&'static str, u64, &'static str)],
-    snapshot_enabled: bool,
-    snapshot_interval: u64,
-    snapshot_path: &str,
-) {
-    println!("\n──────────────────────────────────────────────");
-    println!("Trading Platform — Setup Summary");
-    println!("──────────────────────────────────────────────");
-    println!("  Exchange              : {}", exchange);
-    println!("  Settlement currency   : {}", currency);
-    println!("  Trading pair          : {}", pair);
-    println!("  Timeframes            :");
-    for (label, secs, slot) in selected_tfs {
-        println!("    - {:<6} (slot {}) — {}s", label, slot, secs);
-    }
-    println!(
-        "  Snapshot export       : {} (every {}s, → {})",
-        if snapshot_enabled { "ENABLED" } else { "DISABLED" },
-        snapshot_interval,
-        snapshot_path
-    );
-    println!("──────────────────────────────────────────────\n");
-}
-
-/// Validate that a symbol is tradeable on the chosen exchange.
-/// Mirrors the production-time validation in `registry::add_instance`
-/// so a setup session can't write a `config.toml` that immediately
-/// fails at boot.
-async fn validate_symbol(exchange: &str, base: &str) -> Result<(), String> {
-    use network_adapters::adapters;
-    let cfg = config_models::load_platform().map_err(|e| format!("config load: {}", e))?;
-    let _pair = format!("{}-{}", base, if exchange.eq_ignore_ascii_case("bitget") { "USDT" } else { "USDC" });
-    let ex = if exchange.eq_ignore_ascii_case("bitget") {
-        portfolio_supervisor::session::ExchangeChoice::Bitget
+fn tf_label(secs: u64) -> String {
+    if secs % 3600 == 0 {
+        format!("{}h", secs / 3600)
+    } else if secs % 60 == 0 {
+        format!("{}m", secs / 60)
     } else {
-        portfolio_supervisor::session::ExchangeChoice::Hyperliquid
-    };
-    let quote = if exchange.eq_ignore_ascii_case("bitget") {
-        portfolio_supervisor::session::Currency::USDT
-    } else {
-        portfolio_supervisor::session::Currency::USDC
-    };
-    let raw = ex.raw_symbol(base, &quote);
-    let availability = if ex == portfolio_supervisor::session::ExchangeChoice::Bitget {
-        let url = cfg.bitget.ticker_url();
-        let pt = ex.bitget_product_type(&quote).unwrap_or("USDT-FUTURES");
-        adapters::bitget_rest::symbol_exists(&raw, pt, &url).await
-    } else {
-        let url = cfg.hyperliquid.rest_url();
-        adapters::hyperliquid_rest::symbol_exists(base, &url).await
-    };
-    match availability {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(format!(
-            "'{}' isn't available on {} perpetual futures.",
-            base, exchange
-        )),
-        Err(e) => Err(format!("availability check failed: {}", e)),
+        format!("{}s", secs)
     }
 }
 
-/// Apply the prompt result to `config.toml`. We rewrite only the
-/// `[workspace]` table (preserving `[snapshot_export]` if present
-/// already), then re-emit the file. This is the same path
-/// `save_workspace` uses, extended for the snapshot section.
-fn apply_setup_to_config(
-    workspace: &mut config_models::WorkspaceConfig,
-    exchange: &str,
-    currency: &str,
-    pair: &str,
-    selected_tfs: &[(u64, &'static str)], // (timeframe_secs, slot_label)
-    _snapshot_enabled: bool,
-    _snapshot_interval: u64,
-    _snapshot_path: &str,
-) {
-    workspace.default_exchange = exchange.to_string();
-    workspace.default_currency = currency.to_string();
-
-    // Default IndicatorsConfig — used as the base for each TF.
-    let indicators = config_models::IndicatorsConfig::default();
-
-    let tf_for = |secs: u64| config_models::TimeframeConfig::new(secs, indicators.clone());
-
-    let find = |slot: &str| -> Option<u64> {
-        selected_tfs
-            .iter()
-            .find(|(.., s)| *s == slot)
-            .map(|(s, _)| *s)
-    };
-
-    // Replace the instances table with the new entry. This is a
-    // single-pair setup flow; operators wanting many pairs should
-    // hand-edit `config.toml`.
-    workspace.instances = vec![config_models::InstanceEntry {
-        id: pair.to_lowercase(),
-        symbol: pair.to_string(),
-        quote: currency.to_string(),
-        initial_capital_usd: 1000.0,
-        status: config_models::InstanceStatus::Running,
-        micro_term: tf_for(find("micro").unwrap_or(60)),
-        fast_term: tf_for(find("fast").unwrap_or(300)),
-        slow_term: find("slow").map(tf_for),
-        macro_term: find("macro").map(tf_for),
-        automation: config_models::AutomationConfig::default(),
-        operational_mode: config_models::OperationalMode::default(),
-        weight_overrides: None,
-        position_scaling: None,
-        activation: None,
-        custom_pipelines: std::collections::HashMap::new(),
-    }];
-}
-
-fn apply_snapshot_to_platform(
-    platform: &mut config_models::PlatformConfig,
-    enabled: bool,
-    interval_secs: u64,
-    output_path: &str,
-) {
-    platform.snapshot_export = config_models::SnapshotExportConfig {
-        enabled,
-        output_path: output_path.to_string(),
-        interval_secs,
-        max_snapshots_retained: 1000,
-        tabs: None,
-    };
-}
-
-/// Re-serialise the full `config.toml` (preserving all
-/// platform-level sections not handled by `save_workspace`).
-fn write_full_config(
-    platform: &config_models::PlatformConfig,
+/// Collect the launch configuration from the operator. Exchange/currency
+/// pre-fill from CLI args or workspace defaults; the instance list
+/// pre-seeds from `workspace.instances[]` when present. Mirrors the GUI
+/// wizard's Review step: the summary is printed, then the operator
+/// confirms before anything starts. Returns `None` when the operator
+/// declines to start.
+fn cli_launch_plan(
+    cli: &CliArgs,
     workspace: &config_models::WorkspaceConfig,
-) -> Result<(), String> {
-    // Mirror the `OnDiskConfig` shape in `config-models`.
-    #[derive(serde::Serialize)]
-    struct OnDiskConfig<'a> {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        hyperliquid: Option<&'a config_models::HyperliquidConfig>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        bitget: Option<&'a config_models::BitgetConfig>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        clock_monitor: Option<&'a config_models::ClockMonitorTomlConfig>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        quality: Option<&'a config_models::QualityConfig>,
-        reconnect: &'a config_models::ReconnectConfig,
-        candle_buffer: &'a config_models::CandleBufferConfig,
-        snapshot_export: &'a config_models::SnapshotExportConfig,
-        workspace: &'a config_models::WorkspaceConfig,
-    }
-
-    let on_disk = OnDiskConfig {
-        hyperliquid: Some(&platform.hyperliquid),
-        bitget: Some(&platform.bitget),
-        clock_monitor: platform.clock_monitor.as_ref(),
-        quality: platform.quality.as_ref(),
-        reconnect: &platform.reconnect,
-        candle_buffer: &platform.candle_buffer,
-        snapshot_export: &platform.snapshot_export,
-        workspace,
-    };
-    let body = toml::to_string_pretty(&on_disk).map_err(|e| format!("toml: {}", e))?;
-    std::fs::write("config.toml", body).map_err(|e| format!("write: {}", e))?;
-    Ok(())
-}
-
-async fn run_setup_interactive(cli: &CliArgs) {
+) -> Option<CliLaunchPlan> {
     println!("╔════════════════════════════════════════════╗");
-    println!("║  Trading Platform — Interactive Setup      ║");
+    println!("║  Trading Platform — CLI Launch Setup       ║");
     println!("╚════════════════════════════════════════════╝");
     println!();
-    println!("This flow writes `config.toml` and (optionally) starts the");
-    println!("daemon in headless mode. Press <Enter> to accept each default.");
+    // Resolve trading mode: CLI flag beats config default, then observe.
+    let cli_trading = cli
+        .trading
+        .clone()
+        .unwrap_or_else(|| "observe".to_string())
+        .to_lowercase();
+    let trading_label = match cli_trading.as_str() {
+        "paper" => "paper (simulated orders, same engine as live)",
+        "live" => "live (real orders — requires keys)",
+        _ => "observe (monitoring only — no orders dispatched)",
+    };
+    println!("Mode: {} — Press <Enter> to accept each default.", trading_label);
     println!();
 
     // 1. Exchange
+    let default_exchange = cli
+        .exchange
+        .clone()
+        .unwrap_or_else(|| workspace.default_exchange.clone());
     let exchange = {
         loop {
-            let raw = prompt("Exchange (hyperliquid / bitget)", "hyperliquid");
+            let raw = prompt("Exchange (hyperliquid / bitget)", &default_exchange);
             match raw.to_lowercase().as_str() {
                 "hyperliquid" | "hl" => break "hyperliquid".to_string(),
                 "bitget" | "bg" => break "bitget".to_string(),
@@ -506,202 +596,226 @@ async fn run_setup_interactive(cli: &CliArgs) {
     } else {
         "USDC".to_string()
     };
-    println!("  → Settlement currency forced to {} for {}", currency, exchange);
+    println!("  → Settlement currency forced to {}", currency);
 
-    // 2. Pair
-    let pair_base = {
-        loop {
-            let raw = prompt("Trading pair base symbol (e.g. BTC, ETH, SOL)", "BTC");
-            let cleaned = raw.trim().to_uppercase();
-            if cleaned.is_empty() || cleaned.len() > 10 {
-                eprintln!("  ⚠️  Symbol must be 1–10 chars.");
-                continue;
-            }
-            if !cli.dry_run {
-                match validate_symbol(&exchange, &cleaned).await {
-                    Ok(()) => break cleaned,
-                    Err(e) => {
-                        eprintln!("  ⚠️  {}", e);
-                        if !confirm("Try a different symbol?", false) {
-                            std::process::exit(1);
-                        }
-                    }
-                }
-            } else {
-                break cleaned;
-            }
-        }
-    };
-    let pair = format!("{}-{}", pair_base, currency);
-    println!("  → Pair: {}", pair);
-
-    // 3. Timeframes
-    let tf_choices: &[(&str, &str)] = &[
-        ("micro", "1-min grain — fastest signal, most noise"),
-        ("fast", "5-min grain — intraday"),
-        ("slow", "15-min grain — swing (always recommended)"),
-        ("macro", "60-min grain — positional / regime"),
-    ];
-    let defaults = vec![0usize, 1, 2, 3]; // all four by default
-    let selected_indices = prompt_multi_select(
-        "Timeframes to enable (slot → which candle grain feeds analysis):",
-        tf_choices,
-        &defaults,
-    );
-
-    let mut selected_tfs: Vec<(u64, &'static str)> = Vec::new();
-    for &idx in &selected_indices {
-        let (slot, _desc) = tf_choices[idx];
-        let default_secs = match slot {
-            "micro" => 60u64,
-            "fast" => 300,
-            "slow" => 900,
-            "macro" => 3600,
-            _ => 900,
-        };
-        let secs = prompt_timeframe_secs(
-            &format!(
-                "  timeframe_secs for {} (default {}s)",
-                slot, default_secs
-            ),
-            default_secs,
-        );
-        selected_tfs.push((secs, slot));
-    }
-    let display_selected: Vec<(&str, u64, &str)> = selected_tfs
+    // 2. Instances — pre-seed from workspace.instances[].
+    let mut instances: Vec<CliInstance> = workspace
+        .instances
         .iter()
-        .map(|(secs, slot)| {
-            let label = match *slot {
-                "micro" => "micro",
-                "fast" => "fast",
-                "slow" => "slow",
-                "macro" => "macro",
-                _ => "?",
-            };
-            (label, *secs, *slot)
+        .filter(|e| !e.symbol.is_empty() && e.status == config_models::InstanceStatus::Running)
+        .filter_map(|e| {
+            let base = e
+                .symbol
+                .split_once('-')
+                .map(|(b, _)| b.to_string())
+                .unwrap_or_default();
+            if base.is_empty() {
+                return None;
+            }
+            Some(CliInstance {
+                base,
+                micro: e.micro_term.candles.duration_seconds,
+                fast: e.fast_term.candles.duration_seconds,
+                slow: e.slow_term.as_ref().map(|t| t.candles.duration_seconds),
+                r#macro: e.macro_term.as_ref().map(|t| t.candles.duration_seconds),
+            })
         })
         .collect();
 
-    // 4. Snapshot export
-    println!("\nSnapshot export — periodic JSON dump for offline data science.");
-    let snapshot_enabled = confirm("Enable snapshot export?", false);
-    let snapshot_interval = if snapshot_enabled {
-        prompt_snapshot_interval()
-    } else {
-        60
-    };
-    let snapshot_path = if snapshot_enabled {
-        prompt("Output directory", "./snapshots")
-    } else {
-        "./snapshots".to_string()
-    };
-
-    render_setup_summary(
-        &exchange,
-        &currency,
-        &pair,
-        &display_selected,
-        snapshot_enabled,
-        snapshot_interval,
-        &snapshot_path,
+    println!(
+        "\nInstances (blank base = finish). {} configured in config.toml — press Enter to keep.",
+        instances.len()
     );
-
-    if cli.dry_run {
-        println!("--dry-run: would write config.toml and exit.");
-        return;
-    }
-
-    if !confirm("Apply these settings to config.toml?", true) {
-        println!("Aborted — config.toml unchanged.");
-        return;
-    }
-
-    // Apply to PlatformConfig + WorkspaceConfig.
-    let mut platform = config_models::load_platform().unwrap_or_default();
-    let mut workspace = config_models::load_workspace().unwrap_or_else(|_| config_models::WorkspaceConfig {
-        id: "main".into(),
-        name: "Main".into(),
-        default_currency: currency.clone(),
-        default_exchange: exchange.clone(),
-        ..Default::default()
-    });
-    apply_setup_to_config(
-        &mut workspace,
-        &exchange,
-        &currency,
-        &pair,
-        &selected_tfs,
-        snapshot_enabled,
-        snapshot_interval,
-        &snapshot_path,
-    );
-    apply_snapshot_to_platform(&mut platform, snapshot_enabled, snapshot_interval, &snapshot_path);
-    if let Err(e) = write_full_config(&platform, &workspace) {
-        eprintln!("❌ Failed to write config.toml: {}", e);
-        std::process::exit(1);
-    }
-    println!("✅ config.toml updated.");
-
-    if cli.auto_start || confirm("Start the daemon now (headless mode)?", false) {
-        println!("\n🚀 Starting daemon in headless mode...");
-        let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("execution-daemon"));
-        let mut cmd = std::process::Command::new(exe);
-        cmd.arg("--mode").arg("headless");
-        if let Some(ref p) = cli.config_path {
-            cmd.arg("--config").arg(p);
+    loop {
+        let default_base = if instances.is_empty() {
+            "BTC".to_string()
+        } else {
+            String::new()
+        };
+        let raw = prompt(
+            &format!(
+                "Instance #{} base symbol (blank = done)",
+                instances.len() + 1
+            ),
+            &default_base,
+        );
+        let cleaned = raw.trim().to_uppercase();
+        if cleaned.is_empty() {
+            break;
         }
-        match cmd.spawn() {
-            Ok(child) => {
-                println!("Daemon spawned (pid {}). Logs go to engine.log.", child.id());
+        if cleaned.len() > 10 || !cleaned.chars().all(|c| c.is_ascii_alphanumeric()) {
+            eprintln!("  ⚠️  Symbol must be 1-10 alphanumeric characters.");
+            continue;
+        }
+        if instances.iter().any(|i| i.base == cleaned) {
+            eprintln!("  ⚠️  {} is already in the list.", cleaned);
+            continue;
+        }
+        let micro = prompt_timeframe_secs(
+            &format!(
+                "  micro timeframe_secs (default {}s)",
+                tf_default("micro", workspace)
+            ),
+            tf_default("micro", workspace),
+        );
+        let fast = loop {
+            let v = prompt_timeframe_secs(
+                &format!(
+                    "  fast timeframe_secs (default {}s)",
+                    tf_default("fast", workspace)
+                ),
+                tf_default("fast", workspace),
+            );
+            if v == micro {
+                eprintln!("  ⚠️  fast must differ from micro ({}s) — pick a distinct duration.", micro);
+                continue;
+            }
+            break v;
+        };
+        let slow = if confirm("  Enable slow timeframe? Y/n", true) {
+            loop {
+                let v = prompt_timeframe_secs(
+                    &format!(
+                        "  slow timeframe_secs (default {}s)",
+                        tf_default("slow", workspace)
+                    ),
+                    tf_default("slow", workspace),
+                );
+                if v == micro || v == fast {
+                    eprintln!("  ⚠️  slow must be distinct from micro ({}s) and fast ({}s).", micro, fast);
+                    continue;
+                }
+                break Some(v);
+            }
+        } else {
+            None
+        };
+        let r#macro = if confirm("  Enable macro timeframe? Y/n", true) {
+            loop {
+                let v = prompt_timeframe_secs(
+                    &format!(
+                        "  macro timeframe_secs (default {}s)",
+                        tf_default("macro", workspace)
+                    ),
+                    tf_default("macro", workspace),
+                );
+                let mut seen = vec![micro, fast];
+                if let Some(s) = slow { seen.push(s); }
+                if seen.contains(&v) {
+                    eprintln!("  ⚠️  macro must be distinct from {} — pick another.", seen.iter().map(|s| format!("{}s", s)).collect::<Vec<_>>().join(", "));
+                    continue;
+                }
+                break Some(v);
+            }
+        } else {
+            None
+        };
+        // Validate 2–4 distinct: micro+fast always, slow/macro optional
+        let active_count = 2 + slow.is_some() as usize + r#macro.is_some() as usize;
+        if active_count < 2 {
+            eprintln!("  ⚠️  At least 2 timeframes required (micro+fast).");
+            continue;
+        }
+        instances.push(CliInstance {
+            base: cleaned,
+            micro,
+            fast,
+            slow,
+            r#macro,
+        });
+    }
+
+    if instances.is_empty() {
+        println!(
+            "\n⚠️  No instances configured — the terminal monitor will show an empty workspace."
+        );
+        println!("   Add instances later from the dashboard, or restart with `--mode cli`.");
+    }
+
+    // 3. TAE activation — must be specified explicitly (default OFF).
+    let tae_on = cli.tae_on || confirm("Activate TAE (trade automation)? y/N", false);
+
+    // 4. Summary + confirm
+    println!("\n──────────────────────────────────────────────");
+    println!("Trading Platform — CLI Launch Summary");
+    println!("──────────────────────────────────────────────");
+    println!("  Mode                 : {} ({})", cli_trading, trading_label);
+    println!(
+        "  TAE                  : {}",
+        if tae_on { "ON" } else { "OFF" }
+    );
+    println!("  Exchange             : {}", exchange);
+    println!("  Settlement currency  : {}", currency);
+    for inst in &instances {
+        let slow_s = inst.slow.map(tf_label).unwrap_or_else(|| "—".to_string());
+        let macro_s = inst.r#macro.map(tf_label).unwrap_or_else(|| "—".to_string());
+        println!(
+            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} ({}, {} TFs)",
+            inst.base,
+            currency,
+            tf_label(inst.micro),
+            tf_label(inst.fast),
+            slow_s,
+            macro_s,
+            cli_trading,
+            2 + inst.slow.is_some() as usize + inst.r#macro.is_some() as usize,
+        );
+    }
+    println!("──────────────────────────────────────────────\n");
+
+    if !confirm("Start the monitor now?", true) {
+        println!("Aborted — nothing was started and config.toml was not modified.");
+        return None;
+    }
+
+    Some(CliLaunchPlan {
+        exchange,
+        currency,
+        instances,
+        tae_on,
+        trading: cli_trading,
+    })
+}
+
+/// Spawn one CLI instance with retry + backoff (same policy as the boot
+/// auto-spawn loop). The instance is created through the registry so it
+/// persists into config.toml via `save_workspace` and carries the
+/// observe session default.
+async fn spawn_cli_instance(
+    ctx: &portfolio_supervisor::registry_context::RegistryContext,
+    base: &str,
+    quote: &str,
+) {
+    let mut attempt = 0u32;
+    loop {
+        match portfolio_supervisor::registry::add_instance(
+            ctx,
+            (base.to_string(), quote.to_string()),
+        )
+        .await
+        {
+            Ok(_inst) => {
+                println!("✅ Instance spawned: {}-{}", base, quote);
+                return;
             }
             Err(e) => {
-                eprintln!("❌ Failed to spawn daemon: {}", e);
-                eprintln!("Run `./manage.sh run-silent` when ready.");
+                attempt += 1;
+                if attempt >= 20 {
+                    eprintln!(
+                        "⚠️  Failed to spawn instance {}-{} after {} attempts: {} — retry on next restart",
+                        base, quote, attempt, e
+                    );
+                    return;
+                }
+                eprintln!(
+                    "⚠️  Failed to spawn instance {}-{} (attempt {}): {} — retrying in 30 s",
+                    base, quote, attempt, e
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             }
         }
-    } else {
-        println!("\nRun `./manage.sh run-silent` (or `--mode headless`) when ready.");
     }
 }
-
-fn run_setup_status(cli: &CliArgs) {
-    let platform = match config_models::load_platform() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("❌ Failed to load platform config: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let workspace = match config_models::load_workspace() {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("❌ Failed to load workspace config: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let rt = execution_daemon::snapshot_export::runtime_from_config(&platform.snapshot_export);
-
-    println!("──────────────────────────────────────────────");
-    println!("Trading Platform — Snapshot Export Status");
-    println!("──────────────────────────────────────────────");
-    println!("  Config path            : {}", cli.config_path.as_deref().unwrap_or("(default: ./config.toml)"));
-    println!("  Enabled                : {}", rt.enabled);
-    println!("  Output path            : {}", rt.output_path);
-    println!("  Interval (s)           : {}", rt.interval_secs);
-    println!("  Retention              : {}", rt.max_snapshots_retained);
-    println!("  Tabs ({}):              : {}", rt.tabs.len(), rt.tabs.join(", "));
-    println!("  Last snapshot          : {}", rt.last_snapshot_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "(none yet)".into()));
-    println!("  Total written          : {}", rt.total_snapshots_written);
-    println!("  Last error             : {}", rt.last_error.clone().unwrap_or_else(|| "(none)".into()));
-    println!("  Active instances       : {}", workspace.instances.len());
-    println!("  Default exchange       : {}", workspace.default_exchange);
-    println!("  Default currency       : {}", workspace.default_currency);
-    println!("──────────────────────────────────────────────");
-    println!("NOTE: live runtime counters (last_snapshot_at, total_written,");
-    println!("       last_error, last_instance_count) update only when a");
-    println!("       daemon is running. Use `./manage.sh status` to check.");
-}
-
 // ─── Main ────────────────────────────────────────────────────────────
 
 /// v6.10.19a: the canonical per-pair risk feeding the L7 risk mean is the
@@ -732,34 +846,6 @@ async fn main() {
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // ── Setup subcommand early-exit ─────────────────────────────────
-    //
-    // The setup flow is interactive (or `--dry-run`) and does its
-    // own config.toml I/O + (optionally) spawns the daemon as a
-    // child process. It must short-circuit BEFORE the heavy daemon
-    // bootstrap (DB pool, telemetry logger, workspace state, …)
-    // fires.
-    if matches!(cli.mode, LaunchMode::Setup) {
-        let sub = cli.setup_mode.as_deref().unwrap_or("interactive");
-        match sub {
-            "status" => {
-                run_setup_status(&cli);
-                std::process::exit(0);
-            }
-            "interactive" | "setup" => {
-                run_setup_interactive(&cli).await;
-                std::process::exit(0);
-            }
-            other => {
-                eprintln!(
-                    "Unknown --sub value: '{}' (expected 'interactive' or 'status')",
-                    other
-                );
-                std::process::exit(2);
-            }
-        }
-    }
-
     println!("⚙️  Trading Platform: Loading Master Configuration...");
 
     // AUDIT-V7-300 (08-08 §CB-01): one-shot startup warning for stale
@@ -775,29 +861,227 @@ async fn main() {
         }
     }
 
-    let platform = load_platform().expect(
-        "❌ Configuration Error: failed to parse platform config from config.toml",
-    );
-    let workspace = load_workspace().expect(
-        "❌ Configuration Error: failed to parse workspace config from config.toml",
-    );
+    let platform = match load_platform() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "❌ Configuration Error: failed to parse platform config from config.toml: {e}"
+            );
+            eprintln!("   Hint: copy config.default.toml → config.toml and retry, or fix the TOML syntax.");
+            std::process::exit(1);
+        }
+    };
+    let workspace = match load_workspace() {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!(
+                "❌ Configuration Error: failed to parse workspace config from config.toml: {e}"
+            );
+            eprintln!("   Hint: copy config.default.toml → config.toml and retry, or fix the TOML syntax.");
+            std::process::exit(1);
+        }
+    };
+
+    // v10.1: resolve the HTTP bind/port — CLI flag → env → [server] config
+    // → defaults. Per-folder sessions run side by side on one machine via
+    // distinct ports (each folder carries its own config.toml + telemetry.db).
+    let server_bind = cli.bind.clone().unwrap_or_else(|| {
+        std::env::var("PLATFORM_BIND")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| platform.server.bind.clone())
+    });
+    let server_port = cli.port.unwrap_or_else(|| {
+        std::env::var("PLATFORM_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(platform.server.port)
+    });
+    // K1 single-operator: final bind must be loopback even when supplied via
+    // --bind / PLATFORM_BIND env. Fail fast before binding the socket.
+    {
+        let bind_trim = server_bind.trim();
+        const ALLOWED_BINDS: &[&str] = &["127.0.0.1", "::1", "localhost"];
+        if !ALLOWED_BINDS.contains(&bind_trim) {
+            eprintln!(
+                "❌ Configuration Error: --bind / PLATFORM_BIND = '{bind_trim}' is not loopback — only {} allowed (single-operator local deployment; use ssh -L tunnel for remote access).",
+                ALLOWED_BINDS.join(", ")
+            );
+            std::process::exit(1);
+        }
+    }
+    let allowed_origins = api_gateway::default_allowed_origins(&server_bind, server_port);
     println!(
         "✅ Configuration Loaded: platform + workspace ({} instance{})",
         workspace.instances.len(),
-        if workspace.instances.len() == 1 { "" } else { "s" }
+        if workspace.instances.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
     );
 
     match cli.mode {
-        LaunchMode::Headless => println!("🤖 Launch mode: HEADLESS (auto-spawn, no Welcome Gate)"),
-        LaunchMode::Web => println!("🖥️  Launch mode: WEB (Welcome Gate will prompt for exchange/currency)"),
-        // Setup is short-circuited at the top of main(); this arm
-        // exists for exhaustiveness only.
-        LaunchMode::Setup => unreachable!("Setup is short-circuited at the top of main()"),
+        LaunchMode::Cli => println!("🖥️  Launch mode: CLI (terminal monitor, observe-only)"),
+        LaunchMode::Web => {
+            println!(
+                "🖥️  Launch mode: WEB (Launch Setup wizard will prompt for mode/exchange/currency)"
+            )
+        }
     }
 
     println!("🗄️  Initializing local SQLite telemetry database...");
-    let db_pool = init_db().await;
-    println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
+    let db_pool = match init_db().await {
+        Ok(pool) => {
+            println!(
+                "✅ Database Setup: Connected to local telemetry.db file and verified schema."
+            );
+            pool
+        }
+        Err(e) => {
+            eprintln!("❌ Database Setup: {e}");
+            eprintln!("   Hint: check file permissions for ./telemetry.db and disk space, or remove a corrupted db and restart.");
+            std::process::exit(1);
+        }
+    };
+
+    // ── v10: headless data-science commands (read-only, then exit) ──
+    if !cli.compare_folders.is_empty() {
+        std::process::exit(cli_compare::compare_folders(&cli.compare_folders));
+    }
+    if cli.sessions {
+        std::process::exit(cli_ds::print_sessions(&db_pool).await);
+    }
+    if let Some(id) = cli.session_report {
+        std::process::exit(cli_ds::print_session_report(&db_pool, id).await);
+    }
+    if let Some(id) = cli.backtest_show {
+        std::process::exit(cli_ds::print_backtest_show(&db_pool, &workspace, id).await);
+    }
+    if let Some(id) = cli.backtest_gates {
+        std::process::exit(cli_ds::print_backtest_gates(&db_pool, id).await);
+    }
+
+    // ── v10 session identity: one monotonic session number per boot ──
+    // Mode resolution: web sessions carry their default from
+    // `[workspace.session]`; CLI launches use --trading flag (default observe).
+    let session_mode = if matches!(cli.mode, LaunchMode::Cli) {
+        cli.trading
+            .clone()
+            .unwrap_or_else(|| "observe".to_string())
+            .to_lowercase()
+    } else {
+        // Web boot: the first instance's persisted mode (Observe/Paper/
+        // Live) describes the session; the Launch Setup wizard persists it
+        // before instances spawn.
+        match workspace.instances.first().map(|i| &i.mode) {
+            Some(config_models::ExecutionMode::Observe) => "observe".to_string(),
+            Some(config_models::ExecutionMode::Live) => "live".to_string(),
+            _ => "paper".to_string(),
+        }
+    };
+    let session_started_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let config_snapshot = serde_json::to_string(&workspace).ok();
+    let session_number = database_storage::queries::sessions::create_session(
+        &db_pool,
+        &session_mode,
+        Some(workspace.default_exchange.as_str()),
+        Some(&workspace.default_currency),
+        Some(workspace.portfolio_capital_usd),
+        session_started_ms,
+        config_snapshot.as_deref(),
+    )
+    .await
+    .ok();
+    let session_id_arc: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(session_number));
+    println!(
+        "🧪 Session identity: {}",
+        session_number
+            .map(|n| format!("SESSION #{:04}", n))
+            .unwrap_or_else(|| "SESSION unavailable".to_string())
+    );
+
+    // ── v8.2: headless CLI backtest (no engine boot, no web server) ──
+    if cli.backtest {
+        let args = cli_backtest::CliBacktestArgs {
+            exchange: cli
+                .exchange
+                .clone()
+                .unwrap_or_else(|| workspace.default_exchange.clone()),
+            symbols: cli
+                .bt_symbols
+                .clone()
+                .map(|s| {
+                    s.split(',')
+                        .map(|p| p.trim().to_uppercase())
+                        .filter(|p| !p.is_empty())
+                        .collect()
+                })
+                .unwrap_or_else(|| vec!["BTC".to_string()]),
+            tf: match cli.bt_tf.as_deref() {
+                Some(raw) => match cli_backtest::parse_tf(raw) {
+                    Ok(tf) => tf,
+                    Err(e) => {
+                        eprintln!("⚠️  {e}");
+                        std::process::exit(1);
+                    }
+                },
+                None => vec![60, 180, 300, 900],
+            },
+            depth_days: cli
+                .bt_depth
+                .unwrap_or(workspace.backtest.archive_depth_days),
+            portfolio_capital: cli.bt_capital.unwrap_or(1000.0),
+            allocation: cli
+                .bt_allocation
+                .unwrap_or(workspace.minimal_tae.allocation_pct),
+            strategy_name: cli.bt_strategy.clone(),
+        };
+        let outcome = cli_backtest::run_cli_backtest(&db_pool, &workspace, args).await;
+        let code = cli_backtest::print_outcome(&outcome);
+        std::process::exit(code);
+    }
+
+    // v9: headless strategy / account / instance ops (GUI parity).
+    if !cli.ops.is_empty()
+        || !cli.account_ops.is_empty()
+        || cli.lifecycle_op.is_some()
+        || cli.instance_bind.is_some()
+    {
+        let mut ws = config_models::load_workspace().unwrap_or_else(|e| {
+            eprintln!("config load failed: {e}");
+            std::process::exit(1);
+        });
+        let mut code = 0;
+        for op in cli.ops {
+            let c = cli_ops::run_strategy_op(&mut ws, &op);
+            if c != 0 {
+                code = c;
+            }
+        }
+        for op in cli.account_ops {
+            let c = cli_ops::run_account_op(&mut ws, &op);
+            if c != 0 {
+                code = c;
+            }
+        }
+        if let Some((id, strategy)) = cli.instance_bind {
+            let c = cli_ops::run_instance_bind(&mut ws, &id, &strategy);
+            if c != 0 {
+                code = c;
+            }
+        }
+        if let Some((id, action)) = cli.lifecycle_op {
+            let c = cli_ops::run_lifecycle_op(&id, &action);
+            if c != 0 {
+                code = c;
+            }
+        }
+        std::process::exit(code);
+    }
 
     if let Ok(secret) = std::env::var("EXCHANGE_SECRET_KEY") {
         let secret = secret.trim().to_string();
@@ -805,18 +1089,61 @@ async fn main() {
             database_storage::crypto::init_master_key(&secret);
         }
     }
-    verify_encryption_or_panic(&db_pool).await;
+    // K1 / observe-paper allowance: only hard-fail on missing master key
+    // when a live instance exists. Observe/paper sessions must boot even if
+    // stale encrypted rows remain and EXCHANGE_SECRET_KEY is not set (operator
+    // may be running read-only monitors).
+    let any_live_early = workspace
+        .instances
+        .iter()
+        .any(|i| i.mode == config_models::ExecutionMode::Live);
+    if any_live_early {
+        verify_encryption_or_panic(&db_pool).await;
+    } else if !database_storage::crypto::master_key_available() {
+        // Warn but do not block observe/paper boot — keys are inert.
+        if let Ok((count,)) = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM exchange_keys")
+            .fetch_one(&db_pool)
+            .await
+        {
+            if count > 0 {
+                eprintln!(
+                    "⚠️  {} encrypted exchange key(s) exist but EXCHANGE_SECRET_KEY is not set — live trading will fail until the key is provided (observe/paper continues).",
+                    count
+                );
+            }
+        }
+    }
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    // v10 fan-out: one producer → DB logger + DS exporter (three sinks:
+    // DB, WS/GUI, ./ds files).
+    let (db_tx, db_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    let (ds_tx, ds_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
     // Read the liquidation-event retention window from the user's
     // `[workspace.liquidity]` config. The legacy hardcoded `7u32` was
     // 5x shorter than the configured 90 days and prematurely aged out
     // event rows that operators still wanted to query.
     let liq_retention_days = workspace.liquidity.event_retention_days.max(1);
+    // BTE archive retention from [workspace.backtest].archive_depth_days.
+    let archive_depth_days = workspace.backtest.archive_depth_days.max(1);
+    tokio::spawn(async move {
+        let mut rx = telemetry_rx;
+        while let Some(msg) = rx.recv().await {
+            let _ = db_tx.send(msg.clone()).await;
+            let _ = ds_tx.send(msg).await;
+        }
+    });
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {
-            run_telemetry_logger(pool, telemetry_rx, liq_retention_days).await;
+            run_telemetry_logger(
+                pool,
+                db_rx,
+                liq_retention_days,
+                archive_depth_days,
+                session_number,
+            )
+            .await;
         }
     });
 
@@ -827,29 +1154,54 @@ async fn main() {
     let latency_tracker = Arc::new(core_domain::LatencyTracker::default());
 
     let execution_engine = Arc::new({
-        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new();
+        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig {
+                maker_fee_pct: workspace.fees.maker_fee_pct,
+                taker_fee_pct: workspace.fees.taker_fee_pct,
+                funding_rate_8h: workspace.fees.funding_rate_8h,
+                simulated_spread_pct: 0.01,
+                // v10.1: the session's default strategy execution dial —
+                // the engine is shared across instances, so one cost
+                // model applies per session.
+                slippage_bps: workspace
+                    .default_strategy()
+                    .map(|s| s.tae.execution.slippage_bps)
+                    .unwrap_or(0.0),
+            },
+        );
         engine.set_db(Arc::new(db_pool.clone()));
+        if let Some(sid) = session_number {
+            engine.set_session_id(sid).await;
+        }
+        engine
+            .set_cross_leverage(workspace.leverage.cross_leverage)
+            .await;
         engine
     });
-    *execution_engine.slippage_ceiling_pct.write().await = workspace.execution.slippage_ceiling_pct;
-    execution_engine.set_fee_config(
-        workspace.fees.maker_fee_pct,
-        workspace.fees.taker_fee_pct,
-        workspace.leverage.cross_leverage,
-    ).await;
+
+    // v7 TAE setup executor (shared with the API surface).
+    let setup_executor = Arc::new(portfolio_supervisor::setup_executor::SetupExecutor::new(
+        execution_engine.clone(),
+        &workspace.minimal_tae,
+    ));
 
     let platform_arc = Arc::new(RwLock::new(platform));
     let workspace_state = WorkspaceState::new(workspace.clone());
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
-    let (recharge_tx, _) =
-        tokio::sync::broadcast::channel::<api_gateway::RechargeNotice>(64);
+    let (recharge_tx, _) = tokio::sync::broadcast::channel::<api_gateway::RechargeNotice>(64);
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
     let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
-    let use_hl = workspace.default_exchange.eq_ignore_ascii_case("hyperliquid");
+    let use_hl = workspace
+        .default_exchange
+        .eq_ignore_ascii_case("hyperliquid");
     let use_bg = workspace.default_exchange.eq_ignore_ascii_case("bitget");
-    if use_hl { exchange_status.seed_single("Hyperliquid", &hl_ws_url).await; }
-    if use_bg  { exchange_status.seed_single("Bitget", &bg_ws_url).await; }
+    if use_hl {
+        exchange_status.seed_single("Hyperliquid", &hl_ws_url).await;
+    }
+    if use_bg {
+        exchange_status.seed_single("Bitget", &bg_ws_url).await;
+    }
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
@@ -874,21 +1226,83 @@ async fn main() {
         latency_tracker: latency_tracker.clone(),
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
+        allowed_origins: allowed_origins.clone(),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: execution_engine.clone(),
+        automation: if workspace.minimal_tae.enabled {
+            Some(setup_executor.clone())
+        } else {
+            None
+        },
         recharge_tx: recharge_tx.clone(),
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
+        session_id: session_id_arc.clone(),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
-    // ── Session auto-init (headless and web mode) ──────────────────
+    // ── Launch plan (CLI mode: interactive; web mode: config-driven) ──
     //
-    // In both modes we initialise the session so that instances can be
-    // spawned. In web mode the user may re-select the exchange via the
-    // Welcome Gate; the gate handler will overwrite the session fields.
+    // CLI mode prompts the operator for exchange/currency/instances BEFORE
+    // spawning anything — the plan is written into the workspace config so
+    // `registry::add_instance` resolves the per-TF durations, then every
+    // instance is spawned with the boot retry policy.
+    // v8.2: the prompt offers a Backtest choice — the interactive sibling
+    // of the GUI launcher (runs the simulation, then exits).
+    let cli_plan: Option<CliLaunchPlan> = if matches!(cli.mode, LaunchMode::Cli) {
+        let launch_type = prompt(
+            "Launch type — [1] Terminal monitor (observe)  [2] Backtest",
+            "1",
+        );
+        if launch_type.trim() == "2" {
+            let args = cli_backtest::prompt_backtest_args(&workspace);
+            let outcome = cli_backtest::run_cli_backtest(&db_pool, &workspace, args).await;
+            std::process::exit(cli_backtest::print_outcome(&outcome));
+        }
+        cli_launch_plan(&cli, &workspace)
+    } else {
+        None
+    };
+    // Aborted at the Review step — exit cleanly before any heavy boot.
+    let cli_start = matches!(cli.mode, LaunchMode::Cli) && cli_plan.is_some();
+    if matches!(cli.mode, LaunchMode::Cli) && !cli_start {
+        std::process::exit(0);
+    }
+
+    // ── Session auto-init (web and cli mode) ──────────────────────
+    //
+    // CLI mode uses the plan's trading mode (observe|paper|live); web mode
+    // re-selects via Launch Setup wizard. The session default drives every
+    // instance's ExecutionMode via registry::add_instance.
     {
-        let exchange = cli.resolve_exchange(&workspace.default_exchange);
-        let currency = cli.resolve_currency(&workspace.default_currency);
+        let (exchange, currency, trading) = match &cli_plan {
+            Some(plan) => {
+                let ex = if plan.exchange.eq_ignore_ascii_case("bitget") {
+                    ExchangeChoice::Bitget
+                } else {
+                    ExchangeChoice::Hyperliquid
+                };
+                let cur = if plan.currency.eq_ignore_ascii_case("USDT") {
+                    Currency::USDT
+                } else {
+                    Currency::USDC
+                };
+                (ex, cur, plan.trading.clone())
+            }
+            None => (
+                cli.resolve_exchange(&workspace.default_exchange),
+                cli.resolve_currency(&workspace.default_currency),
+                cli.trading.clone().unwrap_or_else(|| "observe".to_string()),
+            ),
+        };
+        // v7.2 parity: CLI mode pins the session defaults FIRST then
+        // initialises — same ordering as POST /api/session/init.
+        if cli_plan.is_some() {
+            app_state
+                .session
+                .set_session_defaults(Some(trading.clone()), None)
+                .await;
+        }
         if let Err(e) = app_state.init_session(currency, exchange).await {
             eprintln!("⚠️  Session auto-init failed: {}", e);
         } else {
@@ -898,49 +1312,158 @@ async fn main() {
                 exchange.as_str(),
             );
         }
+        if cli_plan.is_some() {
+            let desc = match trading.as_str() {
+                "paper" => "paper (simulated orders)",
+                "live" => "live (real orders)",
+                _ => "observe (monitoring only — no orders dispatched)",
+            };
+            println!("✅ Session mode: {} — {}", trading, desc);
+        }
     }
 
-    // ── Instance auto-spawn (both modes) ───────────────────────────
+    // ── CLI plan → workspace config (per-instance TF durations) ────
+    if let Some(plan) = &cli_plan {
+        let mut cfg = workspace_state.config().await;
+        let exec_mode = match plan.trading.as_str() {
+            "paper" => config_models::ExecutionMode::Paper,
+            "live" => config_models::ExecutionMode::Live,
+            _ => config_models::ExecutionMode::Observe,
+        };
+        for inst in &plan.instances {
+            let symbol = format!("{}-{}", inst.base, plan.currency);
+            if cfg.instances.iter().any(|e| e.symbol == symbol) {
+                continue;
+            }
+            let indicators = config_models::IndicatorsConfig::default();
+            let tf = |secs: u64| config_models::TimeframeConfig::new(secs, indicators.clone());
+            cfg.instances.push(config_models::InstanceEntry {
+                id: format!("inst_{}", inst.base.to_lowercase()),
+                symbol,
+                quote: plan.currency.clone(),
+                status: config_models::InstanceStatus::Running,
+                micro_term: tf(inst.micro),
+                fast_term: tf(inst.fast),
+                slow_term: inst.slow.map(|s| tf(s)),
+                macro_term: inst.r#macro.map(|s| tf(s)),
+                automation: config_models::AutomationConfig::default(),
+                operational_mode: config_models::OperationalMode::Advisory,
+                mode: exec_mode.clone(),
+                strategy: None,
+                allocation_pct: None,
+                weight_overrides: None,
+                activation: None,
+                custom_pipelines: std::collections::HashMap::new(),
+            });
+        }
+        let _ = config_models::save_workspace(&cfg);
+        workspace_state.set_config(cfg).await;
+        println!(
+            "✅ CLI launch plan applied to workspace config ({} instance{})",
+            plan.instances.len(),
+            if plan.instances.len() == 1 { "" } else { "s" }
+        );
+    }
+
+    // ── Instance auto-spawn (web and cli mode) ─────────────────────
     //
-    // Every entry in workspace.instances[] is spawned automatically.
-    // In web mode the user may additionally add more pairs via the GUI.
-    // In headless mode this is the ONLY way instances are created.
+    // Web mode: every entry in workspace.instances[] is spawned
+    // automatically; the user may additionally add more pairs via the GUI.
+    // CLI mode: the interactive plan's instances are spawned with the same
+    // retry policy.
     //
     // **v6.5 fix (AUDIT-V7-306):** the session is left `active = true`
-    // through the auto-spawn loop. The Welcome Gate only needs the
+    // through the auto-spawn loop. The Launch Setup wizard only needs the
     // session fields (exchange, currency), not the `active` flag — and
     // `add_instance` rejects inactive sessions. We flip to inactive
     // **after** the loop completes, so configured instances bootstrap on
-    // cold start in `--web` mode just like `--headless`.
+    // cold start in `--web` mode just like `--cli`.
     {
         let ctx = app_state.registry_context();
-        for entry in &workspace.instances {
-            if entry.symbol.is_empty() {
-                continue;
+        if let Some(plan) = &cli_plan {
+            for inst in &plan.instances {
+                spawn_cli_instance(&ctx, &inst.base, &plan.currency).await;
             }
-            let (base, quote) = match entry.symbol.split_once('-') {
-                Some((b, q)) => (b.to_string(), q.to_string()),
-                None => {
-                    eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
+            // v10.2: --tae-on must actually START the lifecycle (paper/live boot PAUSED by default).
+            // Previously this flag was only recorded in DS meta / header but never called lifecycle.start().
+            if plan.tae_on {
+                // Give the spawn loop a moment to persist instances before starting lifecycle
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let instances = workspace_state.list().await;
+                for inst in instances {
+                    if inst.execution_mode().await == config_models::ExecutionMode::Observe {
+                        continue;
+                    }
+                    let id = inst.id.clone();
+                    match portfolio_supervisor::registry::start_instance(&ctx, &id).await {
+                        Ok(()) => eprintln!("▶️  TAE activated for {} (lifecycle → RUNNING)", id),
+                        Err(e) if e.contains("already RUNNING") => {},
+                        Err(e) => eprintln!("⚠️  Failed to activate TAE for {}: {}", id, e),
+                    }
+                }
+            }
+        } else {
+            for entry in &workspace.instances {
+                if entry.symbol.is_empty() {
                     continue;
                 }
-            };
-            match registry::add_instance(&ctx, (base, quote)).await {
-                Ok(_inst) => {
-                    println!("✅ Instance spawned: {}", entry.symbol);
+                // M7 (production audit): honor the persisted lifecycle status —
+                // paused/stopped instances were force-started on every restart.
+                if entry.status != config_models::InstanceStatus::Running {
+                    eprintln!(
+                        "⏸️  Instance {} skipped at boot (status = {:?})",
+                        entry.symbol, entry.status
+                    );
+                    continue;
                 }
-                Err(e) => {
-                    eprintln!("⚠️  Failed to spawn instance {}: {}", entry.symbol, e);
+                let (base, quote) = match entry.symbol.split_once('-') {
+                    Some((b, q)) => (b.to_string(), q.to_string()),
+                    None => {
+                        eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
+                        continue;
+                    }
+                };
+                // M7 (production audit): instance creation is gated on a live
+                // exchange symbol_exists REST call — an offline boot previously
+                // failed every instance with NO retry, leaving an empty
+                // deployment. Retry with backoff for up to ~10 minutes so a
+                // boot-time network blip self-heals.
+                let mut attempt = 0u32;
+                loop {
+                    match registry::add_instance(&ctx, (base.clone(), quote.clone())).await {
+                        Ok(_inst) => {
+                            println!("✅ Instance spawned: {}", entry.symbol);
+                            break;
+                        }
+                        Err(e) => {
+                            attempt += 1;
+                            if attempt >= 20 {
+                                eprintln!(
+                                    "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
+                                    entry.symbol, attempt, e
+                                );
+                                break;
+                            }
+                            eprintln!(
+                                "⚠️  Failed to spawn instance {} (attempt {}): {} — retrying in 30 s",
+                                entry.symbol, attempt, e
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        }
+                    }
                 }
             }
         }
 
         // v6.5 (AUDIT-V7-306): in web mode, mark session inactive AFTER
-        // auto-spawn so the Welcome Gate still appears on first page load
-        // but cold-start bootstrap is no longer skipped.
+        // auto-spawn so the Launch Setup wizard still appears on first page
+        // load but cold-start bootstrap is no longer skipped.
         if matches!(cli.mode, LaunchMode::Web) {
-            app_state.session.active.store(false, std::sync::atomic::Ordering::Relaxed);
-            println!("   (session marked inactive for Welcome Gate)");
+            app_state
+                .session
+                .active
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            println!("   (session marked inactive for Launch Setup wizard)");
         }
     }
 
@@ -953,40 +1476,155 @@ async fn main() {
         }
     }
 
-    // ── TAE: Policy & Execution Engines ─────────────────────────────
-    let policy_engine = Arc::new(RwLock::new(
-        portfolio_supervisor::policy::engine::PolicyEngine::new(
-            workspace.execution_policies.clone(),
-        ),
-    ));
-    let paper_engine = Arc::new({
-        let mut engine =
-            portfolio_supervisor::paper_trading::PaperTradingEngine::new(
-                portfolio_supervisor::paper_trading::FeesConfig {
-                    maker_fee_pct: workspace.fees.maker_fee_pct,
-                    taker_fee_pct: workspace.fees.taker_fee_pct,
-                    funding_rate_8h: workspace.fees.funding_rate_8h,
-                    simulated_spread_pct: 0.01,
-                },
-            );
-        engine.set_db(Arc::new(db_pool.clone()));
-        engine
-    });
+    // ── TAE v7: unified execution engine — equity seeding ─────────────
+    // v9 (F-07): ONE portfolio-wide capital dial — the ledger seeds from
+    // `[workspace] portfolio_capital_usd` (no per-instance capital).
     {
-        let total_capital: f64 = workspace
-            .instances
-            .iter()
-            .map(|e| e.initial_capital_usd)
-            .sum();
+        let total_capital: f64 = workspace.portfolio_capital_usd;
         if total_capital > 0.0 {
-            *paper_engine.equity.write().await = rust_decimal::Decimal::from_f64_retain(total_capital).unwrap_or(rust_decimal_macros::dec!(10000));
+            execution_engine
+                .set_initial_equity(
+                    rust_decimal::Decimal::from_f64_retain(total_capital)
+                        .unwrap_or(rust_decimal_macros::dec!(10000)),
+                )
+                .await;
         }
     }
 
-    if !workspace.execution_policies.is_empty() {
+    let tae_enabled = workspace.minimal_tae.enabled;
+    if tae_enabled {
         println!(
-            "⚡ TAE: Initialized with {} execution policies",
-            workspace.execution_policies.len()
+            "⚡ TAE v8.2: Setup executor enabled (allocation={}%, min_rr={}, max_positions={})",
+            workspace.minimal_tae.allocation_pct,
+            workspace.minimal_tae.min_net_rr,
+            workspace.minimal_tae.max_open_positions
+        );
+    }
+
+    // ── Phase E1 (v7.1): live trading bootstrap ──────────────────────
+    // When any instance declares `mode = "live"`, load the active credential
+    // for the workspace exchange from the encrypted `exchange_keys` table and
+    // swap the engine onto the venue broker (Hyperliquid or Bitget). Fills
+    // then arrive from the venue (REST-polled in the executor loop) instead
+    // of the simulation.
+    let any_live = workspace
+        .instances
+        .iter()
+        .any(|i| i.mode == config_models::ExecutionMode::Live);
+    if any_live {
+        let live_quote = workspace
+            .instances
+            .iter()
+            .find(|i| i.mode == config_models::ExecutionMode::Live)
+            .map(|i| i.quote.clone())
+            .filter(|q| !q.is_empty())
+            .unwrap_or_else(|| workspace.default_currency.clone());
+
+        let (address_or_key, secret_enc, passphrase_opt) = match workspace.default_exchange.as_str()
+        {
+            "Hyperliquid" => {
+                let key_row = match sqlx::query_as::<_, (String, String, String)>(
+                    "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+                         WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+                )
+                .fetch_optional(&db_pool)
+                .await
+                {
+                    Ok(row) => row,
+                    Err(e) => {
+                        eprintln!("❌ Live-mode key query failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                match key_row {
+                    Some((key, secret, _pass)) => (key, secret, None),
+                    None => {
+                        eprintln!(
+                            "❌ mode = \"live\" requires an active Hyperliquid API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "Bitget" => {
+                let key_row = match sqlx::query_as::<_, (String, String, String)>(
+                    "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+                         WHERE exchange = 'Bitget' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+                )
+                .fetch_optional(&db_pool)
+                .await
+                {
+                    Ok(row) => row,
+                    Err(e) => {
+                        eprintln!("❌ Live-mode key query failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                match key_row {
+                    Some((key, secret, pass)) => {
+                        if pass.is_empty() {
+                            eprintln!(
+                                "❌ mode = \"live\" (Bitget) requires a passphrase — \
+                                     re-add the key with a passphrase"
+                            );
+                            std::process::exit(1);
+                        }
+                        (key, secret, Some(pass))
+                    }
+                    None => {
+                        eprintln!(
+                            "❌ mode = \"live\" requires an active Bitget API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+            other => {
+                eprintln!(
+                    "❌ mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
+                    other
+                );
+                std::process::exit(1);
+            }
+        };
+
+        let secret = match database_storage::crypto::decrypt_field(&secret_enc) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("❌ Failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?): {e}");
+                std::process::exit(1);
+            }
+        };
+
+        let broker: Box<dyn portfolio_supervisor::execution::ExecutionBackend> = if workspace
+            .default_exchange
+            .eq_ignore_ascii_case("Hyperliquid")
+        {
+            Box::new(portfolio_supervisor::execution::backend::LiveBroker::new(
+                address_or_key,
+                secret,
+                true,
+                None,
+            ))
+        } else {
+            let product_type =
+                network_adapters::adapters::bitget_live::product_type_from_quote(&live_quote)
+                    .to_string();
+            Box::new(
+                portfolio_supervisor::execution::backend::BitgetLiveBroker::new(
+                    address_or_key,
+                    secret,
+                    passphrase_opt.unwrap_or_default(),
+                    product_type,
+                ),
+            )
+        };
+        execution_engine.set_live_backend(broker).await;
+        println!(
+            "🔴 TAE v7.1: LIVE mode active — orders dispatch to {}",
+            workspace.default_exchange
         );
     }
 
@@ -998,7 +1636,7 @@ async fn main() {
                 ntp_servers: clock_cfg.ntp_servers.clone(),
                 poll_interval: std::time::Duration::from_secs(clock_cfg.poll_interval_secs),
                 threshold: std::time::Duration::from_micros(
-                    clock_cfg.threshold_micros.max(0) as u64,
+                    clock_cfg.threshold_micros.max(0) as u64
                 ),
                 breach_action: match clock_cfg.breach_action {
                     ClockMonitorBreachAction::Warn => BreachAction::Warn,
@@ -1009,7 +1647,9 @@ async fn main() {
                 query_timeout: std::time::Duration::from_secs(clock_cfg.query_timeout_secs),
             };
             let monitor = Arc::new(ClockMonitor::new(monitor_cfg));
-            Arc::get_mut(&mut app_state).unwrap().clock_monitor = Some(monitor.clone());
+            Arc::get_mut(&mut app_state)
+                .expect("AppState not yet shared — clock monitor must be set before build_router")
+                .clock_monitor = Some(monitor.clone());
             println!(
                 "🕒 Clock Monitor: starting NTP polling ({} servers, threshold={}µs)",
                 clock_cfg.ntp_servers.len(),
@@ -1022,334 +1662,296 @@ async fn main() {
         println!("🕒 Clock Monitor: no [clock_monitor] section — drift enforcement disabled");
     }
 
-    let app = build_router(app_state.clone());
-
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     handles.push(logger_handle);
 
-    // ── PME Veto Loop ────────────────────────────────────────────────
-    let (veto_tx, mut veto_rx) = tokio::sync::mpsc::channel::<portfolio_supervisor::veto_loop::VetoEvent>(64);
+    // ── v10 DS export layer (./ds/) ────────────────────────────────────
     {
-        let veto_workspace = workspace_state.clone();
-        let veto_paper = paper_engine.clone();
-        let veto_overview = app_state.overview.clone();
-        handles.push(portfolio_supervisor::veto_loop::spawn_veto_loop(
-            veto_workspace,
-            veto_paper,
-            veto_overview,
-            veto_tx,
-        ));
-    }
-    println!("🛡️  PME: Veto safety loop started (5s cadence)");
-
-    // ── TAE event loop ──────────────────────────────────────────────
-    if !workspace.execution_policies.is_empty() {
-        let tae_policy = policy_engine.clone();
-        let tae_exec = execution_engine.clone();
-        let tae_paper = paper_engine.clone();
-        let tae_workspace = workspace_state.clone();
-        let tae_cancel = CancellationToken::new();
-        let tae_pool = db_pool.clone();
+        let ds_cfg = workspace.data_science.clone();
+        let ds_pool = db_pool.clone();
+        let ds_meta = execution_daemon::ds_exporter::DsSessionMeta {
+            session_id: session_number.unwrap_or(0),
+            mode: session_mode.clone(),
+            exchange: workspace.default_exchange.clone(),
+            currency: workspace.default_currency.clone(),
+            capital: workspace.portfolio_capital_usd,
+            started_at_ms: session_started_ms,
+            config_snapshot: serde_json::to_value(&workspace).unwrap_or(serde_json::Value::Null),
+            // v10.1: the operator's TAE-activation intent at launch
+            // (CLI prompt / --tae-on; web sessions activate per instance).
+            tae_activated: cli_plan.as_ref().map(|p| p.tae_on).unwrap_or(false),
+        };
         handles.push(tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(5));
+            execution_daemon::ds_exporter::run_ds_exporter(ds_pool, ds_rx, ds_cfg, ds_meta).await;
+        }));
+    }
+
+    // ── TAE v7: Setup Executor loop ───────────────────────────────────
+    if tae_enabled {
+        let tae_engine = execution_engine.clone();
+        let tae_executor = setup_executor.clone();
+        let tae_workspace = workspace_state.clone();
+        let tae_overview = app_state.overview.clone();
+        let tae_cancel = CancellationToken::new();
+        handles.push(tokio::spawn(async move {
+            let executor = tae_executor;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             let mut funding_tick: u64 = 0;
             let funding_interval_secs: u64 = 8 * 3600; // 8h funding settlement
 
-            // Trigger engine: track candle completions per timeframe
-            let candle_counters: std::sync::Arc<tokio::sync::RwLock<
-                std::collections::HashMap<String, u32>,
-            >> = std::sync::Arc::new(tokio::sync::RwLock::new(
-                std::collections::HashMap::new(),
-            ));
-
-            // Per-timeframe last-candle counters for CandleClose triggers
-            let mut last_seen_candles: std::collections::HashMap<String, u32> =
-                std::collections::HashMap::new();
+            // Boot-time recovery: log recovery-flatten for persisted open state.
+            {
+                let instances = tae_workspace.list().await;
+                for inst in &instances {
+                    executor.recover(&inst.id, &inst.symbol()).await;
+                }
+            }
 
             loop {
                 tokio::select! {
                     _ = tae_cancel.cancelled() => break,
                     _ = interval.tick() => {
-                        let now_secs = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs();
-
-                        // Periodic funding rate settlement
-                        funding_tick += 5;
+                        funding_tick += 1;
                         if funding_tick >= funding_interval_secs {
-                            tae_paper.settle_funding().await;
+                            tae_engine.settle_funding().await;
                             funding_tick = 0;
                         }
 
                         let instances = tae_workspace.list().await;
                         for inst in instances {
-                            let snapshot_guard = inst.micro.latest.read().await;
-                            let mut lifecycle = inst.lifecycle.write().await;
+                            let symbol = inst.symbol();
 
-                            // Evaluate automation conditions
-                            let current_price = snapshot_guard.as_ref()
-                                .and_then(|s| s.close.as_ref())
-                                .and_then(|c| c.to_string().parse::<f64>().ok());
-                            let auto_actions = lifecycle.evaluate_automation(current_price);
-                            for action in auto_actions {
-                                match action {
-                                    portfolio_supervisor::lifecycle::AutomationAction::Start => {
-                                        let _ = lifecycle.start("automation", Some("Auto start condition".into()));
-                                        eprintln!("🤖 LIFECYCLE: Auto-started instance {}", inst.id);
-                                    }
-                                    portfolio_supervisor::lifecycle::AutomationAction::Pause => {
-                                        let _ = lifecycle.pause("automation", Some("Auto pause condition".into()));
-                                        eprintln!("🤖 LIFECYCLE: Auto-paused instance {}", inst.id);
-                                    }
-                                    portfolio_supervisor::lifecycle::AutomationAction::Stop => {
-                                        let _ = lifecycle.stop("automation", Some("Auto stop condition".into()));
-                                        eprintln!("🤖 LIFECYCLE: Auto-stopped instance {}", inst.id);
-                                    }
-                                }
+                            // Gather the latest completed snapshot of each TF.
+                            let mut guards: Vec<tokio::sync::RwLockReadGuard<
+                                Option<core_domain::models::MarketSnapshot>,
+                            >> = Vec::new();
+                            for buf in [&inst.micro, &inst.fast, &inst.slow, &inst.r#macro] {
+                                guards.push(buf.latest.read().await);
+                            }
+                            let snaps: Vec<&core_domain::models::MarketSnapshot> =
+                                guards.iter().filter_map(|g| g.as_ref()).collect();
+                            if snaps.is_empty() {
+                                continue;
                             }
 
-                            let lifecycle_state = lifecycle.state;
+                            let mid = snaps
+                                .iter()
+                                .find_map(|s| {
+                                    if s.mid_price > rust_decimal_macros::dec!(0) {
+                                        Some(s.mid_price)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or_else(|| snaps[0].mid_price);
 
-                            // ── STOPPING → STOPPED auto-transition ──
-                            if lifecycle_state == config_models::LifecycleState::Stopping {
-                                let paper_positions = tae_paper.positions.read().await;
-                                let has_positions = paper_positions.contains_key(&inst.symbol());
-                                drop(paper_positions);
-                                let orders = tae_exec.orders.read().await;
-                                let has_open_orders = orders.iter().any(
-                                    |(_, o)| o.packet.symbol == inst.symbol()
-                                        && o.status != config_models::OrderStatus::Closed
-                                        && o.status != config_models::OrderStatus::Cancelled
-                                        && o.status != config_models::OrderStatus::Rejected
-                                );
-                                drop(orders);
-                                if !has_positions && !has_open_orders {
-                                    let _ = lifecycle.complete_stop().await;
-                                    eprintln!("🛑 LIFECYCLE: Instance {} → STOPPED (flatten confirmed)", inst.id);
-                                    drop(lifecycle);
-                                    continue;
-                                }
+                            // Lifecycle automation conditions (auto start/pause/stop).
+                            {
+                                let mut lifecycle = inst.lifecycle.write().await;
+                                let current_price = snaps
+                                    .iter()
+                                    .find_map(|s| s.close.as_ref())
+                                    .and_then(|c| c.to_string().parse::<f64>().ok());
+                                let auto_actions = lifecycle.evaluate_automation(current_price);
                                 drop(lifecycle);
+                                for action in auto_actions {
+                                    let mut lc = inst.lifecycle.write().await;
+                                    match action {
+                                        portfolio_supervisor::lifecycle::AutomationAction::Start => {
+                                            let _ = lc
+                                                .start("automation", Some("Auto start condition".into()))
+                                                .await;
+                                            eprintln!("🤖 LIFECYCLE: Auto-started instance {}", inst.id);
+                                        }
+                                        portfolio_supervisor::lifecycle::AutomationAction::Pause => {
+                                            let _ = lc
+                                                .pause("automation", Some("Auto pause condition".into()))
+                                                .await;
+                                            eprintln!("🤖 LIFECYCLE: Auto-paused instance {}", inst.id);
+                                        }
+                                        portfolio_supervisor::lifecycle::AutomationAction::Stop => {
+                                            let _ = lc
+                                                .stop("automation", Some("Auto stop condition".into()))
+                                                .await;
+                                            eprintln!("🤖 LIFECYCLE: Auto-stopped instance {}", inst.id);
+                                        }
+                                    }
+                                }
+                            }
+
+                            let lifecycle_state = {
+                                let lc = inst.lifecycle.read().await;
+                                lc.state
+                            };
+
+                            // STOPPING → STOPPED: flatten at market, then complete.
+                            if lifecycle_state == config_models::LifecycleState::Stopping {
+                                tae_engine.cancel_orders_for_symbol(&symbol).await;
+                                let _ = tae_engine
+                                    .close_position(&symbol, mid, "stop_flatten")
+                                    .await;
+                                let has_position =
+                                    tae_engine.get_position(&symbol).await.is_some();
+                                if !has_position {
+                                    let mut lc = inst.lifecycle.write().await;
+                                    let _ = lc.complete_stop().await;
+                                    eprintln!("🛑 LIFECYCLE: Instance {} → STOPPED (flatten confirmed)", inst.id);
+                                }
                                 continue;
                             }
 
-                            drop(lifecycle);
+                            let lifecycle_running =
+                                lifecycle_state == config_models::LifecycleState::Running;
 
-                            // Skip if STOPPED (no new triggers)
-                            if lifecycle_state == config_models::LifecycleState::Stopped {
-                                continue;
-                            }
+                            // Safety soft gate: no new entries in DRAWDOWN_STOP/SUSPENDED.
+                            let safety_state = *inst.safety.safety_state.read().await;
+                            let safety_allows = safety_state != SafetyState::DrawdownStop
+                                && safety_state != SafetyState::Suspended;
 
-                            // ── Process PME veto events (VetoHandler-driven) ──
-                            let mut veto_handlers: Vec<portfolio_supervisor::policy::veto::VetoHandler> = Vec::new();
-                            while let Ok(veto) = veto_rx.try_recv() {
-                                if veto.instance_id != inst.id {
-                                    continue;
+                            let candle_ts = snaps.iter().map(|s| s.timestamp).max().unwrap_or(0);
+
+                            // v7.1+: Observe instances are market-monitoring
+                            // only — no fills processing. The setup executor
+                            // still evaluates in ghost mode (`dispatch: false`)
+                            // so the radar can show would-be setups, but it
+                            // never dispatches orders for them.
+                            let is_observe = inst.execution_mode().await
+                                == config_models::ExecutionMode::Observe;
+
+                            // BTE v8 parity: the per-tick session body lives
+                            // in `run_tick` — the SAME function the backtest
+                            // runner drives with recorded/archived snapshots.
+                            // The daemon only decides the fill source.
+                            let live_fills = if !is_observe
+                                && tae_engine.mode().await == config_models::ExecutionMode::Live
+                            {
+                                match tae_engine.backend.read().await.poll_fills().await {
+                                    Ok(fills) => Some(fills),
+                                    Err(e) => {
+                                        eprintln!("⚠️  LIVE poll_fills transient error (retry next tick): {e}");
+                                        None
+                                    }
                                 }
-                                eprintln!(
-                                    "⚡ TAE: Processing veto for {} — stance={:?} hard_exit={}",
-                                    veto.symbol, veto.target_stance, veto.hard_exit
+                            } else {
+                                None
+                            };
+                            // v9: strategy intake gates — breadth floor,
+                            // systemic veto (enforced when the strategy's
+                            // `pme.enforce_systemic_veto` is on), margin
+                            // close-only, exposure caps. All veto OFF by
+                            // default (default strategy), configurable per
+                            // strategy. The gates follow the INSTANCE's
+                            // bound strategy (`instances[].strategy`), not
+                            // the workspace default.
+                            let strategy_now = {
+                                let cfg = tae_workspace.config().await;
+                                let bound = workspace
+                                    .instances
+                                    .iter()
+                                    .find(|e| e.symbol == symbol)
+                                    .and_then(|e| e.strategy.clone())
+                                    .unwrap_or_else(|| "default".to_string());
+                                cfg.resolve_strategy(&bound).unwrap_or_default()
+                            };
+                            let overview = tae_overview.read().await.clone();
+                            let breadth_pct = overview.as_ref().map(|o| o.breadth_pct).unwrap_or(0.0);
+                            let systemic_risk = overview
+                                .as_ref()
+                                .map(|o| o.systemic_risk_score)
+                                .unwrap_or(0.0);
+                            let (market_filter_allows, block_reason) =
+                                portfolio_supervisor::strategy_gates::evaluate_intake_gates(
+                                    &strategy_now,
+                                    breadth_pct,
+                                    systemic_risk,
                                 );
-
-                                let prev_stance = inst.stances.read().await
-                                    .get(&veto.symbol).copied().unwrap_or(config_models::Stance::Active);
-
-                                let mut handler = portfolio_supervisor::policy::veto::VetoHandler::new(2000);
-                                handler.initiate(portfolio_supervisor::policy::veto::VetoEvent {
-                                    symbol: veto.symbol.clone(),
-                                    target_stance: veto.target_stance,
-                                    reason: veto.reason.clone(),
-                                    timestamp_ms: veto.timestamp_ms,
-                                });
-
-                                // Step 2a: Hard Exit (AVOID only) — BEFORE stance change
-                                if handler.needs_hard_exit() {
-                                    tae_exec.hard_exit_for_symbol(&veto.symbol).await;
-                                    eprintln!("🔥 VETO: Hard Exit dispatched for {}", veto.symbol);
-                                }
-                                handler.advance_phase(); // → DiscardPending
-                                handler.advance_phase(); // → CommitStance
-
-                                // Step 2c: Commit stance change
-                                let mut stances = inst.stances.write().await;
-                                stances.insert(veto.symbol.clone(), veto.target_stance);
-                                drop(stances);
-                                handler.advance_phase(); // → CancelRemaining
-
-                                // Step 2d: Cancel remaining orders
-                                tae_exec.cancel_all_orders(&veto.symbol).await;
-                                handler.advance_phase(); // → NullifyEntry
-                                handler.advance_phase(); // → Audit
-
-                                // Step 2f: Audit log
-                                let log = portfolio_supervisor::policy::veto::VetoLog::new(
-                                    &portfolio_supervisor::policy::veto::VetoEvent {
-                                        symbol: veto.symbol.clone(),
-                                        target_stance: veto.target_stance,
-                                        reason: veto.reason.clone(),
-                                        timestamp_ms: veto.timestamp_ms,
-                                    },
-                                    prev_stance,
-                                    veto.hard_exit,
-                                );
-                                eprintln!(
-                                    "📋 VETO LOG: symbol={} from={:?} to={:?} reason={} hard_exit={}",
-                                    log.symbol, log.from_stance, log.to_stance, log.reason, log.hard_exit_dispatched
-                                );
-
-                                let _ = sqlx::query(
-                                    "INSERT INTO risk_control_events (instance_id, symbol, gate_id, decision, reason, timestamp_ms) VALUES (?, ?, ?, ?, ?, ?)"
+                            // v9 PME portfolio-state gates (enforced only
+                            // when the strategy's `pme.exposure.enforce.*` /
+                            // `pme.capital.enforce_margin_close_only`
+                            // flags are on).
+                            let (portfolio_allows, portfolio_block) = {
+                                let positions = tae_engine.positions.read().await;
+                                let equity = tae_engine.get_equity().await.max(1.0);
+                                let leverage = (*tae_engine.cross_leverage.read().await)
+                                    .to_f64()
+                                    .unwrap_or(1.0);
+                                let gross: f64 = positions
+                                    .values()
+                                    .map(|p| {
+                                        let size = p.size.to_f64().unwrap_or(0.0);
+                                        let px = p.entry_price.to_f64().unwrap_or(0.0);
+                                        size * px
+                                    })
+                                    .sum();
+                                let single: f64 = positions
+                                    .get(symbol.as_str())
+                                    .map(|p| {
+                                        let size = p.size.to_f64().unwrap_or(0.0);
+                                        let px = p.entry_price.to_f64().unwrap_or(0.0);
+                                        size * px
+                                    })
+                                    .unwrap_or(0.0);
+                                drop(positions);
+                                let single_pct = single / equity * 100.0;
+                                let portfolio_pct = gross / equity * 100.0;
+                                let margin_ratio =
+                                    (gross / leverage.max(1.0)) / equity;
+                                portfolio_supervisor::strategy_gates::evaluate_portfolio_gates(
+                                    &strategy_now,
+                                    single_pct,
+                                    portfolio_pct,
+                                    margin_ratio,
                                 )
-                                .bind(&inst.id)
-                                .bind(&veto.symbol)
-                                .bind(7i64)
-                                .bind("VETO_BLOCK")
-                                .bind(&veto.reason)
-                                .bind(veto.timestamp_ms as i64)
-                                .execute(&tae_pool)
-                                .await;
-
-                                veto_handlers.push(handler);
-                            }
-
-                            if let Some(ref snap) = *snapshot_guard {
-                                if snap.is_completed != Some(true) {
-                                    continue;
-                                }
-
-                                // Track candle completions for CandleClose triggers
-                                let timeframe_label = &snap.symbol;
-                                {
-                                    let mut counters = candle_counters.write().await;
-                                    let count = counters.entry(timeframe_label.clone())
-                                        .and_modify(|c| *c += 1)
-                                        .or_insert(1);
-                                    last_seen_candles.insert(timeframe_label.clone(), *count);
-                                }
-
-                                let stances = inst.stances.read().await;
-                                let symbol = snap.symbol.clone();
-                                let stance = stances.get(&symbol).copied()
-                                    .unwrap_or(config_models::Stance::Active);
-
-                                // Sync safety state from instance to execution engine
-                                {
-                                    let safety_state = *inst.safety.safety_state.read().await;
-                                    let safety_str = format!("{:?}", safety_state);
-                                    tae_exec.set_safety_state(&safety_str).await;
-                                }
-
-                                // Auto-pause policies for symbols in Cautious/Suspended safety states
-                                {
-                                    let safety_state = *inst.safety.safety_state.read().await;
-                                    let should_auto_pause = matches!(
-                                        safety_state,
-                                        SafetyState::Cautious
-                                            | SafetyState::Suspended
-                                    );
-                                    let policy_ids: Vec<String> = {
-                                        let policy = tae_policy.read().await;
-                                        policy.get_active_stance_policies()
-                                            .iter()
-                                            .filter(|p| p.symbol == symbol)
-                                            .map(|p| p.policy_id.clone())
-                                            .collect()
-                                    };
-                                    if !policy_ids.is_empty() {
-                                        let mut policy = tae_policy.write().await;
-                                        for pid in &policy_ids {
-                                            policy.set_policy_auto_paused(pid, should_auto_pause);
-                                            if should_auto_pause {
-                                                eprintln!("⏸️  POLICY AUTO_PAUSED: policy={} symbol={} safety={:?}", pid, symbol, safety_state);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Check which policies are due per their TriggerMode
-                                let candles_completed = last_seen_candles
-                                    .get(timeframe_label).copied().unwrap_or(0);
-                                let pending_events: Vec<String> = vec![]; // EventDriven events would come from MME
-
-                                let policies_due: Vec<config_models::ExecutionPolicy> = {
-                                    let policy = tae_policy.read().await;
-                                    policy.get_active_stance_policies()
+                            };
+                            let market_filter_allows = market_filter_allows && portfolio_allows;
+                            let block_reason = block_reason.or(portfolio_block);
+                            let outcome = portfolio_supervisor::execution::session_tick::run_tick(
+                                &tae_engine,
+                                &executor,
+                                &inst.id,
+                                &symbol,
+                                &snaps,
+                                mid,
+                                portfolio_supervisor::setup_executor::TickContext {
+                                    safety_allows_entry: safety_allows,
+                                    lifecycle_running,
+                                    candle_ts,
+                                    safety: Some(inst.safety.clone()),
+                                    dispatch: !is_observe,
+                                    market_filter_allows_entry: market_filter_allows,
+                                    entry_block_reason: block_reason,
+                                    // v8.2: per-instance allocation override
+                                    // (falls back to the global allocation_pct).
+                                    allocation_pct: workspace
+                                        .instances
                                         .iter()
-                                        .filter(|p| {
-                                            policy.is_policy_due(
-                                                &p.policy_id,
-                                                &p.trigger_mode,
-                                                now_secs,
-                                                candles_completed,
-                                                &pending_events,
-                                            )
-                                        })
-                                        .map(|&p| p.clone())
-                                        .collect()
-                                };
+                                        .find(|e| e.symbol == symbol)
+                                        .and_then(|e| e.allocation_pct),
+                                    // v9: bound strategy snapshot (frozen at
+                                    // entry; drives intake gates + exits).
+                                    strategy: Some(strategy_now.clone()),
+                                },
+                                live_fills,
+                                false,
+                            )
+                            .await;
 
-                                if !policies_due.is_empty() {
-                                    let triggers = {
-                                        let mut policy = tae_policy.write().await;
-                                        let triggers = policy.evaluate_policies(snap, now_secs);
-                                        for due_policy in &policies_due {
-                                            if matches!(due_policy.trigger_mode, config_models::TriggerMode::Interval { .. }) {
-                                                policy.mark_interval_evaluated(&due_policy.policy_id, now_secs);
-                                            }
-                                        }
-                                        triggers
-                                    };
-
-                                    for trigger in &triggers {
-                                        match tae_exec.process_trigger(
-                                            trigger, snap,
-                                            lifecycle_state, stance,
-                                        ).await {
-                                            Ok(Some(order_id)) => {
-                                                let lifecycle = tae_exec.orders.read().await
-                                                    .get(&order_id)
-                                                    .map(|o| o.status);
-                                                let is_pre_dispatch = lifecycle == Some(config_models::OrderStatus::PreDispatch);
-                                                if !is_pre_dispatch {
-                                                    let packet = tae_exec.orders.read().await
-                                                        .get(&order_id)
-                                                        .map(|o| o.packet.clone());
-                                                    if let Some(pkt) = packet {
-                                                        let _ = tae_paper.submit_order(
-                                                            pkt,
-                                                            snap.mid_price,
-                                                        ).await;
-                                                    }
-                                                }
-                                            }
-                                            Ok(None) => {}
-                                            Err(e) => {
-                                                eprintln!("TAE: trigger error: {}", e);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Evaluate pending paper order fills
-                            if let Some(ref snap) = *snapshot_guard {
-                                let _fills = tae_paper.evaluate_order_fills(snap.mid_price).await;
-                            }
-
-                            // Sync paper engine equity back to instance trading state
-                            let current_equity = tae_paper.get_equity().await;
+                            // Equity sync + PME informational safety update
+                            // (peak equity, daily PnL, WARN / DRAWDOWN_STOP).
+                            let current_equity = outcome.equity;
                             inst.set_current_equity(current_equity).await;
-                            inst.safety.set_current_equity(
-                                rust_decimal::Decimal::from_f64_retain(current_equity)
-                                    .unwrap_or_default(),
-                            ).await;
+                            inst.safety
+                                .update(
+                                    rust_decimal::Decimal::from_f64_retain(current_equity)
+                                        .unwrap_or_default(),
+                                )
+                                .await;
                         }
                     }
                 }
             }
         }));
+        println!("⚡ TAE v7: Setup executor loop started (1s cadence)");
     }
 
     // ── L7 Overview aggregation task ──────────────────────────
@@ -1367,6 +1969,12 @@ async fn main() {
                 let mut advisories: Vec<core_domain::advisory::AdvisoryMatrix> = Vec::new();
                 let mut alignments: Vec<core_domain::alignment::AlignmentMatrix> = Vec::new();
                 let mut metas: Vec<core_domain::overview::InstanceMeta> = Vec::new();
+                // v7.2 parity: the panel builder consumes the SAME per-TF
+                // snapshots below (fastest-present reference window) so the
+                // hero / rows / buckets are derived from the identical data
+                // the L7 aggregates read.
+                let mut panel_instances: Vec<core_domain::overview_panel::PanelInstance> =
+                    Vec::new();
                 for inst in &instances {
                     let snapshots = inst.active_pair.latest_snapshots_all_tf().await;
                     // v6.10.18 (I-2): the L7 aggregates ALL FOUR timeframe
@@ -1392,7 +2000,18 @@ async fn main() {
                         snapshots.2.as_ref(),
                         snapshots.3.as_ref(),
                     ];
-                    let is_active = !inst.cancel.is_cancelled();
+                    // Audit fix (M6): `instance_count`/`is_active` must
+                    // reflect actual monitoring — the previous `!cancel`
+                    // check only flipped on delete/recharge, so a
+                    // lifecycle-STOPPED instance kept counting as active
+                    // and its stale TF windows kept feeding breadth/bias.
+                    // STOPPED/STOPPING instances are no longer active;
+                    // PAUSED instances stay counted (pipelines keep
+                    // running, the operator can resume).
+                    let lifecycle_state = inst.lifecycle.read().await.current();
+                    let is_active = !inst.cancel.is_cancelled()
+                        && lifecycle_state != config_models::LifecycleState::Stopped
+                        && lifecycle_state != config_models::LifecycleState::Stopping;
                     // v6.10.19 (P7): per-TF-window risk pairs with decay
                     // weights (micro 0.1 / fast 0.2 / slow 0.3 / macro
                     // 0.4) — the L7 SYSTEMIC path must stay anchored to
@@ -1424,7 +2043,16 @@ async fn main() {
                         }
                     }
                     metas.push(core_domain::overview::InstanceMeta {
-                        symbol: inst.pair.1.clone(),
+                        // Audit fix (C1): `inst.pair.1` is the QUOTE currency
+                        // ("USDT"/"USDC"), not the symbol. compute_overview
+                        // keys risk bins / AssetRank / active_symbols by this
+                        // value, so the quote-keyed symbol made every risk
+                        // lookup miss (fallback 50.0 → always MODERATE /
+                        // HIGH_RISK) and injected the quote into
+                        // active_symbols. The canonical runtime symbol is
+                        // `inst.symbol()` (active_pair.symbol, e.g.
+                        // "BTC-USDT").
+                        symbol: inst.symbol(),
                         timeframe_secs: 300,
                         timeframe_label: "tf-average".into(),
                         is_active,
@@ -1442,9 +2070,54 @@ async fn main() {
                         ),
                         risk_windows,
                     });
+                    // v7.2 parity: feed the panel builder the present
+                    // snapshots (fastest first) + lifecycle-active flag.
+                    let present_snaps: Vec<core_domain::models::MarketSnapshot> = snaps
+                        .iter()
+                        .filter_map(|s| s.as_ref().map(|x| (*x).clone()))
+                        .collect();
+                    panel_instances.push(core_domain::overview_panel::PanelInstance {
+                        symbol: inst.symbol(),
+                        snapshots: present_snaps,
+                        is_active,
+                        // rank score is attached after compute_overview.
+                        rank_score: 0.0,
+                    });
                 }
-                let overview =
-                    core_domain::overview::compute_overview(&advisories, &metas, &alignments);
+                // v9: the L7 params come from the effective default strategy.
+                let overview_params = {
+                    let ws = workspace.config().await;
+                    ws.default_strategy()
+                        .map(|st| {
+                            market_analyzer::strategy_params::overview_params_from_strategy(&st.l7)
+                        })
+                        .unwrap_or_default()
+                };
+                let mut overview = core_domain::overview::compute_overview(
+                    &advisories,
+                    &metas,
+                    &alignments,
+                    &overview_params,
+                );
+                // v7.2 parity: canonical AssetRank scores → the panel rows,
+                // then merge the server-computed panel payload into the
+                // matrix. Both the dashboard and the CLI renderer read the
+                // merged fields — one producer, one result.
+                let ranks: std::collections::HashMap<String, f64> = overview
+                    .asset_ranking
+                    .iter()
+                    .map(|r| (r.symbol.clone(), r.score))
+                    .collect();
+                for pi in &mut panel_instances {
+                    pi.rank_score = ranks.get(&pi.symbol).copied().unwrap_or(0.0);
+                }
+                let panel =
+                    core_domain::overview_panel::build_overview_panel(&panel_instances, &ranks);
+                overview.hero = panel.hero;
+                overview.overview_rows = panel.rows;
+                overview.signal_quality = panel.signal_quality;
+                overview.direction_distribution = panel.direction_distribution;
+                overview.market_health_dims = panel.market_health_dims;
                 *overview_ref.write().await = Some(overview);
             }
         }));
@@ -1466,27 +2139,114 @@ async fn main() {
         }));
     }
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .expect("❌ Web Server Setup: Failed to bind port 3000");
+    // ── Launch surface: CLI terminal monitor vs web server ──────────
+    //
+    // CLI mode binds NO HTTP server (lighter — no GUI, no WS surface) and
+    // runs the periodic terminal monitor over the same L7 overview the
+    // dashboard would render. `--save` flips the snapshot-export runtime on.
+    if matches!(cli.mode, LaunchMode::Cli) {
+        if cli.save_snapshots {
+            let mut rt = snapshot_export_runtime.write().await;
+            rt.enabled = true;
+            if rt.output_path.is_empty() {
+                rt.output_path = "./snapshots".to_string();
+            }
+            println!("💾 Snapshot export ENABLED (--save) → {}", rt.output_path);
+        }
+        let (ex_label, cur_label) = match &cli_plan {
+            Some(plan) => (plan.exchange.as_str(), plan.currency.as_str()),
+            None => (
+                workspace.default_exchange.as_str(),
+                workspace.default_currency.as_str(),
+            ),
+        };
+        let tae_marker = if cli_plan.as_ref().map(|p| p.tae_on).unwrap_or(false) {
+            "TAE: ON"
+        } else {
+            "TAE: OFF"
+        };
+        let cli_mode_label = cli_plan
+            .as_ref()
+            .map(|p| p.trading.as_str())
+            .unwrap_or(cli.trading.as_deref().unwrap_or("observe"));
+        let session_line = match session_number {
+            Some(n) => format!(
+                "SESSION #{:04} · {} · {tae_marker} · {} · {}",
+                n, cli_mode_label, ex_label, cur_label
+            ),
+            None => format!(
+                "SESSION #---- · {} · {tae_marker} · {} · {}",
+                cli_mode_label, ex_label, cur_label
+            ),
+        };
+        handles.push(tokio::spawn(
+            execution_daemon::cli_renderer::run_terminal_monitor(
+                app_state.overview.clone(),
+                workspace_state.clone(),
+                db_pool.clone(),
+                cli.interval_secs,
+                session_line,
+                CancellationToken::new(),
+            ),
+        ));
+    } else {
+        let app = build_router(app_state.clone());
+        let bind_addr = format!("{server_bind}:{server_port}");
+        let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!(
+                    "❌ Web Server Setup: Failed to bind {bind_addr} ({e}). \
+                     Another session may already use this port — set a distinct \
+                     `[server] port` (or PLATFORM_PORT / --port) per folder."
+                );
+                std::process::exit(1);
+            }
+        };
 
-    println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
+        println!("🌐 Web Server Setup: Dashboard live at http://{bind_addr}");
 
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
-    });
-    handles.push(server_handle);
+        let server_handle = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                eprintln!("❌ Web Server Setup: Fatal crash running Axum HTTP server: {e}");
+                std::process::exit(1);
+            }
+        });
+        handles.push(server_handle);
+    }
 
     let eval_cancel = CancellationToken::new();
     let eval_cancel1 = eval_cancel.clone();
     let pae_pool = db_pool.clone();
+    // v10.1: the live pipeline honors the configured verdict bar + risk-free
+    // rate from the default strategy's `pae` section (was hardcoded defaults).
+    // (Re-reads the config here — `workspace` was moved into earlier tasks.)
+    let pae_analytics_params = {
+        let ws = match load_workspace() {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("❌ PAE: failed to reload workspace config: {e}");
+                std::process::exit(1);
+            }
+        };
+        performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(
+            &ws.default_strategy().unwrap_or_default().pae,
+        )
+    };
+    let pae_rf_pct = load_workspace()
+        .map(|ws| {
+            ws.default_strategy()
+                .map(|s| s.pae.risk_math.risk_free_rate_pct)
+                .unwrap_or(0.0)
+        })
+        .unwrap_or(0.0);
     handles.push(tokio::spawn(async move {
         performance_evaluator::run_performance_evaluator(performance_evaluator::EvaluatorConfig {
             pool: pae_pool,
             cancel: eval_cancel1,
             eval_interval_secs: 300,
+            analytics_params: pae_analytics_params,
+            risk_free_rate_pct: pae_rf_pct,
         })
         .await;
     }));
@@ -1511,20 +2271,63 @@ async fn main() {
 
     let eq_pool = db_pool.clone();
     let eq_cancel = eval_cancel.clone();
+    let eq_engine = execution_engine.clone();
     handles.push(tokio::spawn(async move {
-        portfolio_equity::run_portfolio_equity_logger(eq_pool, eq_cancel).await;
+        portfolio_equity::run_portfolio_equity_logger_with_engine(eq_pool, Some(eq_engine), eq_cancel).await;
     }));
 
+    let opt_pool = db_pool.clone();
     handles.push(tokio::spawn(async move {
         strategy_optimizer::run_strategy_optimizer(strategy_optimizer::OptimizerConfig {
-            pool: db_pool,
+            pool: opt_pool,
             cancel: eval_cancel,
             interval_secs: 3600,
         })
         .await;
     }));
 
-    let _ = futures_util::future::join_all(handles).await;
+    // K4 (production audit): graceful shutdown on SIGINT/SIGTERM.
+    // Previously the process was killed abruptly — up to 10,000 queued
+    // telemetry messages lost, the WAL tail lost, snapshot-export files
+    // left partial. The signal path cancels every pipeline (same teardown
+    // as POST /api/session/quit) then lets the SQLite logger drain the
+    // queue before exiting. NOTE: unlike `quit_session`, the workspace
+    // config.toml is NOT cleared — a signal stop is an operator restart,
+    // not a session quit.
+    let shutdown_state = app_state.clone();
+    let shutdown_pool = db_pool.clone();
+    let shutdown_session = session_number;
+    let shutdown = async move {
+        let ctrl_c = tokio::signal::ctrl_c();
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+        eprintln!("📥 Signal received — graceful shutdown");
+        let live = shutdown_state.workspace.list().await;
+        for inst in &live {
+            inst.cancel.cancel();
+        }
+        // Let cancellation propagate + the logger drain the telemetry queue.
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // v10: close the session row (ended_at + status).
+        if let Some(sid) = shutdown_session {
+            let ended = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let _ = database_storage::queries::sessions::close_session(&shutdown_pool, sid, ended)
+                .await;
+        }
+        eprintln!("✅ Exiting cleanly");
+        std::process::exit(0);
+    };
+    tokio::select! {
+        _ = shutdown => {}
+        _ = futures_util::future::join_all(handles) => {}
+    }
 }
 
 #[cfg(test)]

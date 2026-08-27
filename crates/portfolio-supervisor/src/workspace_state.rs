@@ -86,7 +86,13 @@ impl WorkspaceState {
 
     /// List all live instances.
     pub async fn list(&self) -> Vec<Arc<Instance>> {
-        self.inner.instances.read().await.values().cloned().collect()
+        self.inner
+            .instances
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// List all live instance keys (pair keys).

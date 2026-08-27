@@ -456,7 +456,7 @@
                     <div class={styles.ladder} aria-label="Distance / strength ladder">
                         {#if topAbove.length > 0}
                             <div class={styles.ladderSection}>
-                                <div class={styles.ladderSideLabel}>▴ ABOVE · short liq if dumped</div>
+                                <div class={styles.ladderSideLabel}>▴ ABOVE · short liq if squeezed</div>
                                 {#each topAbove as c}
                                     <div class={styles.ladderRow}>
                                         <span class={styles.ladderPrice}>{fmtPx(c.peak_price)}</span>

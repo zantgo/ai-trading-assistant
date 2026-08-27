@@ -1,674 +1,672 @@
 <script lang="ts">
-    import styles from './PortfolioDashboard.module.css';
+    // PortfolioDashboard — v7.2 mode-aware rewrite on the shared MME
+    // design vocabulary. Personality by fixed-at-launch mode:
+    //   observe → "Readiness Board" (safety + capital blueprints, unarmed)
+    //   paper   → "Paper Accounting" (full labeled money surfaces)
+    //   live    → "Account Monitor"  (real capital, critical-zone margin)
+    import { onMount } from 'svelte';
+    import { useAppStore } from '../state.svelte';
+    import DashboardHeader from './DashboardHeader.svelte';
+    import ModeChip from './ModeChip.svelte';
+    import ModeBanner from './ModeBanner.svelte';
+    import KpiStrip from './KpiStrip.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import NoInstanceState from './NoInstanceState.svelte';
+    import PortfolioSettings from './PortfolioSettings.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
+    import styles from '../styles/engine-dashboard.module.css';
+    import local from './PortfolioDashboard.module.css';
+    import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
 
-    type Panel = 'overview' | 'positions' | 'exposure' | 'capital' | 'safety';
-    let activePanel = $state<Panel>('overview');
-    let expandedPositions = $state<Set<number>>(new Set());
+    const app = useAppStore();
 
-    function togglePosition(id: number) {
-        const next = new Set(expandedPositions);
-        if (next.has(id)) next.delete(id); else next.add(id);
-        expandedPositions = next;
+    interface InstanceSummary {
+        id: string;
+        pair: string;
+        status: string;
+        mode?: string;
     }
 
-    // ── Placeholder data ────────────────────────────────────────────────
-
-    const safetyState: 'NORMAL' | 'WARN' | 'CAUTIOUS' | 'SUSPENDED' | 'DRAWDOWN_STOP' = 'NORMAL';
-
-    const portfolioSummary = {
-        current_equity: 10523.42,
-        realized_pnl: 423.50,
-        unrealized_pnl: 99.92,
-        daily_pnl: 187.60,
-        position_count: 1,
-        margin_usage_ratio: 0.082,
-        leverage_ratio: 0.78,
-        gross_exposure: 8210.40,
-        net_exposure: 8210.40,
-        systemic_risk_score: 28.5,
-        peak_equity: 10800.00,
-        max_drawdown_pct: 2.56,
-        initial_balance: 10000.00,
-    };
-
-    interface PortfolioPosition {
-        id: number;
-        position_id: string;
+    interface PortfolioState {
+        instance_id: string;
         symbol: string;
-        direction: 'Long' | 'Short';
-        entry_price: number;
-        average_entry_price: number;
-        size: number;
-        allocated_usd: number;
-        current_price: number;
-        unrealized_pnl: number;
-        roi_pct: number;
-        stop_loss_price: number;
-        take_profit_price: number;
-        invalidation_level: number;
-        target_profit_ratio: number;
-        current_portions: number;
-        max_portions: number;
-        realized_pnl_accumulator: number;
-    }
-
-    interface ConcentrationEntry {
-        symbol: string;
-        exposure_pct: number;
-        notional_usd: number;
-    }
-
-    interface StanceEntry {
-        symbol: string;
-        stance: 'ACTIVE' | 'CLOSE_ONLY' | 'AVOID';
-        consecutive_losses: number;
-    }
-
-    interface VetoTrigger {
-        trigger: string;
-        target_stance: string;
-        hard_exit: boolean;
-        scope: string;
-        threshold: string;
-        current: string;
-        active: boolean;
-    }
-
-    const positions: PortfolioPosition[] = [
-        {
-            id: 1, position_id: 'pos-btc-001', symbol: 'BTC-USDT', direction: 'Long',
-            entry_price: 68420, average_entry_price: 68442, size: 0.12,
-            allocated_usd: 8213.04, current_price: 69150,
-            unrealized_pnl: 87.60, roi_pct: 1.07,
-            stop_loss_price: 66150, take_profit_price: 72160,
-            invalidation_level: 65800, target_profit_ratio: 2.5,
-            current_portions: 1, max_portions: 4,
-            realized_pnl_accumulator: 0,
-        },
-    ];
-
-    const concentration: ConcentrationEntry[] = [
-        { symbol: 'BTC-USDT', exposure_pct: 77.9, notional_usd: 8210.40 },
-        { symbol: 'ETH-USDT', exposure_pct: 0, notional_usd: 0 },
-        { symbol: 'SOL-USDT', exposure_pct: 0, notional_usd: 0 },
-    ];
-
-    const stances: StanceEntry[] = [
-        { symbol: 'BTC-USDT', stance: 'ACTIVE', consecutive_losses: 0 },
-        { symbol: 'ETH-USDT', stance: 'ACTIVE', consecutive_losses: 1 },
-        { symbol: 'SOL-USDT', stance: 'CLOSE_ONLY', consecutive_losses: 4 },
-        { symbol: 'DOGE-USDT', stance: 'AVOID', consecutive_losses: 6 },
-    ];
-
-    const vetoTriggers: VetoTrigger[] = [
-        { trigger: 'Drawdown breach (30%)', target_stance: 'AVOID', hard_exit: true, scope: 'Platform-wide', threshold: '30%', current: '2.56%', active: false },
-        { trigger: 'Margin ceiling (95%)', target_stance: 'CLOSE_ONLY', hard_exit: false, scope: 'Platform-wide', threshold: '95%', current: '8.2%', active: false },
-        { trigger: 'Margin exhaustion (100%)', target_stance: 'AVOID', hard_exit: true, scope: 'Platform-wide', threshold: '100%', current: '8.2%', active: false },
-        { trigger: 'Exposure limit breach', target_stance: 'CLOSE_ONLY', hard_exit: false, scope: 'Platform-wide', threshold: '50%', current: '78.8%', active: false },
-        { trigger: 'Loss streak >= 5', target_stance: 'CLOSE_ONLY', hard_exit: false, scope: 'Per-symbol', threshold: '5', current: '4 (SOL)', active: false },
-        { trigger: 'Systemic risk >= 80', target_stance: 'AVOID', hard_exit: true, scope: 'Platform-wide', threshold: '80', current: '28.5', active: false },
-    ];
-
-    const correlationMatrix = [
-        { pair: 'BTC-ETH', value: 0.72 },
-        { pair: 'BTC-SOL', value: 0.58 },
-        { pair: 'ETH-SOL', value: 0.64 },
-    ];
-
-    function fmtNum(n: number, decimals: number = 2): string {
-        if (!isFinite(n)) return '--';
-        return n.toFixed(decimals);
-    }
-
-    function fmtPnl(n: number): string {
-        const prefix = n >= 0 ? '+' : '';
-        return prefix + fmtNum(n);
-    }
-
-    function fmtPct(n: number): string { return fmtNum(n) + '%'; }
-
-    function pnlClass(n: number): string {
-        if (n > 0) return styles.statPositive;
-        if (n < 0) return styles.statNegative;
-        return styles.statNeutral;
-    }
-
-    function stanceBadge(s: string): string {
-        const m: Record<string, string> = { ACTIVE: 'badgeLong', CLOSE_ONLY: 'badgeShort', AVOID: 'badgeShort' };
-        const styleMap: Record<string, string> = {
-            badgeLong: styles.badge + ' ' + styles.badgeLong,
-            badgeShort: styles.badge + ' ' + styles.badgeShort,
+        mode?: string;
+        portfolio_capital: number;
+        current_equity: string;
+        peak_equity: string;
+        max_drawdown_pct: string;
+        realized_pnl: string;
+        unrealized_pnl: string;
+        daily_pnl: string;
+        starting_session_equity: string;
+        safety_state: string;
+        safety_context: string;
+        consecutive_losses: Record<string, number>;
+        systemic_risk_score: number;
+        lifecycle: string;
+        exposure: {
+            gross_exposure: string;
+            net_exposure: string;
+            net_exposure_pct: string;
+            long_exposure: string;
+            short_exposure: string;
+            symbol_concentration: Record<string, string>;
+            max_single_pair_pct: string;
+            limits?: {
+                max_single_pair_exposure_pct: number;
+                max_portfolio_exposure_pct: number;
+                max_correlation: number;
+            };
         };
-        return styleMap[m[s]] || styleMap.badgeLong;
+        capital: {
+            available_margin: string;
+            committed_margin: string;
+            margin_usage_ratio: string;
+            leverage_ratio: string;
+            margin_alert: string | null;
+        };
+        position_count: number;
+        positions: {
+            symbol: string;
+            direction: string;
+            size: string;
+            entry_price: string;
+            mark_price: string;
+            unrealized_pnl: string;
+            roi_pct: string;
+            stop_loss_price: string | null;
+            take_profit_price: string | null;
+        }[];
     }
 
-    function safetyClass(): string {
+    interface SafetyState {
+        instance_id: string;
+        safety_state: string;
+        consecutive_losses: Record<string, number>;
+        peak_equity: string;
+        current_equity: number;
+        portfolio_capital: number;
+        context: string;
+        daily_pnl: string;
+        max_drawdown_pct: string;
+        margin_usage_ratio: string;
+    }
+
+    let { section = 'overview' }: { section?: string } = $props();
+
+    let instances = $state<InstanceSummary[]>([]);
+    let selectedId = $state('');
+    let portfolio = $state<PortfolioState | null>(null);
+    let safety = $state<SafetyState | null>(null);
+    let loading = $state(true);
+    let error = $state('');
+    let resetting = $state(false);
+    let releasing = $state(false);
+    let lastOkTs = $state(0);
+    let pollFailed = $state(false);
+    let safetyCfg = $state<{ daily: number; caution: number; dropout: number; hours: number; drawdown: number } | null>(null);
+    // v7.3: real risk-per-trade from `[workspace.minimal_tae]` (ConfigResponse).
+    let allocationPct = $state<number | null>(null);
+
+    const mode = $derived.by<ExecutionMode | undefined>(() => {
+        const pMode = portfolio?.mode;
+        if (pMode && isExecutionMode(pMode)) return pMode;
+        const sel = instances.find((i) => i.id === selectedId)?.mode;
+        if (sel && isExecutionMode(sel)) return sel;
+        return undefined;
+    });
+    const ghost = $derived(mode === 'observe');
+
+    // v7.3: Settings is always present — ghost collapse only hides the
+    // money surfaces (Positions / Exposure / Capital / Portfolio), never
+    // Overview / Safety / Settings.
+    const safeSection = $derived(
+        ghost && section !== 'overview' && section !== 'safety' && section !== 'settings'
+            ? 'overview' : section,
+    );
+
+    const status = $derived<'live' | 'stale' | 'error' | 'loading'>(
+        loading ? 'loading'
+            : pollFailed ? 'error'
+            : Date.now() - lastOkTs <= 6000 ? 'live'
+            : 'stale',
+    );
+
+    async function loadInstances() {
+        try {
+            const res = await fetch('/api/instances');
+            const data = await res.json();
+            instances = data.instances ?? [];
+            if (!selectedId && instances.length > 0) {
+                selectedId = instances[0].id;
+            }
+        } catch {
+            instances = [];
+        }
+    }
+
+    async function loadConfig() {
+        try {
+            const res = await fetch('/api/config');
+            if (!res.ok) return;
+            const cfg = await res.json();
+            const s = cfg?.safety as Record<string, unknown> | undefined;
+            if (s) {
+                safetyCfg = {
+                    daily: Number(s.max_daily_drawdown_pct) || 5,
+                    caution: Number(s.consecutive_loss_caution) || 3,
+                    dropout: Number(s.consecutive_loss_dropout) || 5,
+                    hours: Number(s.dropout_duration_hours) || 8,
+                    drawdown: Number(s.drawdown_limit_pct) || 30,
+                };
+            }
+            const tae = cfg?.minimal_tae as { allocation_pct?: number } | undefined;
+            if (tae && typeof tae.allocation_pct === 'number' && tae.allocation_pct > 0) {
+                allocationPct = tae.allocation_pct;
+            }
+        } catch {
+            // Blueprint falls back to shipped defaults.
+        }
+    }
+
+    async function refresh() {
+        // v7.3: with no instance there is nothing to fetch — resolve the
+        // loading state so the UI renders the no-instance empty state
+        // instead of showing "Loading…" forever.
+        if (!selectedId) {
+            loading = false;
+            pollFailed = false;
+            lastOkTs = Date.now();
+            return;
+        }
+        try {
+            const [pRes, sRes] = await Promise.all([
+                fetch(`/api/instances/${selectedId}/portfolio`),
+                fetch(`/api/instances/${selectedId}/safety`),
+            ]);
+            if (pRes.ok) portfolio = (await pRes.json()) as PortfolioState;
+            if (sRes.ok) safety = (await sRes.json()) as SafetyState;
+            error = '';
+            pollFailed = false;
+            lastOkTs = Date.now();
+        } catch (e) {
+            error = String(e);
+            pollFailed = true;
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function sessionReset() {
+        if (!selectedId || resetting) return;
+        resetting = true;
+        try {
+            await fetch(`/api/instances/${selectedId}/safety/session-reset`, { method: 'POST' });
+            await refresh();
+        } finally {
+            resetting = false;
+        }
+    }
+
+    async function releaseVeto() {
+        if (!selectedId || releasing) return;
+        releasing = true;
+        try {
+            await fetch(`/api/instances/${selectedId}/safety/release-veto`, { method: 'POST' });
+            await refresh();
+        } finally {
+            releasing = false;
+        }
+    }
+
+    onMount(() => {
+        const boot = async () => {
+            await loadInstances();
+            await loadConfig();
+            await refresh();
+        };
+        boot();
+        const timer = setInterval(refresh, 2000);
+        // v7.3: polling backstop on the instance list (mirrors the MME
+        // InstancePicker) — launching an instance while on this engine
+        // populates the selector and content without remounting.
+        const instanceTimer = setInterval(() => { void loadInstances(); }, 3000);
+        return () => {
+            clearInterval(timer);
+            clearInterval(instanceTimer);
+        };
+    });
+
+    // ── Formatters ─────────────────────────────────────────────────────
+    function fmtUsd(v: string | number | null | undefined): string {
+        if (v == null || v === '' || !isFinite(Number(v))) return '—';
+        return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function signedUsd(v: string | number | null | undefined): string {
+        if (v == null || v === '' || !isFinite(Number(v))) return '—';
+        const n = Number(v);
+        return (n > 0 ? '+' : '') + fmtUsd(n);
+    }
+
+    function fmtPct(v: string | number | null | undefined): string {
+        if (v == null || v === '' || !isFinite(Number(v))) return '—';
+        return `${Number(v).toFixed(2)}%`;
+    }
+
+    function fmtNum(v: number | null | undefined): string {
+        if (v == null || !isFinite(v)) return '—';
+        return v.toFixed(1);
+    }
+
+    function pnlClass(v: string | number | null | undefined): string {
+        const n = v == null || v === '' ? 0 : Number(v);
+        return n > 0 ? styles.pos : n < 0 ? styles.neg : '';
+    }
+
+    function safetyBadge(s: string | undefined): string {
         const m: Record<string, string> = {
-            NORMAL: styles.safetyNormal, WARN: styles.safetyWarn,
-            CAUTIOUS: styles.safetyCautious, SUSPENDED: styles.safetySuspended,
-            DRAWDOWN_STOP: styles.safetyDrawdown,
+            NORMAL: styles.badgeLong,
+            WARN: styles.badgeNeutral,
+            CAUTIOUS: styles.badgeNeutral,
+            SUSPENDED: styles.badgeError,
+            DRAWDOWN_STOP: styles.badgeError,
         };
-        return m[safetyState] || styles.safetyNormal;
+        return m[s ?? ''] ?? styles.badgeEmpty;
     }
 
-    function safetyBadgeClass(): string {
+    function alertBadge(a: string | null): string {
+        if (!a) return '';
+        if (a === 'EMERGENCY') return styles.alertError;
+        if (a === 'CLOSE_ONLY') return styles.alertError;
+        return styles.alertWarn;
+    }
+
+    function headerTitle(s: string): string {
         const m: Record<string, string> = {
-            NORMAL: styles.safetyBadgeNormal, WARN: styles.safetyBadgeWarn,
-            CAUTIOUS: styles.safetyBadgeCautious, SUSPENDED: styles.safetyBadgeSuspended,
-            DRAWDOWN_STOP: styles.safetyBadgeDrawdown,
+            overview: ghost ? 'Readiness Board' : 'Account Overview',
+            positions: 'Positions',
+            exposure: 'Exposure',
+            capital: 'Capital',
+            safety: 'Safety',
+            settings: 'Portfolio Settings',
         };
-        return m[safetyState] || styles.safetyBadgeNormal;
+        return m[s] ?? 'Portfolio';
     }
 
-    function safetyIcon(): string {
+    function tabLabel(s: string): string {
         const m: Record<string, string> = {
-            NORMAL: 'shield-check', WARN: 'alert-triangle',
-            CAUTIOUS: 'alert-circle', SUSPENDED: 'x-circle',
-            DRAWDOWN_STOP: 'zap',
+            overview: 'Overview',
+            positions: 'Positions',
+            exposure: 'Exposure',
+            capital: 'Capital',
+            safety: 'Safety',
+            settings: 'Portfolio Settings',
         };
-        return m[safetyState] || 'shield-check';
+        return m[s] ?? 'Portfolio';
     }
 
-    function gaugeColor(ratio: number): string {
-        if (ratio >= 0.95) return styles.gaugeRed;
-        if (ratio >= 0.80) return styles.gaugeOrange;
-        return styles.gaugeGreen;
-    }
+    // ── KPI sets ───────────────────────────────────────────────────────
+    const readinessKpis = $derived([
+        { label: 'Mode', value: mode?.toUpperCase() ?? '—', sub: 'fixed at launch' },
+        { label: 'Capital', value: '—', sub: 'not engaged' },
+        { label: 'Safety', value: portfolio?.safety_state ?? '—', sub: 'system health', color: safetyBadge(portfolio?.safety_state) ? undefined : undefined },
+        { label: 'Lifecycle', value: portfolio?.lifecycle ?? '—', sub: 'instance state' },
+        { label: 'Positions', value: '—', sub: 'none in observe' },
+        { label: 'Would-be Capital', value: fmtUsd(portfolio?.portfolio_capital), sub: 'if capital engaged' },
+    ]);
 
-    const gaugeColorName = $derived(gaugeColor(portfolioSummary.margin_usage_ratio));
+    const accountingKpis = $derived([
+        { label: 'Equity', value: `$${fmtUsd(portfolio?.current_equity)}`, sub: 'cash + realized PnL', color: undefined },
+        { label: 'Initial Capital', value: `$${fmtUsd(portfolio?.portfolio_capital)}`, sub: 'per instance' },
+        { label: 'Peak Equity', value: `$${fmtUsd(portfolio?.peak_equity)}`, sub: 'high-water mark' },
+        { label: 'Max Drawdown', value: fmtPct(portfolio?.max_drawdown_pct), sub: 'from peak', color: styles.neg },
+        { label: 'Realized PnL', value: signedUsd(portfolio?.realized_pnl), sub: 'net of fees', color: pnlClass(portfolio?.realized_pnl) || undefined },
+        { label: 'Unrealized PnL', value: signedUsd(portfolio?.unrealized_pnl), sub: 'mark-to-market', color: pnlClass(portfolio?.unrealized_pnl) || undefined },
+        { label: 'Daily PnL', value: signedUsd(portfolio?.daily_pnl), sub: 'vs session start', color: pnlClass(portfolio?.daily_pnl) || undefined },
+        { label: 'Open Positions', value: String(portfolio?.position_count ?? 0), sub: 'across this instance' },
+    ]);
 
-    function correlationColor(v: number): string {
-        const r = Math.abs(v);
-        if (r >= 0.8) return 'background:#ef5350;';
-        if (r >= 0.6) return 'background:#ffb74d;';
-        if (r >= 0.4) return 'background:#8f929d;';
-        return 'background:#1a1d26;';
-    }
+    const kpis = $derived(ghost ? readinessKpis : accountingKpis);
 
-    function lossCountColor(n: number): string {
-        if (n >= 5) return styles.statNegative;
-        if (n >= 3) return styles.statNeutral;
-        return styles.statPositive;
+    // ── Safety ladder (readiness blueprint + live rung) ────────────────
+    const ladder = $derived.by(() => {
+        const state = portfolio?.safety_state ?? 'NORMAL';
+        const c = safetyCfg;
+        return [
+            { name: 'NORMAL', desc: 'baseline — all entries allowed', lit: state === 'NORMAL', cls: styles.badgeLong },
+            { name: 'WARN', desc: c ? `daily drawdown > ${c.daily}% or ${c.caution} consecutive losses` : 'daily drawdown or loss streak', lit: state === 'WARN', cls: styles.badgeNeutral },
+            { name: 'CAUTIOUS', desc: c ? `risk elevated — ${c.caution}+ consecutive losses` : 'elevated risk', lit: state === 'CAUTIOUS', cls: styles.badgeNeutral },
+            { name: 'SUSPENDED', desc: c ? `entries blocked — ${c.dropout} losses (cooldown ${c.hours}h)` : 'entries blocked', lit: state === 'SUSPENDED', cls: styles.badgeError },
+            { name: 'DRAWDOWN_STOP', desc: c ? `equity drawdown ≥ ${c.drawdown}% from peak` : 'drawdown limit hit', lit: state === 'DRAWDOWN_STOP', cls: styles.badgeError },
+        ];
+    });
+
+    // Critical-zone margin (live monitor).
+    const marginPct = $derived(Number(portfolio?.capital?.margin_usage_ratio ?? 0) * 100);
+    const marginZone = $derived<'ok' | 'warn' | 'danger'>(
+        marginPct >= 95 ? 'danger' : marginPct >= 80 ? 'warn' : 'ok',
+    );
+
+    // ── Export JSON: the current tab's visible state, mode-aware ────────
+    function buildExport(): string {
+        let data: Record<string, unknown>;
+        switch (safeSection) {
+            case 'positions':
+                data = {
+                    mode,
+                    ghost,
+                    position_count: portfolio?.position_count ?? 0,
+                    positions: portfolio?.positions ?? [],
+                };
+                break;
+            case 'exposure':
+                data = {
+                    mode,
+                    ghost,
+                    exposure: portfolio?.exposure ?? null,
+                };
+                break;
+            case 'capital':
+                data = {
+                    mode,
+                    ghost,
+                    margin_usage_pct: marginPct,
+                    margin_zone: marginZone,
+                    capital: portfolio?.capital ?? null,
+                };
+                break;
+            case 'safety':
+                data = {
+                    mode,
+                    ghost,
+                    safety_state: portfolio?.safety_state ?? null,
+                    safety_context: portfolio?.safety_context ?? null,
+                    consecutive_losses: portfolio?.consecutive_losses ?? {},
+                    peak_equity: safety?.peak_equity ?? portfolio?.peak_equity ?? null,
+                    max_drawdown_pct: safety?.max_drawdown_pct ?? portfolio?.max_drawdown_pct ?? null,
+                    daily_pnl: safety?.daily_pnl ?? portfolio?.daily_pnl ?? null,
+                };
+                break;
+            default:
+                data = {
+                    mode,
+                    ghost,
+                    lifecycle: portfolio?.lifecycle ?? null,
+                    portfolio_capital: portfolio?.portfolio_capital ?? null,
+                    current_equity: portfolio?.current_equity ?? null,
+                    safety_state: portfolio?.safety_state ?? null,
+                    allocation_pct: allocationPct,
+                    safety_blueprint: safetyCfg,
+                    // v10.1: the merged Portfolio Overview Matrix fields.
+                    starting_session_equity: portfolio?.starting_session_equity ?? null,
+                    peak_equity: portfolio?.peak_equity ?? null,
+                    max_drawdown_pct: portfolio?.max_drawdown_pct ?? null,
+                    daily_pnl: portfolio?.daily_pnl ?? null,
+                    systemic_risk_score: portfolio?.systemic_risk_score ?? null,
+                };
+        }
+        return buildEngineExport('portfolio', safeSection, mode ?? null, data);
     }
 </script>
 
 <div class={styles.dashboard}>
-    <div class={styles.sidebar}>
-        <h2 class={styles.sidebarTitle}>PORTFOLIO</h2>
-        <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>Overview</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'positions' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'positions'}>Positions</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'exposure' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'exposure'}>Exposure</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'capital' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'capital'}>Capital</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'safety' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'safety'}>Safety</button>
-    </div>
-
     <div class={styles.content}>
-        <!-- ─── OVERVIEW ─────────────────────────────────────────── -->
-        {#if activePanel === 'overview'}
-            <h3 class={styles.sectionTitle}>Portfolio Management</h3>
-            <p class={styles.sectionDesc}>
-                Capital custodian and safety authority — tracks positions, aggregates exposure,
-                manages capital and margin, and enforces systemic safety veto.
-            </p>
+        <DashboardHeader
+            title={headerTitle(safeSection)}
+            tabLabel={tabLabel(safeSection)}
+            {status}
+        >
+            {#snippet trailing()}
+                {#if mode}
+                    <ModeChip {mode} />
+                {/if}
+                {#if instances.length > 0}
+                    <select class={styles.select} bind:value={selectedId} onchange={refresh}>
+                        {#each instances as inst (inst.id)}
+                            <option value={inst.id}>{inst.pair}</option>
+                        {/each}
+                    </select>
+                {:else}
+                    <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
+                {/if}
+                {#if safeSection !== 'settings'}
+                    <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {/if}
+                {#if portfolio}
+                    <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">
+                        {portfolio.safety_state ?? '—'}
+                    </span>
+                    <span class="{styles.badge} {styles.badgeNeutral}">{portfolio.lifecycle ?? '—'}</span>
+                {/if}
+            {/snippet}
+        </DashboardHeader>
 
-            <div class="{styles.safetyBanner} {safetyClass()}">
-                <span class={styles.safetyIcon}>{safetyIcon()}</span>
-                <div style="flex:1">
-                    <strong>Safety State: {safetyState.replace('_', ' ')}</strong>
-                    {#if safetyState === 'NORMAL'}
-                        <span style="margin-left:0.5rem; font-weight:400; font-size:0.75rem">Full trading authorized across all symbols</span>
-                    {:else if safetyState === 'WARN'}
-                        <span style="margin-left:0.5rem; font-weight:400; font-size:0.75rem">Early warning — daily drawdown threshold exceeded. No stance changes.</span>
-                    {:else if safetyState === 'CAUTIOUS'}
-                        <span style="margin-left:0.5rem; font-weight:400; font-size:0.75rem">Consecutive losses detected — monitor closely</span>
-                    {:else if safetyState === 'SUSPENDED'}
-                        <span style="margin-left:0.5rem; font-weight:400; font-size:0.75rem">CLOSE_ONLY for affected symbol — 8h cooldown</span>
+        <ModeBanner engine="portfolio" {mode} />
+
+        {#if safeSection === 'settings'}
+            <PortfolioSettings {mode} />
+        {:else if instances.length === 0 && !loading}
+            <!-- v7.3: no active instance → SVG empty state. No fallback
+                 data, no loading message. -->
+            <NoInstanceState engine="portfolio" />
+        {:else if loading}
+            <div class={styles.empty}>Loading portfolio state…</div>
+        {:else if error && !portfolio}
+            <div class={styles.empty}>{error}</div>
+        {:else if !portfolio}
+            <div class={styles.empty}>No portfolio state available (is the daemon running?).</div>
+        {:else}
+            <KpiStrip items={kpis} />
+
+            {#if safeSection === 'overview'}
+                {#if ghost}
+                    <!-- ── Observe: Readiness Board ── -->
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Safety Blueprint</h3>
+                        <p class={styles.infoLine}>The protection ladder the PME arms when capital is engaged. Observe mode never arms it — nothing can lose money.</p>
+                        <div class={local.ladder}>
+                            {#each ladder as rung (rung.name)}
+                                <div class="{local.rung} {rung.lit ? local.rungLit : ''}">
+                                    <span class="{styles.badge} {rung.cls}">{rung.name}</span>
+                                    <span class={local.rungDesc}>{rung.desc}</span>
+                                    <span class={local.rungState}>{rung.lit ? 'CURRENT' : 'ARMED ON ACTIVATION'}</span>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Capital Blueprint</h3>
+                        <p class={styles.infoLine}>The money rules that WILL apply when you launch in paper/live mode.</p>
+                        <div class={local.blueprintGrid}>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Would-be capital</div>
+                                <div class={local.blueprintValue}>${fmtUsd(portfolio.portfolio_capital)}</div>
+                                <div class={local.blueprintSub}>per instance</div>
+                            </div>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Risk per trade</div>
+                                <div class={local.blueprintValue}>{allocationPct ?? 10}%</div>
+                                <div class={local.blueprintSub}>minimal_tae sizing</div>
+                            </div>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Drawdown stop</div>
+                                <div class={local.blueprintValue}>{safetyCfg?.drawdown ?? 30}%</div>
+                                <div class={local.blueprintSub}>equity from peak</div>
+                            </div>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Daily loss cap</div>
+                                <div class={local.blueprintValue}>{safetyCfg?.daily ?? 5}%</div>
+                                <div class={local.blueprintSub}>per session</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class={styles.empty}>
+                        No capital engaged — account metrics (equity, margin, exposure, P&L) appear when this instance runs in paper or live mode.
+                    </div>
+                {:else}
+                    <!-- ── Paper / Live: Overview (merged with the L4
+                         Portfolio Overview Matrix — v10.1) ── -->
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Portfolio Overview Matrix</h3>
+                        <p class={styles.infoLine}>
+                            PME reports current portfolio state. It never executes: the automation executor is the only thing that trades, and it blocks new entries in DRAWDOWN_STOP / SUSPENDED.
+                        </p>
+                        <div class={styles.grid2}>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Session Start</span><span class={local.overviewValue}>${fmtUsd(portfolio.starting_session_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Current Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.current_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Peak Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.peak_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Daily PnL</span><span class="{local.overviewValue} {pnlClass(portfolio.daily_pnl)}">{signedUsd(portfolio.daily_pnl)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Max Drawdown</span><span class="{local.overviewValue} {styles.neg}">{fmtPct(portfolio.max_drawdown_pct)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class="{local.overviewValue} {Number(portfolio.systemic_risk_score) > 50 ? styles.warn : ''}">{fmtNum(portfolio.systemic_risk_score)}</span></div>
+                        </div>
+                        <div class={local.sessionBar}>
+                            <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting || ghost}>
+                                {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
+                            </button>
+                        </div>
+                    </div>
+                {/if}
+
+            {:else if safeSection === 'positions'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Positions</h3>
+                    {#if portfolio.positions.length === 0}
+                        <div class={styles.empty}>No open positions.</div>
                     {:else}
-                        <span style="margin-left:0.5rem; font-weight:400; font-size:0.75rem">All stances → AVOID — Hard Exit active</span>
+                        <table class={styles.table}>
+                            <thead><tr><th>Symbol</th><th>Side</th><th class={styles.tdRight}>Size</th><th class={styles.tdRight}>Entry</th><th class={styles.tdRight}>Mark</th><th class={styles.tdRight}>uPnL</th><th class={styles.tdRight}>ROI</th><th class={styles.tdRight}>SL</th><th class={styles.tdRight}>TP</th></tr></thead>
+                            <tbody>
+                                {#each portfolio.positions as p (p.symbol)}
+                                    <tr>
+                                        <td class={styles.tdMono}>{p.symbol}</td>
+                                        <td class={p.direction === 'LONG' ? styles.pos : styles.neg}>{p.direction}</td>
+                                        <td class={styles.tdRight}>{Number(p.size).toFixed(4)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.entry_price)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.mark_price)}</td>
+                                        <td class="{styles.tdRight} {pnlClass(p.unrealized_pnl)}">{signedUsd(p.unrealized_pnl)}</td>
+                                        <td class="{styles.tdRight} {pnlClass(p.roi_pct)}">{fmtPct(p.roi_pct)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.stop_loss_price)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.take_profit_price)}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
                     {/if}
                 </div>
-                <span class="{styles.safetyBadge} {safetyBadgeClass()}">{safetyState.replace('_', ' ')}</span>
-            </div>
 
-            <div class={styles.statsGrid}>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Current Equity</div>
-                    <div class={styles.statValue}>${fmtNum(portfolioSummary.current_equity)}</div>
-                    <div class="statSub">Initial: ${fmtNum(portfolioSummary.initial_balance)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Realized P&L</div>
-                    <div class="{styles.statValue} {pnlClass(portfolioSummary.realized_pnl)}">{fmtPnl(portfolioSummary.realized_pnl)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Unrealized P&L</div>
-                    <div class="{styles.statValue} {pnlClass(portfolioSummary.unrealized_pnl)}">{fmtPnl(portfolioSummary.unrealized_pnl)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Daily P&L</div>
-                    <div class="{styles.statValue} {pnlClass(portfolioSummary.daily_pnl)}">{fmtPnl(portfolioSummary.daily_pnl)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Active Positions</div>
-                    <div class={styles.statValue}>{portfolioSummary.position_count}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Margin Usage</div>
-                    <div class={styles.statValue}>{fmtPct(portfolioSummary.margin_usage_ratio * 100)}</div>
-                    <div class={styles.statSub}>of equity committed</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Leverage Ratio</div>
-                    <div class={styles.statValue}>{fmtNum(portfolioSummary.leverage_ratio)}x</div>
-                    <div class={styles.statSub}>gross / equity</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Systemic Risk</div>
-                    <div class="{styles.statValue} {pnlClass(50 - portfolioSummary.systemic_risk_score)}">{fmtNum(portfolioSummary.systemic_risk_score, 0)}</div>
-                    <div class={styles.statSub}>from Overview Matrix</div>
-                </div>
-            </div>
-
-            <div class={styles.grid2}>
-                <div>
-                    <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Equity Composition</h4>
-                    <table class={styles.table}>
-                        <tbody>
-                            <tr><td>Initial Balance</td><td class={styles.tdRight}>${fmtNum(portfolioSummary.initial_balance)}</td></tr>
-                            <tr><td>Realized P&L</td><td class="{styles.tdRight} {pnlClass(portfolioSummary.realized_pnl)}">{fmtPnl(portfolioSummary.realized_pnl)}</td></tr>
-                            <tr><td>Unrealized P&L</td><td class="{styles.tdRight} {pnlClass(portfolioSummary.unrealized_pnl)}">{fmtPnl(portfolioSummary.unrealized_pnl)}</td></tr>
-                            <tr style="border-top:1px solid #2a2e39"><td style="font-weight:600">Current Equity</td><td class="{styles.tdRight} {pnlClass(portfolioSummary.current_equity - portfolioSummary.initial_balance)}">${fmtNum(portfolioSummary.current_equity)}</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div>
-                    <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Capital Matrix (Canonical)</h4>
-                    <div style="font-size:0.72rem; color:#888; font-family:var(--mono); line-height:1.8">
-                        <div>equity = initial + realized + min(0, unrealized)</div>
-                        <div style="color:#ccc">$10,523.42 = $10,000 + $423.50 + $99.92</div>
-                        <div style="margin-top:0.5rem">available = equity - committed_margin</div>
-                        <div style="color:#ccc">$9,702.38 = $10,523.42 - $821.04</div>
-                        <div style="margin-top:0.5rem">margin_usage = committed / equity</div>
-                        <div style="color:#4caf50">8.2% — Healthy</div>
+            {:else if safeSection === 'exposure'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Exposure</h3>
+                    <div class={styles.kpiStrip}>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Gross Exposure</div><div class={styles.kpiValue}>${fmtUsd(portfolio.exposure.gross_exposure)}</div><div class={styles.kpiSub}>total notional</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Net Exposure</div><div class={styles.kpiValue}>${fmtUsd(portfolio.exposure.net_exposure)}</div><div class={styles.kpiSub}>{fmtPct(portfolio.exposure.net_exposure_pct)} of equity</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Long</div><div class={styles.kpiValue} style="color:#22c55e">${fmtUsd(portfolio.exposure.long_exposure)}</div><div class={styles.kpiSub}>long notional</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Short</div><div class={styles.kpiValue} style="color:#ef4444">${fmtUsd(portfolio.exposure.short_exposure)}</div><div class={styles.kpiSub}>short notional</div></div>
                     </div>
-                </div>
-            </div>
-
-        <!-- ─── POSITIONS ─────────────────────────────────────────── -->
-        {:else if activePanel === 'positions'}
-            <h3 class={styles.sectionTitle}>Position Matrix</h3>
-            <p class={styles.sectionDesc}>
-                Live position tracker: entry prices, scaled entries (1–4 slots),
-                unrealized P&L, stop-loss and take-profit levels, and thesis invalidation points.
-            </p>
-
-            {#if positions.length === 0}
-                <div class={styles.placeholder}>No active positions</div>
-            {:else}
-                {#each positions as pos (pos.id)}
-                    <div class={styles.positionCard}>
-                        <div class={styles.positionHeader} role="button" tabindex="0" onclick={() => togglePosition(pos.id)} onkeydown={(e) => e.key === 'Enter' && togglePosition(pos.id)}>
-                            <span class={styles.positionSymbol}>{pos.symbol}</span>
-                            <span class="{styles.positionDirection} {pos.direction === 'Long' ? styles.statPositive : styles.statNegative}">{pos.direction}</span>
-                            <span style="font-size:0.72rem; color:#888">{pos.size} units · ${fmtNum(pos.allocated_usd)} allocated</span>
-                            <span class="{styles.positionPnl} {pnlClass(pos.unrealized_pnl)}">{fmtPnl(pos.unrealized_pnl)} ({fmtPct(pos.roi_pct)})</span>
-                            <div class={styles.positionMeta}>
-                                <div class={styles.slotsIndicator}>
-                                    {#each Array(pos.max_portions) as _, i}
-                                        <div class="{styles.slotDot} {i < pos.current_portions ? styles.slotDotActive : styles.slotDotVacant}"></div>
-                                    {/each}
+                    <h4 class={styles.cardTitle} style="margin-top:12px">Symbol Concentration</h4>
+                    {#if Object.keys(portfolio.exposure.symbol_concentration).length === 0}
+                        <div class={styles.empty}>No exposure.</div>
+                    {:else}
+                        {@const pairLimit = portfolio.exposure.limits?.max_single_pair_exposure_pct ?? 20}
+                        {@const portfolioLimit = portfolio.exposure.limits?.max_portfolio_exposure_pct ?? 50}
+                        <div class={local.concList}>
+                            {#each Object.entries(portfolio.exposure.symbol_concentration) as [sym, pct] (sym)}
+                                {@const pctNum = Number(pct) * 100}
+                                {@const breached = pctNum > pairLimit}
+                                <div class={local.concRow}>
+                                    <span class={styles.tdMono}>{sym}</span>
+                                    <div class={local.concTrack}>
+                                        <div class={local.concFill} style="width:{Math.min(pctNum, 100)}%"></div>
+                                    </div>
+                                    <span class="{local.concPct} {breached ? styles.warn : ''}">{fmtPct(pctNum)}</span>
+                                    <span class={local.concLimit}>limit {pairLimit.toFixed(0)}%{breached ? ' · BREACH' : ''}</span>
                                 </div>
-                                <span>{pos.current_portions}/{pos.max_portions} slots</span>
-                            </div>
-                            <span class="{styles.expandIcon} {expandedPositions.has(pos.id) ? styles.expandIconOpen : ''}">▶</span>
+                            {/each}
                         </div>
+                        <div class={styles.kpiStrip} style="margin-top:12px">
+                            <div class={styles.kpi}><div class={styles.kpiLabel}>Portfolio Exposure vs Cap</div><div class="{styles.kpiValue} {Number(portfolio.exposure.net_exposure_pct) > portfolioLimit ? styles.warn : ''}">{fmtPct(portfolio.exposure.net_exposure_pct)}</div><div class={styles.kpiSub}>limit {portfolioLimit.toFixed(0)}% of equity</div></div>
+                            <div class={styles.kpi}><div class={styles.kpiLabel}>Correlation Cap</div><div class={styles.kpiValue}>{portfolio.exposure.limits?.max_correlation ?? 0.8}</div><div class={styles.kpiSub}>max pairwise ρ</div></div>
+                        </div>
+                    {/if}
+                </div>
 
-                        {#if expandedPositions.has(pos.id)}
-                            <div class={styles.positionDetail}>
-                                <div class={styles.positionDetailGrid}>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Entry Price</span>
-                                        <span class={styles.positionFieldValue}>${fmtNum(pos.entry_price)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Avg Entry (VWAP)</span>
-                                        <span class={styles.positionFieldValue}>${fmtNum(pos.average_entry_price)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Current Price</span>
-                                        <span class={styles.positionFieldValue}>${fmtNum(pos.current_price)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Allocated USD</span>
-                                        <span class={styles.positionFieldValue}>${fmtNum(pos.allocated_usd)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Stop-Loss Price</span>
-                                        <span class={styles.positionFieldValue} style="color:#ef5350">${fmtNum(pos.stop_loss_price)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Take-Profit Price</span>
-                                        <span class={styles.positionFieldValue} style="color:#4caf50">${fmtNum(pos.take_profit_price)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Invalidation Level</span>
-                                        <span class={styles.positionFieldValue} style="color:#ffb74d">${fmtNum(pos.invalidation_level)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Target R:R</span>
-                                        <span class={styles.positionFieldValue}>{fmtNum(pos.target_profit_ratio)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Realized P&L (Scale-out)</span>
-                                        <span class="{styles.positionFieldValue} {pnlClass(pos.realized_pnl_accumulator)}">{fmtPnl(pos.realized_pnl_accumulator)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Slot Fill</span>
-                                        <span class={styles.positionFieldValue}>{pos.current_portions}/{pos.max_portions} active</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>Unrealized P&L</span>
-                                        <span class="{styles.positionFieldValue} {pnlClass(pos.unrealized_pnl)}">{fmtPnl(pos.unrealized_pnl)}</span>
-                                    </div>
-                                    <div class={styles.positionField}>
-                                        <span class={styles.positionFieldLabel}>ROI %</span>
-                                        <span class="{styles.positionFieldValue} {pnlClass(pos.roi_pct)}">{fmtPct(pos.roi_pct)}</span>
-                                    </div>
-                                </div>
+            {:else if safeSection === 'capital'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Capital</h3>
+                    {#if mode === 'live'}
+                        <div class="{local.marginZone} {marginZone === 'danger' ? local.marginDanger : marginZone === 'warn' ? local.marginWarn : ''}">
+                            <div class={local.marginZoneLabel}>MARGIN CRITICAL ZONE</div>
+                            <div class={local.marginZoneValue}>{fmtPct(marginPct)} used</div>
+                            <div class={local.marginZoneSub}>≥ 80% warn · ≥ 95% close-only · 100% emergency — real liquidation risk</div>
+                        </div>
+                    {/if}
+                    <div class={styles.kpiStrip}>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Available Margin</div><div class={styles.kpiValue}>${fmtUsd(portfolio.capital.available_margin)}</div><div class={styles.kpiSub}>free for new entries</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Committed Margin</div><div class={styles.kpiValue}>${fmtUsd(portfolio.capital.committed_margin)}</div><div class={styles.kpiSub}>on open positions</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Margin Usage</div><div class={styles.kpiValue}>{fmtPct(marginPct)}</div><div class={styles.kpiSub}>80% warn · 95% close-only · 100% emergency</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Leverage</div><div class={styles.kpiValue}>{Number(portfolio.capital.leverage_ratio).toFixed(2)}×</div><div class={styles.kpiSub}>effective</div></div>
+                    </div>
+                    {#if portfolio.capital.margin_alert}
+                        <div class="{styles.alertBanner} {alertBadge(portfolio.capital.margin_alert)}">
+                            MARGIN ALERT: {portfolio.capital.margin_alert}
+                        </div>
+                    {/if}
+                </div>
+
+            {:else if safeSection === 'safety'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Safety</h3>
+                    <div class={local.safetyCard}>
+                        <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">{portfolio.safety_state}</span>
+                        <p class={local.safetyContext}>{portfolio.safety_context}</p>
+                        {#if ghost}
+                            <p class={styles.infoLine}>
+                                Readiness view — the ladder is shown but unarmed. Nothing can trigger it while no capital is engaged.
+                            </p>
+                        {:else}
+                            <p class={styles.infoLine}>
+                                Safety state is informational. The automation executor refuses new entries in DRAWDOWN_STOP / SUSPENDED;
+                                open positions are always managed (TP/SL/invalidation remain armed).
+                            </p>
+                        {/if}
+                        {#if !ghost && (portfolio.safety_state === 'SUSPENDED' || portfolio.safety_state === 'DRAWDOWN_STOP')}
+                            <div>
+                                <button class="{styles.btn} {styles.btnGhost}" onclick={releaseVeto} disabled={releasing}>
+                                    {releasing ? 'Releasing…' : 'Release veto'}
+                                </button>
                             </div>
                         {/if}
                     </div>
-                {/each}
+                    <div class={styles.kpiStrip}>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Peak Equity</div><div class={styles.kpiValue}>${fmtUsd(safety?.peak_equity ?? portfolio.peak_equity)}</div><div class={styles.kpiSub}>high-water mark</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Max Drawdown</div><div class="{styles.kpiValue} {styles.neg}">{fmtPct(safety?.max_drawdown_pct ?? portfolio.max_drawdown_pct)}</div><div class={styles.kpiSub}>from peak</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Daily PnL</div><div class="{styles.kpiValue} {pnlClass(safety?.daily_pnl ?? portfolio.daily_pnl)}">{signedUsd(safety?.daily_pnl ?? portfolio.daily_pnl)}</div><div class={styles.kpiSub}>session</div></div>
+                    </div>
+                    <h4 class={styles.cardTitle} style="margin-top:12px">Consecutive Losses</h4>
+                    {#if Object.keys(portfolio.consecutive_losses).length === 0}
+                        <div class={styles.empty}>No losses recorded.</div>
+                    {:else}
+                        <div class={local.concList}>
+                            {#each Object.entries(portfolio.consecutive_losses) as [sym, count] (sym)}
+                                <div class={local.concRow}>
+                                    <span class={styles.tdMono}>{sym}</span>
+                                    <span class="{local.concPct} {count >= 5 ? styles.neg : count >= 3 ? styles.warn : ''}">{count} consecutive</span>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+                    {#if !ghost}
+                        <div class={local.sessionBar}>
+                            <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting}>
+                                {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
+                            </button>
+                        </div>
+                    {/if}
+                </div>
             {/if}
-
-        <!-- ─── EXPOSURE ──────────────────────────────────────────── -->
-        {:else if activePanel === 'exposure'}
-            <h3 class={styles.sectionTitle}>Exposure Matrix</h3>
-            <p class={styles.sectionDesc}>
-                Aggregate exposure breakdown, concentration analysis, and cross-symbol correlation.
-                Concentration limits: max single-pair 20%, max portfolio 50%, max correlation 0.8.
-            </p>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Exposure Summary</h4>
-            <div class={styles.statsGrid}>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Gross Exposure</div>
-                    <div class={styles.statValue}>${fmtNum(portfolioSummary.gross_exposure)}</div>
-                    <div class={styles.statSub}>Total absolute notional</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Net Exposure</div>
-                    <div class={styles.statValue}>${fmtNum(portfolioSummary.net_exposure)}</div>
-                    <div class={styles.statSub}>{fmtPct(portfolioSummary.net_exposure / portfolioSummary.current_equity * 100)} of equity</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Long Exposure</div>
-                    <div class="{styles.statValue} {styles.statPositive}">$8,210.40</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Short Exposure</div>
-                    <div class={styles.statValue} style="color:#5a5f6e">$0.00</div>
-                </div>
-            </div>
-
-            <div style="margin-top:0.25rem; margin-bottom:1.5rem">
-                <div class={styles.exposureRow}>
-                    <span class={styles.exposureLabel}>Long</span>
-                    <div class={styles.exposureBar}>
-                        <div class="{styles.exposureFill} {styles.exposureFillLong}" style="width:77.9%"></div>
-                    </div>
-                    <span class={styles.exposureValue}>$8,210.40 (77.9%)</span>
-                </div>
-                <div class={styles.exposureRow}>
-                    <span class={styles.exposureLabel}>Short</span>
-                    <div class={styles.exposureBar}>
-                        <div class="{styles.exposureFill} {styles.exposureFillShort}" style="width:0%"></div>
-                    </div>
-                    <span class={styles.exposureValue}>$0.00 (0%)</span>
-                </div>
-                <div class={styles.exposureRow}>
-                    <span class={styles.exposureLabel}>Net</span>
-                    <div class={styles.exposureBar}>
-                        <div class="{styles.exposureFill} {styles.exposureFillNet}" style="width:77.9%"></div>
-                    </div>
-                    <span class={styles.exposureValue}>$8,210.40 (77.9%)</span>
-                </div>
-            </div>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Symbol Concentration</h4>
-            {#each concentration as c}
-                <div class={styles.concentrationCard}>
-                    <div class={styles.concentrationHeader}>
-                        <span class={styles.concentrationSymbol}>{c.symbol}</span>
-                        <span class="{styles.concentrationPct} {c.exposure_pct > 20 ? styles.statNegative : pnlClass(0)}">
-                            {fmtPct(c.exposure_pct)} of equity
-                        </span>
-                    </div>
-                    <div style="position:relative">
-                        <div class={styles.concentrationLimitBar}>
-                            <div class={styles.concentrationLimitFill}
-                                 style="width:{Math.min(c.exposure_pct, 100)}%; background:{c.exposure_pct > 20 ? '#ef5350' : c.exposure_pct > 10 ? '#ffb74d' : '#4caf50'}">
-                            </div>
-                        </div>
-                        <div style="position:absolute; top:-2px; left:20%; height:10px; width:1px; background:#ef5350"></div>
-                    </div>
-                    <div class={styles.concentrationLimitLabel}>Limit: 20%</div>
-                </div>
-            {/each}
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin:1rem 0 0.5rem">Cross-Symbol Correlation</h4>
-            <div style="display:flex; flex-direction:column; gap:0.25rem">
-                {#each correlationMatrix as corr}
-                    <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.72rem">
-                        <span style="width:70px; color:#888">{corr.pair}</span>
-                        <div style="flex:1; height:8px; border-radius:4px; background:#1a1d26; overflow:hidden">
-                            <div style="height:100%; border-radius:4px; width:{Math.abs(corr.value) * 100}%; background:{corr.value > 0.8 ? '#ef5350' : corr.value > 0.6 ? '#ffb74d' : '#8f929d'}"></div>
-                        </div>
-                        <span style="{corr.value > 0.8 ? 'color:#ef5350' : corr.value > 0.6 ? 'color:#ffb74d' : 'color:#8f929d'}; font-variant-numeric:tabular-nums; width:35px">{fmtNum(corr.value)}</span>
-                    </div>
-                {/each}
-            </div>
-            <div style="font-size:0.6rem; color:#5a5f6e; margin-top:0.3rem">Max correlation limit: 0.8</div>
-
-        <!-- ─── CAPITAL ────────────────────────────────────────────── -->
-        {:else if activePanel === 'capital'}
-            <h3 class={styles.sectionTitle}>Capital Matrix</h3>
-            <p class={styles.sectionDesc}>
-                Capital custodian: tracks equity, margin, leverage, and enforces
-                liquidation risk thresholds with automated stance adjustments.
-            </p>
-
-            <div class={styles.statsGrid}>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Initial Balance</div>
-                    <div class={styles.statValue}>${fmtNum(portfolioSummary.initial_balance)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Current Equity</div>
-                    <div class={styles.statValue}>${fmtNum(portfolioSummary.current_equity)}</div>
-                    <div class={styles.statSub}>+{fmtNum((portfolioSummary.current_equity / portfolioSummary.initial_balance - 1) * 100)}%</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Available Margin</div>
-                    <div class={styles.statValue} style="color:#4caf50">${fmtNum(portfolioSummary.current_equity - 821.04)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Committed Margin</div>
-                    <div class={styles.statValue}>$821.04</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Realized P&L</div>
-                    <div class="{styles.statValue} {pnlClass(portfolioSummary.realized_pnl)}">{fmtPnl(portfolioSummary.realized_pnl)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Unrealized P&L</div>
-                    <div class="{styles.statValue} {pnlClass(portfolioSummary.unrealized_pnl)}">{fmtPnl(portfolioSummary.unrealized_pnl)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Daily P&L</div>
-                    <div class="{styles.statValue} {pnlClass(portfolioSummary.daily_pnl)}">{fmtPnl(portfolioSummary.daily_pnl)}</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Session Start Equity</div>
-                    <div class={styles.statValue}>${fmtNum(portfolioSummary.initial_balance)}</div>
-                </div>
-            </div>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Margin Usage Ratio</h4>
-            <div class={styles.capitalGauge}>
-                <div class={styles.capitalGaugeHeader}>
-                    <span class={styles.capitalGaugeLabel}>{fmtPct(portfolioSummary.margin_usage_ratio * 100)}</span>
-                </div>
-                <div class={styles.capitalGaugeBar}>
-                    <div class="{styles.capitalGaugeFill} {gaugeColorName}" style="width:{Math.min(portfolioSummary.margin_usage_ratio * 100, 100)}%"></div>
-                </div>
-                <div class={styles.capitalGaugeMarkers}>
-                    <span>0%</span>
-                    <span style="position:absolute; left:80%; color:#ffb74d">WARN 80%</span>
-                    <span style="position:absolute; left:95%; color:#ef5350">CLOSE 95%</span>
-                </div>
-            </div>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin:1rem 0 0.5rem">Liquidation Risk Thresholds</h4>
-            <table class={styles.table}>
-                <thead><tr><th>Threshold</th><th>Action</th><th>Current</th><th>Status</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td class={styles.tdMono}>margin_usage >= 0.80</td>
-                        <td>Warning to Portfolio Layer</td>
-                        <td class={styles.tdRight}>8.2%</td>
-                        <td class={styles.statPositive}>OK</td>
-                    </tr>
-                    <tr>
-                        <td class={styles.tdMono}>margin_usage >= 0.95</td>
-                        <td>CLOSE_ONLY for all symbols</td>
-                        <td class={styles.tdRight}>8.2%</td>
-                        <td class={styles.statPositive}>OK</td>
-                    </tr>
-                    <tr>
-                        <td class={styles.tdMono}>margin_usage >= 1.00</td>
-                        <td style="color:#ef5350">AVOID + Hard Exit</td>
-                        <td class={styles.tdRight}>8.2%</td>
-                        <td class={styles.statPositive}>OK</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <div style="margin-top:1rem">
-                <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Leverage Ratio</h4>
-                <div style="display:flex; gap:0.75rem; align-items:center">
-                    <span style="font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums">{fmtNum(portfolioSummary.leverage_ratio)}x</span>
-                    <span style="font-size:0.72rem; color:#888">gross_exposure / current_equity</span>
-                </div>
-            </div>
-
-        <!-- ─── SAFETY ─────────────────────────────────────────────── -->
-        {:else if activePanel === 'safety'}
-            <h3 class={styles.sectionTitle}>Safety Authority</h3>
-            <p class={styles.sectionDesc}>
-                Systemic safety manager: risk-ranked circuit breakers, per-symbol stances,
-                consecutive loss dropout, drawdown enforcement, and emergency Hard Exit.
-            </p>
-
-            <div class="{styles.safetyBanner} {safetyClass()}">
-                <span class={styles.safetyIcon}>{safetyIcon()}</span>
-                <div style="flex:1">
-                    <strong>Current Safety State: {safetyState.replace('_', ' ')}</strong>
-                    <span style="margin-left:0.5rem; font-weight:400; font-size:0.75rem">
-                        {#if safetyState === 'NORMAL'}All systems clear — full trading authorized{:else if safetyState === 'WARN'}Monitor drawdown — dawn warning active{:else}Restrictions active — see triggers below{/if}
-                    </span>
-                </div>
-                <span class="{styles.safetyBadge} {safetyBadgeClass()}">{safetyState.replace('_', ' ')}</span>
-            </div>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Per-Symbol Stances & Loss Streaks</h4>
-            <div class={styles.statsGrid}>
-                {#each stances as s}
-                    <div class={styles.statCard}>
-                        <div class={styles.statLabel}>{s.symbol}</div>
-                        <div class={styles.statValue}>
-                            <span class={stanceBadge(s.stance)}>{s.stance.replace('_', ' ')}</span>
-                        </div>
-                        <div class="{styles.statSub} {lossCountColor(s.consecutive_losses)}">
-                            {s.consecutive_losses} consecutive losses
-                        </div>
-                    </div>
-                {/each}
-            </div>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Consecutive Loss Tracker</h4>
-            {#each stances.filter(s => s.consecutive_losses > 0) as s}
-                <div class={styles.lossCard}>
-                    <div class={styles.lossHeader}>
-                        <span class={styles.lossSymbol}>{s.symbol}</span>
-                        <span class="{styles.lossCount} {lossCountColor(s.consecutive_losses)}">{s.consecutive_losses} / 5</span>
-                    </div>
-                    <div style="position:relative">
-                        <div class={styles.lossBar}>
-                            <div class={styles.lossBarFill} style="width:{(s.consecutive_losses / 5) * 100}%; background:{s.consecutive_losses >= 5 ? '#ef5350' : s.consecutive_losses >= 3 ? '#ffb74d' : '#4caf50'}"></div>
-                        </div>
-                        <div class="{styles.lossThreshold} {styles.lossThresholdCautious}"></div>
-                        <div class="{styles.lossThreshold} {styles.lossThresholdSuspended}"></div>
-                    </div>
-                    <div class={styles.lossLegend}>
-                        <span>0</span>
-                        <span style="color:#ffb74d">CAUTIOUS (3)</span>
-                        <span style="color:#ef5350">SUSPENDED (5)</span>
-                    </div>
-                </div>
-            {/each}
-
-            {#if stances.every(s => s.consecutive_losses === 0)}
-                <div class={styles.placeholder} style="padding:1rem; font-size:0.78rem">No consecutive losses — all symbols healthy</div>
-            {/if}
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin:1rem 0 0.5rem">Drawdown Monitor</h4>
-            <div class={styles.drawdownCard}>
-                <div class={styles.drawdownStats}>
-                    <div class={styles.drawdownStat}>
-                        <span class={styles.drawdownStatLabel}>Peak Equity</span>
-                        <span class={styles.drawdownStatValue}>${fmtNum(portfolioSummary.peak_equity)}</span>
-                    </div>
-                    <div class={styles.drawdownStat}>
-                        <span class={styles.drawdownStatLabel}>Current Drawdown</span>
-                        <span class="{styles.drawdownStatValue} {pnlClass(-portfolioSummary.max_drawdown_pct)}">{fmtPct(portfolioSummary.max_drawdown_pct)}</span>
-                    </div>
-                    <div class={styles.drawdownStat}>
-                        <span class={styles.drawdownStatLabel}>Drawdown Limit</span>
-                        <span class={styles.drawdownStatValue} style="color:#ef5350">30%</span>
-                    </div>
-                </div>
-                <div style="position:relative">
-                    <div class={styles.drawdownBar}>
-                        <div class={styles.drawdownBarFill} style="width:{(portfolioSummary.max_drawdown_pct / 30) * 100}%; background:{portfolioSummary.max_drawdown_pct > 20 ? '#ef5350' : portfolioSummary.max_drawdown_pct > 10 ? '#ffb74d' : '#4caf50'}"></div>
-                    </div>
-                    <div style="position:absolute; top:-3px; left:100%; height:14px; width:1px; background:#ef5350"></div>
-                </div>
-            </div>
-
-            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin:1rem 0 0.5rem">Veto Trigger Reference</h4>
-            <p class={styles.sectionDesc} style="margin-bottom:0.5rem">
-                Pre-trade safety veto chain. Triggers evaluated in order — first match wins.
-            </p>
-            {#each vetoTriggers as v}
-                <div class={styles.vetoCard}>
-                    <div class={styles.vetoHeader}>
-                        <span class={styles.vetoTrigger}>{v.trigger}</span>
-                        <span class={styles.vetoArrow}>→</span>
-                        <span class="{styles.vetoResult} {v.target_stance === 'AVOID' ? styles.statNegative : styles.statNeutral}">{v.target_stance}</span>
-                        {#if v.hard_exit}
-                            <span class={styles.vetoHardExit}>HARD EXIT</span>
-                        {/if}
-                    </div>
-                    <div class={styles.vetoMeta}>
-                        <span>Scope: {v.scope}</span>
-                        <span>Threshold: {v.threshold}</span>
-                        <span class={v.active ? styles.statNegative : styles.statPositive}>
-                            Current: {v.current} — {v.active ? 'BREACHED' : 'OK'}
-                        </span>
-                    </div>
-                </div>
-            {/each}
         {/if}
     </div>
 </div>

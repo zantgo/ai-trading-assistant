@@ -6,6 +6,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    /* Grid cell card — same sizing as the other overview cards (grid
+       stretch equalizes width + height across the row). */
+    min-height: 180px;
 }
 
 .header {
@@ -38,9 +41,9 @@
 
 .row {
     display: grid;
-    grid-template-columns: 110px 1fr 40px;
+    grid-template-columns: 96px 1fr 36px;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
 }
 
 .label {

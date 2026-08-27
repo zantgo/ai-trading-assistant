@@ -1,13 +1,19 @@
 use axum::{
-    response::Redirect,
+    extract::{Request, State},
+    http::{HeaderValue, Method, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Redirect},
     routing::{delete, get, post, put},
     Router,
 };
 use core_domain::normalized::SymbolMapper;
 use sqlx::SqlitePool;
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
-use tower_http::cors::{Any, CorsLayer};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use config_models::PlatformConfig;
@@ -69,9 +75,16 @@ pub struct AppState {
     pub latency_tracker: core_domain::SharedLatencyTracker,
     pub ws_url: String,
     pub bitget_ws_url: String,
+    /// v10.1: browser-origin allowlist for the served HTTP/WS surface —
+    /// built from the resolved bind/port (per-folder sessions) plus the
+    /// Vite dev origins. K1 boundary: any other origin is refused.
+    pub allowed_origins: Vec<String>,
     /// L7 cross-symbol market overview, refreshed periodically.
     pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
     pub execution_engine: Arc<ExecutionEngine>,
+    /// v7 TAE setup executor (when automation is enabled). Serves the
+    /// `/api/instances/:id/automation` surface.
+    pub automation: Option<Arc<portfolio_supervisor::setup_executor::SetupExecutor>>,
     /// Notification channel fired by HTTP handlers after a successful
     /// `recharge_instance`. Subscribed by the WS handler so it can swap its
     /// broadcast subscription off the orphaned `ActivePair` onto the new one.
@@ -88,6 +101,16 @@ pub struct AppState {
     /// scheduler task for an immediate tick (the next scheduled tick is
     /// unaffected).
     pub snapshot_export_manual_tick: Arc<tokio::sync::Notify>,
+
+    // ── v10 session identity ───────────────────────────────────────
+    /// The current session id (monotonic, persisted). `None` before the
+    /// session is created at boot.
+    pub session_id: Arc<RwLock<Option<i64>>>,
+
+    // ── Backtesting Engine (BTE, v8) ───────────────────────────────
+    /// Single-run lock + live backfill progress registry. The BTE runs one
+    /// backtest at a time; concurrent runs return 409.
+    pub backtest: Arc<backtesting_engine::registry::BacktestRegistry>,
 }
 
 impl AppState {
@@ -158,8 +181,8 @@ impl AppState {
             ));
         }
 
-        *self.session.base_currency.write().await = Some(currency.clone());
-        *self.session.exchange.write().await = Some(exchange.clone());
+        *self.session.base_currency.write().await = Some(currency);
+        *self.session.exchange.write().await = Some(exchange);
         self.session
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -276,6 +299,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/session/status",
             get(handlers::session::serve_session_status),
         )
+        .route("/api/sessions", get(handlers::session::serve_sessions_list))
+        .route(
+            "/api/sessions/:id/analytics",
+            get(handlers::analytics::serve_session_analytics),
+        )
+        .route(
+            "/api/analytics/comparison",
+            get(handlers::analytics::serve_analytics_comparison),
+        )
         .route(
             "/api/session/init",
             post(handlers::session::serve_session_init),
@@ -383,6 +415,33 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::instances::serve_reset_safety),
         )
         .route(
+            "/api/instances/:instance_id/lifecycle",
+            post(handlers::instances::serve_instance_lifecycle),
+        )
+        .route(
+            "/api/strategies",
+            get(handlers::strategies::list_strategies).post(handlers::strategies::create_strategy),
+        )
+        .route(
+            "/api/strategies/:name",
+            get(handlers::strategies::get_strategy)
+                .put(handlers::strategies::update_strategy)
+                .delete(handlers::strategies::delete_strategy),
+        )
+        .route(
+            "/api/strategies/:name/clone",
+            post(handlers::strategies::clone_strategy),
+        )
+        .route(
+            "/api/account/summary",
+            get(handlers::account::account_summary),
+        )
+        .route(
+            "/api/account/capital",
+            post(handlers::account::set_account_capital),
+        )
+        .route("/api/account/reset", post(handlers::account::reset_account))
+        .route(
             "/api/instances/:instance_id/safety/release-veto",
             post(handlers::instances::serve_release_veto),
         )
@@ -395,39 +454,36 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::instances::serve_get_portfolio),
         )
         .route(
-            "/api/instances/:instance_id/manual/open",
-            post(handlers::instances::serve_instance_manual_open),
+            "/api/instances/:instance_id/exposure",
+            get(handlers::instances::serve_get_exposure),
         )
         .route(
-            "/api/instances/:instance_id/manual/close",
-            post(handlers::instances::serve_instance_manual_close),
+            "/api/instances/:instance_id/capital",
+            get(handlers::instances::serve_get_capital),
+        )
+        .route(
+            "/api/instances/:instance_id/safety/session-reset",
+            post(handlers::instances::serve_session_reset),
+        )
+        .route(
+            "/api/instances/:instance_id/automation",
+            get(handlers::instances::serve_get_automation),
+        )
+        .route(
+            "/api/instances/:instance_id/automation/close",
+            post(handlers::instances::serve_automation_close),
         )
         .route(
             "/api/instances/:instance_id/intervals",
             post(handlers::instances::serve_instance_intervals),
         )
         .route(
-            "/api/decision-profiles",
-            get(handlers::profiles::serve_decision_profiles_list)
-                .post(handlers::profiles::serve_decision_profile_create),
+            "/api/instances/:instance_id/activation",
+            get(handlers::instances::serve_get_activation),
         )
         .route(
-            "/api/decision-profiles/:id",
-            delete(handlers::profiles::serve_decision_profile_delete)
-                .post(handlers::profiles::serve_decision_profile_update),
-        )
-        .route(
-            "/api/decision-profiles/:id/evaluate",
-            post(handlers::profiles::serve_decision_evaluate),
-        )
-        .route(
-            "/api/decision-profiles/:id/indicators",
-            post(handlers::profiles::serve_profile_indicator_add),
-        )
-        .route(
-            "/api/decision-profiles/:id/indicators/:iid",
-            post(handlers::profiles::serve_profile_indicator_update)
-                .delete(handlers::profiles::serve_profile_indicator_delete),
+            "/api/instances/:instance_id/reload",
+            post(handlers::instances::serve_reload_timeframe),
         )
         .route(
             "/api/risk-profiles",
@@ -484,6 +540,76 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::analytics::serve_performance_summary),
         )
         .route(
+            "/api/backtest/run",
+            post(handlers::analytics::serve_backtest_run),
+        )
+        .route(
+            "/api/backtest/list",
+            get(handlers::analytics::serve_backtest_list),
+        )
+        .route(
+            "/api/backtest/progress/:id",
+            get(handlers::analytics::serve_backtest_progress),
+        )
+        .route(
+            "/api/backtest/cancel/:id",
+            post(handlers::analytics::serve_backtest_cancel),
+        )
+        .route(
+            "/api/backtest/coverage",
+            get(handlers::backtest::serve_backtest_coverage),
+        )
+        .route(
+            "/api/backtest/archive/backfill",
+            post(handlers::backtest::serve_backfill_start),
+        )
+        .route(
+            "/api/backtest/archive/progress/:id",
+            get(handlers::backtest::serve_backfill_progress),
+        )
+        .route(
+            "/api/backtest/archive/cancel/:id",
+            post(handlers::backtest::serve_backfill_cancel),
+        )
+        .route(
+            "/api/backtest/:id/input_bars",
+            get(handlers::analytics::serve_backtest_input_bars),
+        )
+        .route(
+            "/api/backtest/:id/trades",
+            get(handlers::analytics::serve_backtest_trades),
+        )
+        .route(
+            "/api/backtest/:id/equity",
+            get(handlers::analytics::serve_backtest_equity),
+        )
+        .route(
+            "/api/backtest/:id/portfolio",
+            get(handlers::analytics::serve_backtest_portfolio),
+        )
+        .route(
+            "/api/backtest/:id/signals",
+            get(handlers::analytics::serve_backtest_signals),
+        )
+        .route(
+            "/api/backtest/:id/metrics",
+            get(handlers::analytics::serve_backtest_metrics),
+        )
+        .route(
+            "/api/backtest/:id",
+            get(handlers::analytics::serve_backtest_get),
+        )
+        .route(
+            "/api/keys",
+            get(handlers::keys::list_keys).post(handlers::keys::add_key),
+        )
+        .route("/api/keys/rotate", post(handlers::keys::rotate_keys))
+        .route(
+            "/api/keys/backup",
+            get(handlers::keys::backup_keys).post(handlers::keys::backup_keys_post),
+        )
+        .route("/api/keys/:key_id", delete(handlers::keys::delete_key))
+        .route(
             "/api/system/status",
             get(handlers::system::serve_system_status),
         )
@@ -494,6 +620,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/system/clock",
             get(handlers::clock::serve_clock_status),
+        )
+        .route(
+            "/api/system/platform-config",
+            get(handlers::system::serve_platform_config),
+        )
+        .route(
+            "/api/system/pipelines",
+            get(handlers::system::serve_system_pipelines),
+        )
+        .route(
+            "/api/system/distribution",
+            get(handlers::system::serve_system_distribution),
         )
         .route(
             "/api/exchange-status",
@@ -508,14 +646,133 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/favicon.ico",
             get(|| async { Redirect::to("/favicon.svg") }),
         )
+        .layer(axum::middleware::from_fn(rate_limit_middleware))
         .layer(
+            // K1 (production audit): CORS is locked to the dashboard's own
+            // origins — previously `allow_origin(Any)` let ANY website
+            // drive every unauthenticated endpoint (config rewrite,
+            // instance lifecycle, safety-veto release) from the operator's
+            // browser. Same-origin dashboard fetches need no CORS headers
+            // at all; the allowlist only keeps direct-origin bookmarks and
+            // the Vite dev proxy working.
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+                .allow_origin(AllowOrigin::list(
+                    state
+                        .allowed_origins
+                        .iter()
+                        .filter_map(|o| HeaderValue::from_str(o).ok())
+                        .collect::<Vec<_>>(),
+                ))
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::DELETE,
+                    Method::PATCH,
+                    Method::OPTIONS,
+                ])
+                .allow_headers(AllowHeaders::list(vec![CONTENT_TYPE, AUTHORIZATION])),
         )
+        // Cross-site rejection: placed OUTERMOST so the 403 is issued
+        // before any handler runs. Modern browsers always attach
+        // `Sec-Fetch-Site` to cross-origin fetches and WS upgrades; a
+        // `cross-site` value (or a foreign `Origin` header) is refused
+        // outright. Same-origin dashboard fetches and Vite-dev proxied
+        // requests carry `same-origin`/the app origin and pass.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            reject_cross_site,
+        ))
         .fallback_service(ServeDir::new("ui/dist"))
         .with_state(state)
+}
+
+/// Origins the dashboard itself can be served from — built from the
+/// resolved bind/port (v10.1, per-folder sessions) plus the Vite dev
+/// server origins so operator bookmarks and `bun run dev` keep working
+/// on any port. Any other origin is refused.
+pub fn default_allowed_origins(bind: &str, port: u16) -> Vec<String> {
+    let mut out = vec![
+        format!("http://{bind}:{port}"),
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+        "http://127.0.0.1:5173".to_string(),
+        "http://localhost:5173".to_string(),
+    ];
+    out.sort();
+    out.dedup();
+    out
+}
+
+pub fn origin_allowed(origin: &str, allowed: &[String]) -> bool {
+    allowed.iter().any(|a| a == origin)
+}
+
+/// K1 (production audit): the API is unauthenticated and binds loopback
+/// only — the one remaining boundary against remote attackers is the
+/// browser's same-origin policy. `Sec-Fetch-Site` is present on every
+/// browser-originated cross-site request; `Origin` is present on all
+/// browser POSTs. Either header proving a foreign site → 403.
+async fn reject_cross_site(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: Next,
+) -> axum::response::Response {
+    let headers = req.headers();
+    if let Some(fetch_site) = headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        if fetch_site != "same-origin" && fetch_site != "same-site" && fetch_site != "none" {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    if let Some(origin) = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
+        if !origin_allowed(origin, &state.allowed_origins) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    next.run(req).await
+}
+
+/// Global rate limiter (single-operator loopback, 30 req/s).
+/// Uses a sliding window of 1 s kept in a process-wide `Mutex<VecDeque>`.
+/// `429 Too Many Requests` when the window is full; no per-IP tracking
+/// needed because the server binds loopback-only (one operator).
+/// Burst of 5-10 parallel dashboard polls (overview + instances + coverage)
+/// previously hit the old 10/s ceiling and surfaced as `Backfill failed`.
+async fn rate_limit_middleware(req: Request, next: Next) -> axum::response::Response {
+    static WINDOW: Duration = Duration::from_secs(1);
+    const LIMIT: usize = 30;
+    static STATE: LazyLock<Mutex<VecDeque<Instant>>> =
+        LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+    let now = Instant::now();
+    let should_limit = {
+        let mut guard = STATE.lock().expect("rate-limit mutex poisoned");
+        // evict entries outside the 1 s window
+        while guard
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= WINDOW)
+        {
+            guard.pop_front();
+        }
+        if guard.len() >= LIMIT {
+            true
+        } else {
+            guard.push_back(now);
+            false
+        }
+    };
+    if should_limit {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(axum::http::header::RETRY_AFTER, "1")],
+            "Rate limit exceeded: 30 req/s",
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 #[cfg(test)]

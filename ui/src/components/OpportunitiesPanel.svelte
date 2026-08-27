@@ -8,10 +8,11 @@
     import SummaryCard from './SummaryCard.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
+    import { computeDecisionRank, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
+    import { normalizeViability } from '../lib/viability';
     import { computeOpportunityBars, rankSectionsByCount, type DirectionalBars } from '../lib/opportunityBars';
     import { computeConfluentRr, fmtConfluentRrMagnitude, rrBarPct, riskBasisLabel } from '../lib/confluentRr';
-    import { buildOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../lib/opportunitySummary';
+    import { buildOpportunitySummary, highlightOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../lib/opportunitySummary';
     import { rrColor } from '../lib/dashboardColors';
     import { confluenceStrengthLabel } from '../lib/confluenceStrength';
 
@@ -82,13 +83,6 @@
         { id: 'range', label: 'RANGE', value: directionBars.hold, cls: 'range' },
     ]
         .sort((a, b) => b.value - a.value));
-
-    const setups = $derived(computeSymmetricSetups({
-        opportunity,
-        markPrice,
-        topAction: rank.top,
-        readiness: rank.headline.state,
-    }));
 
     // ── Per-profile Trade Setup cards ──────────────────────────────────────
     // The Opportunities panel renders the full leaderboard: every
@@ -179,12 +173,21 @@
             });
         });
         // Sort by viability tier (Actionable first), then by score desc.
-        return out.sort((a, b) => {
-            const va = viabilityRank[a.viability];
-            const vb = viabilityRank[b.viability];
-            if (va !== vb) return va - vb;
-            return b.score - a.score;
-        });
+        // Audit fix (M7): `rankIdx` must be the FINAL display index in the
+        // viability-tier-sorted array — previously it captured the
+        // pre-sort (score-only) index, so `TOP · ACTIONABLE` compared two
+        // different orderings and flagged the wrong card whenever tiers
+        // mixed (e.g. a Qualifying profile outscoring an Actionable one).
+        // The export builder (opportunityTab.ts) already used the final
+        // index, so screen and clipboard disagreed exactly here.
+        return out
+            .sort((a, b) => {
+                const va = viabilityRank[a.viability];
+                const vb = viabilityRank[b.viability];
+                if (va !== vb) return va - vb;
+                return b.score - a.score;
+            })
+            .map((s, i) => ({ ...s, rankIdx: i }));
     });
     // v6.10.21: index of the top-ranked Actionable card (the `TOP ·
     // ACTIONABLE` holder) — computed after the viability-tier sort.
@@ -292,28 +295,23 @@
         });
     }
 
-    function oppClass(o: string): string {
-        switch (o) {
-            case 'TrendContinuation': return styles.oppTrend;
-            case 'Breakout': return styles.oppBreakout;
-            case 'Pullback': return styles.oppPullback;
-            case 'MeanReversion': return styles.oppDefault;
-            case 'Reversal': return styles.oppReversal;
-            case 'LiquiditySqueeze': return styles.oppReversal;
-            case 'Scalp': return styles.oppTrend;
-            case 'NoClearOpportunity': return styles.oppNone;
-            default: return styles.oppNone;
-        }
+    // v10.1: profile cards are tinted by RESOLVED SIDE (green = LONG,
+    // red = SHORT, grey = NEUTRAL) — the setup kind stays a text label.
+    // Direction is the eye-scan signal; kind is read.
+    function profileSideCls(p: unknown): string {
+        const side = selectProfileSide(p as never, analysis?.bias ?? null);
+        if (side === 'LONG') return styles.oppSideLong;
+        if (side === 'SHORT') return styles.oppSideShort;
+        return styles.oppSideNeutral;
     }
     function oppLabel(o: string): string {
         return o.replace(/([A-Z])/g, ' $1').trim();
     }
+    // v10.1: 3-band scores — red is reserved for SHORT only.
     function scoreColor(s: number): string {
         if (s >= 85) return '#22c55e';
-        if (s >= 70) return '#4ade80';
         if (s >= 50) return '#f59e0b';
-        if (s >= 30) return '#94a3b8';
-        return '#ef4444';
+        return '#94a3b8';
     }
     function setupQuality(s: number): { label: string; cls: string } {
         if (s >= 85) return { label: 'PRIME', cls: styles.prime };
@@ -322,13 +320,14 @@
         if (s >= 30) return { label: 'MARGINAL', cls: styles.marginal };
         return { label: 'NONE', cls: styles.none };
     }
+    // v10.1: confluence tags must not wear direction colors.
     function sourceColor(s: string): string {
         switch (s) {
             case 'FIBONACCI': return '#ff9800';
             case 'VOLUME_PROFILE': return '#00bcd4';
             case 'PIVOT_POINTS': return '#ab47bc';
-            case 'SUPPORT_RESISTANCE': return '#66bb6a';
-            case 'LIQUIDITY_CLUSTER': return '#ef5350';
+            case 'SUPPORT_RESISTANCE': return '#94a3b8';
+            case 'LIQUIDITY_CLUSTER': return '#f59e0b';
             default: return '#78909c';
         }
     }
@@ -440,7 +439,7 @@
         if (rr == null) return styles.rrNone ?? '';
         if (rr >= 2.0) return styles.green;
         if (rr >= 1.0) return styles.amber;
-        return styles.red;
+        return styles.amber;
     }
 
     // ── v6.10.21: unified state-driven card language ────────────────────
@@ -465,10 +464,15 @@
             return { text: 'GEOMETRY INVERTED', cls: styles.setupBadgeInverted };
         }
         switch (setup.viability) {
-            case 'Actionable':
+            case 'Actionable': {
+                // v10.1: the actionable badge wears the card's side tint.
+                const cls = setup.side === 'SHORT'
+                    ? styles.setupBadgeActionableShort
+                    : styles.setupBadgeActionable;
                 return setup.rankIdx === firstActionableIdx
-                    ? { text: 'TOP · ACTIONABLE', cls: styles.setupBadgeActionable }
-                    : { text: 'ACTIONABLE', cls: styles.setupBadgeActionable };
+                    ? { text: 'TOP · ACTIONABLE', cls }
+                    : { text: 'ACTIONABLE', cls };
+            }
             case 'Qualifying':
                 return { text: 'QUALIFYING', cls: styles.setupBadgeAmber };
             case 'DirectionalNeutral':
@@ -480,6 +484,19 @@
 
     // State D coordinate red-flagging — keyed on the shared resolver's
     // N/A reason so the operator sees WHICH part of the bracket is broken.
+    // v10.1: the STOP-LOSS row wears red only on actionable cards;
+    // amber on qualifying/State D, grey on references.
+    function stopRowCls(setup: ActiveSetup): string {
+        if (!setup.geometry_consistent || setup.viability === 'GeometryInverted') {
+            return styles.setupRowStopAmber ?? '';
+        }
+        if (setup.viability === 'Actionable') return styles.setupRowStop ?? '';
+        if (setup.viability === 'Qualifying' || setup.viability === 'DirectionalNeutral') {
+            return styles.setupRowStopAmber ?? '';
+        }
+        return styles.setupRowStopGrey ?? '';
+    }
+
     function flaggedRowKeys(reason: string | null): Set<'entry' | 'tp' | 'sl' | 'rr'> {
         const out = new Set<'entry' | 'tp' | 'sl' | 'rr'>();
         if (!reason) return out;
@@ -537,12 +554,13 @@
          Summary naming scheme. Prose is generated by the shared
          `buildOpportunitySummary` helper (export parity). -->
     <SummaryCard label={OPPORTUNITY_SUMMARY_LABEL}>
-        <p class={styles.opportunitySummaryText}>{buildOpportunitySummary(opportunity)}</p>
+        <p class={styles.opportunitySummaryText}>{@html highlightOpportunitySummary(buildOpportunitySummary(opportunity))}</p>
     </SummaryCard>
 
     <!-- Directional conviction bars — L4 bracket conviction only
          (opportunity_score × active-side R:R). The L6 verdict split is
          the Recommendation gauge's story; this panel never reads it. -->
+    <div class={styles.sectionTitle}>Directional Bias</div>
     <div class={styles.dirBarRow}>
         {#each sortedBars as bar (bar.id)}
             <div class={styles.dirBarCell}>
@@ -609,7 +627,7 @@
                                         </div>
                                         <div class={styles.setupRow}>
                                             <span class={styles.setupRowLabel}>STOP-LOSS</span>
-                                            <span class="{styles.setupRowValue} {styles.setupRowStop} {flagged.has('sl') ? styles.setupRowFlagged : ''}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
+                                            <span class="{styles.setupRowValue} {stopRowCls(setup)} {flagged.has('sl') ? styles.setupRowFlagged : ''}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
                                         </div>
                                         <div class={styles.setupRow}>
                                             <span class={styles.setupRowLabel}>REWARD-TO-RISK RATIO</span>
@@ -633,12 +651,12 @@
                             {#if section.reference}
                                 {@const refWarn = referenceIsWarn(section.reference)}
                                 {@const refFlagged = flaggedRowKeys(section.reference.rr_reason)}
-                                <div class="{styles.setupCard} {refWarn ? styles.setupCardInverted : styles.setupCardReference}">
-                                    <div class="{styles.setupHeader} {refWarn ? styles.setupHeaderInverted : styles.setupHeaderReference}">
+                                <div class="{styles.setupCard} {refWarn ? styles.setupCardReferenceWarn : styles.setupCardReference}">
+                                    <div class="{styles.setupHeader} {refWarn ? styles.setupHeaderReferenceWarn : styles.setupHeaderReference}">
                                         <span class={styles.setupHeaderTitle}>{`Reference Bracket · ${section.reference.direction === 'NEUTRAL' ? 'RANGE' : section.reference.direction}`}</span>
                                         <span class={styles.setupScoreInline}>REFERENCE</span>
                                     </div>
-                                    <div class={refWarn ? styles.setupBadgeInverted : styles.setupBadgeReference}>
+                                    <div class={refWarn ? styles.setupBadgeReferenceWarn : styles.setupBadgeReference}>
                                         {refWarn ? 'BELOW ACTIONABLE FLOOR' : 'INFORMATIONAL'}
                                     </div>
                                     <div class={styles.setupBody}>
@@ -656,7 +674,7 @@
                                         </div>
                                         <div class={styles.setupRow}>
                                             <span class={styles.setupRowLabel}>STOP-LOSS</span>
-                                            <span class="{styles.setupRowValue} {styles.setupRowStop} {refFlagged.has('sl') ? styles.setupRowFlagged : ''}">
+                                            <span class="{styles.setupRowValue} {styles.setupRowStopGrey} {refFlagged.has('sl') ? styles.setupRowFlagged : ''}">
                                                 {section.reference.zones ? fmtPxDecimal(section.reference.zones.invalidation, markPrice) : '—'}
                                             </span>
                                         </div>
@@ -772,28 +790,6 @@
             {/if}
         </div>
 
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Market Position</div>
-            <div class={styles.zoneGrid}>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Bias</span>
-                    <span class={styles.zoneValue}>{analysis?.bias ?? '—'}</span>
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Regime</span>
-                    <span class={styles.zoneValue}>{analysis?.market_regime ?? '—'}</span>
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Trend</span>
-                    <span class={styles.zoneValue}>{analysis?.trend_assessment ?? '—'}</span>
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Quality</span>
-                    <span class={styles.zoneValue}>{analysis?.market_quality ?? '—'}</span>
-                </div>
-            </div>
-        </div>
-
         <!-- ── Evaluated profiles — dynamically ranked by score desc (like
              the Trade Setup cards), ties broken by precondition ratio. ── -->
         <div class={styles.section}>
@@ -809,7 +805,7 @@
                             const br = b.preconditions_total > 0 ? b.preconditions_met / b.preconditions_total : 0;
                             return br - ar;
                         }) as profile (profile.opportunity_type)}
-                        <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
+                        <div class="{styles.profileCard} {profileSideCls(profile)}">
                             <div class={styles.profileHeader}>
                                 <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
                                 <span class={styles.profileScore} style="color: {scoreColor(wireDisplayScore(profile))}; {profile.preconditions_met === 0 ? 'opacity: 0.45' : ''}">{fmtScore(wireDisplayScore(profile))}</span>
@@ -822,8 +818,8 @@
                                          style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
                                 </div>
                             </div>
-                            {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
-                                <div class={styles.profileViability}>{profile.trade_viability}</div>
+                            {#if profile.trade_viability && normalizeViability(profile.trade_viability) !== 'NoClear'}
+                                <div class={styles.profileViability}>{normalizeViability(profile.trade_viability)}</div>
                             {/if}
                             {#if profile.notes}
                                 <div class={styles.profileNotes}>{profile.notes}</div>

@@ -1,518 +1,317 @@
-.dashboard {
-    display: flex;
-    height: 100%;
-    background: #000;
-    color: #fff;
-    font-family: var(--mono);
+/* TradeAutomationDashboard — local layout details only. The shared
+   vocabulary (headers, badges, KPI cards, tables, banners) lives in
+   ../styles/engine-dashboard.module.css. */
+
+/* ── Setup geometry grid ── */
+
+.setupType {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e2e8f0;
 }
 
-.sidebar {
-    width: 200px;
-    border-right: 1px solid rgba(255, 255, 255, 0.07);
-    padding: 1rem 0;
-    flex-shrink: 0;
-}
-
-.sidebarTitle {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.35);
-    padding: 0 1rem;
-    margin-bottom: 0.75rem;
-}
-
-.sidebarBtn {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 0.5rem 1rem;
-    border: none;
-    background: transparent;
+.setupMeta {
+    font-size: 11px;
     color: rgba(255, 255, 255, 0.45);
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-family: var(--mono);
-    transition: background 0.15s;
+    margin-left: 8px;
 }
 
-.sidebarBtn:hover { background: rgba(255, 255, 255, 0.04); }
-.sidebarBtnActive { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.setupGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
 
-.content {
+.setupBox {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.setupLabel {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 4px;
+}
+
+.setupValue {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.setupSub {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 3px;
+}
+
+/* ── Projection grid ── */
+
+.projection {
+    margin-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 10px;
+}
+
+.projectionTitle {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #7dd3fc;
+}
+
+.projectionGhost {
+    color: #fbbf24;
+}
+
+.projectionGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.projItem {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.projLabel {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.projValue {
+    font-size: 12px;
+    font-family: var(--mono, 'SF Mono', monospace);
+    color: #e2e8f0;
+}
+
+/* ── Ghost watermark ── */
+
+.ghostWatermark {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border: 1px dashed #f59e0b;
+    border-radius: 6px;
+    color: #fbbf24;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+/* ── Qualification diagnostics ── */
+
+.checkList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.checkRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.checkMark {
+    width: 16px;
+    text-align: center;
+    font-family: var(--mono, 'SF Mono', monospace);
+    font-weight: 700;
+}
+
+.checkPass { color: #22c55e; }
+.checkFail { color: #ef4444; }
+
+.checkName {
+    color: rgba(255, 255, 255, 0.75);
     flex: 1;
-    padding: 1.5rem;
+}
+
+.checkValue {
+    font-family: var(--mono, 'SF Mono', monospace);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+}
+
+/* ── Position card ── */
+
+.positionCard {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.positionRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.positionSymbol {
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.positionMeta {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.positionPnl {
+    font-size: 13px;
+    font-weight: 700;
+    margin-left: auto;
+}
+
+.closeBtn {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.closeBtn:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.closeBtn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.invalidationBanner {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 3px solid #7dd3fc;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1.5;
+}
+
+/* ── Execution-quality strip ── */
+
+.qualityGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.qualityItem {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.qualityLabel {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 4px;
+}
+
+.qualityValue {
+    font-size: 15px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.qualitySub {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 3px;
+}
+
+/* ── Reconciliation rows ── */
+
+.reconRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 12px;
+}
+
+.reconRole {
+    font-family: var(--mono, 'SF Mono', monospace);
+    font-weight: 700;
+    min-width: 44px;
+}
+
+.reconMono {
+    font-family: var(--mono, 'SF Mono', monospace);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Activity log ── */
+
+.activityList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;
     overflow-y: auto;
 }
 
-.sectionTitle {
-    font-size: 1rem;
-    margin-bottom: 0.5rem;
-}
-
-.sectionDesc {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 0.8rem;
-    margin-bottom: 1rem;
-}
-
-/* ─── Stats grid ─── */
-.statsGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-}
-
-.statCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
+.activityRow {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    font-size: 12px;
+    padding: 6px 8px;
     background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
 }
 
-.statLabel {
-    font-size: 0.7rem;
+.activityTs {
+    font-family: var(--mono, 'SF Mono', monospace);
     color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.35rem;
+    flex-shrink: 0;
 }
 
-.statValue {
-    font-size: 1.3rem;
-    font-weight: 600;
-}
-
-.statSub {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-.statPositive { color: #4caf50; }
-.statNegative { color: #ef5350; }
-.statNeutral { color: #ffb74d; }
-
-/* ─── Badges ─── */
-.badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
+.activityEvent {
+    font-weight: 700;
     letter-spacing: 0.03em;
+    flex-shrink: 0;
 }
 
-.badgeActive { background: #1b5e20; color: #4caf50; }
-.badgeCloseOnly { background: #e65100; color: #ffb74d; }
-.badgeAvoid { background: #b71c1c; color: #ef5350; }
-.badgeRunning { background: #1b5e20; color: #4caf50; }
-.badgePaused { background: #e65100; color: #ffb74d; }
-.badgeStopped { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); }
-.badgeTriggered { background: #1b5e20; color: #4caf50; }
-.badgeBlocked { background: #e65100; color: #ffb74d; }
-.badgeSkipped { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); }
-
-.badgeModeManual { background: rgba(255, 255, 255, 0.06); color: #64ffda; }
-.badgeModeHeuristics { background: #6a1b9a; color: #ce93d8; }
-.badgeModePaper { background: #004d40; color: #4db6ac; }
-
-/* ─── Table ─── */
-.table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.78rem;
-}
-
-.table th {
-    text-align: left;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.table td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
-}
-
-.table tr:hover { background: rgba(255, 255, 255, 0.03); }
-
-.tdCenter { text-align: center; }
-.tdRight { text-align: right; font-variant-numeric: tabular-nums; }
-.tdMono { font-family: var(--mono); font-size: 0.75rem; }
-
-/* ─── Policy card ─── */
-.policyCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    margin-bottom: 0.75rem;
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.policyHeader {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.policyHeader:hover { background: rgba(255, 255, 255, 0.03); }
-
-.policyName {
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.policySymbol {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.78rem;
-}
-
-.policyDirection {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.policyDirectionLong { color: #4caf50; }
-.policyDirectionShort { color: #ef5350; }
-
-.policyMeta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-left: auto;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.policyDetail {
-    padding: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.3);
-}
-
-.conditionTree {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding-left: 1rem;
-    border-left: 2px solid rgba(255, 255, 255, 0.07);
-    margin-top: 0.5rem;
-}
-
-.conditionRow {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-}
-
-.conditionField {
-    color: #64ffda;
-    font-family: var(--mono);
-}
-
-.conditionOp {
-    color: #ffb74d;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-}
-
-.conditionValue {
-    color: rgba(255, 255, 255, 0.7);
-}
-
-.conditionPass { color: #4caf50; }
-.conditionFail { color: #ef5350; }
-
-.conditionGroup {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.2rem;
-}
-
-.riskParams {
-    display: flex;
-    gap: 1.5rem;
-    margin-top: 0.75rem;
-    font-size: 0.75rem;
+.activityDetail {
     color: rgba(255, 255, 255, 0.45);
+    word-break: break-word;
 }
 
-.riskParam {
-    display: flex;
-    flex-direction: column;
-}
-
-.riskParamLabel {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.65rem;
-    text-transform: uppercase;
-}
-
-.riskParamValue {
-    color: rgba(255, 255, 255, 0.85);
-    font-family: var(--mono);
-}
-
-/* ─── Observability log ─── */
-.obsCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.obsHeader {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-
-.obsTimestamp {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.72rem;
-}
-
-.obsPolicyId {
-    color: #64ffda;
-    font-size: 0.78rem;
-    font-weight: 600;
-}
-
-.obsResultBadge {
-    margin-left: auto;
-}
-
-.obsConditions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    font-size: 0.7rem;
-}
-
-.obsConditionChip {
-    padding: 0.15rem 0.4rem;
-    border-radius: 3px;
-    font-size: 0.65rem;
-    font-family: var(--mono);
-}
-
-.obsConditionPass { background: rgba(76,175,80,0.15); color: #4caf50; }
-.obsConditionFail { background: rgba(239,83,80,0.15); color: #ef5350; }
-
-/* ─── Lifecycle cards ─── */
-.lifecycleGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 0.75rem;
-}
-
-.lifecycleCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.lifecycleHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-}
-
-.lifecycleSymbol {
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.lifecycleControls {
-    display: flex;
-    gap: 0.3rem;
-}
-
-.lifecycleBtn {
-    padding: 0.2rem 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.45);
-    cursor: pointer;
-    font-size: 0.65rem;
-    font-family: var(--mono);
-    transition: background 0.15s;
-}
-
-.lifecycleBtn:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
-.lifecycleBtnStart:hover { border-color: #4caf50; color: #4caf50; }
-.lifecycleBtnPause:hover { border-color: #ffb74d; color: #ffb74d; }
-.lifecycleBtnStop:hover { border-color: #ef5350; color: #ef5350; }
-
-.lifecycleInfo {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.45);
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-}
-
-.lifecycleRow {
-    display: flex;
-    justify-content: space-between;
-}
-
-.lifecycleLabel {
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.lifecycleValue {
-    color: rgba(255, 255, 255, 0.85);
-}
-
-/* ─── Paper Trading ─── */
-.paperTabBar {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    margin-bottom: 1rem;
-}
-
-.paperTab {
-    padding: 0.5rem 1rem;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.35);
-    cursor: pointer;
-    font-size: 0.78rem;
-    font-family: var(--mono);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
-}
-
-.paperTab:hover { color: rgba(255, 255, 255, 0.6); }
-.paperTabActive { color: #fff; border-bottom-color: #64ffda; }
-
-.paperAccountBar {
-    display: flex;
-    gap: 1.5rem;
-    padding: 0.5rem 0;
-    margin-top: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    font-size: 0.75rem;
-}
-
-.paperAccountItem {
-    display: flex;
-    flex-direction: column;
-}
-
-.paperAccountLabel {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.paperAccountValue {
-    color: rgba(255, 255, 255, 0.85);
-    font-family: var(--mono);
-    font-size: 0.85rem;
-}
-
-/* ─── Empty / loading ─── */
-.placeholder {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 2rem;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.85rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 200px;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.85rem;
-}
-
-/* ─── Toggle ─── */
-.toggle {
-    width: 32px;
-    height: 18px;
-    border-radius: 9px;
-    border: none;
-    cursor: pointer;
-    position: relative;
-    transition: background 0.2s;
-}
-
-.toggleOn { background: #4caf50; }
-.toggleOff { background: rgba(255, 255, 255, 0.15); }
-
-.toggleKnob {
-    position: absolute;
-    top: 2px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #fff;
-    transition: left 0.2s;
-}
-
-.toggleKnobOn { left: 16px; }
-.toggleKnobOff { left: 2px; }
-
-/* ─── Gauge bar ─── */
-.gaugeBar {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    margin-top: 0.25rem;
-}
-
-.gaugeFill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.4s ease;
-}
-
-.gaugeGreen { background: #4caf50; }
-.gaugeOrange { background: #ffb74d; }
-.gaugeRed { background: #ef5350; }
-
-/* ─── Expand icon ─── */
-.expandIcon {
-    display: inline-block;
-    transition: transform 0.2s;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-left: auto;
-}
-
-.expandIconOpen { transform: rotate(90deg); }
+.eventGood { color: #22c55e; }
+.eventBad { color: #ef4444; }
+.eventNeutral { color: #7dd3fc; }

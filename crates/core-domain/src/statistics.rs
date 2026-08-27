@@ -136,6 +136,7 @@ impl StatisticsEngine {
     }
 
     /// Advance the engine with a full indicator snapshot.
+    #[allow(clippy::too_many_arguments)]
     pub fn advance_ext(
         &mut self,
         close: f64,

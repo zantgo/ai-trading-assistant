@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -75,10 +75,12 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 | `profile` (Home) | *Navbar hidden entirely* (the `!isHome` guard). | |
 | `exchange_settings` (API Keys) | *Navbar hidden entirely* (`isSimplePage` guard — single full-page component, no tabs). | |
 | `market_monitor` (Market) | `Workspace` (forced first) · `Overview` · `Settings` | |
-| `trade_automation` (Trading) | `Overview` · `Settings` | |
-| `portfolio` (Portfolio) | `Overview` · `Settings` | |
-| `performance` (Analytics) | `Overview` · `Settings` | |
-| `data_infra` (Data Infra) | `Overview` · `Settings` | |
+| `trade_automation` (Trading) | `Overview` · `Orders` · `Activity` · `Trade History` · `Settings` | |
+| `portfolio` (Portfolio) | `Overview` · `Positions` · `Exposure` · `Capital` · `Safety` · `Settings` | |
+| `performance` (Analytics) | `Overview` · `Trades` · `Strategy` · `Risk Metrics` · `Performance` · `Comparison` · `History` · `Methodology` · `Settings` | |
+| `data_infra` (Data Infra) | `Overview` · `Exchange Status` · `Connectivity` · `Market Data` · `NTP Clock Monitor` · `Data Quality` · `Distribution` · `Connection Settings` | |
+
+v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[workspace.api_failover]` editor, moved from Profile in v10.1) — platform config is live-editable via `GET /api/system/platform-config`. The per-mode tab sets are defined in `ui/src/lib/engineTabs.ts` (single source of truth).
 
 `Workspace` is hard-coded for Market because the Market engine is the only one with active workspace instances; the other engines render the generic two-tab pair. Selecting `Workspace` from a non-Market engine is impossible by construction (the tab is not rendered).
 
@@ -119,12 +121,12 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 
 ### 3.4 Watchlist Scanner (Market Monitor Overview)
 
-A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is an inline **Scan Watchlist** pill button — grouped with the **SCHEDULE SNAPSHOTS** pill and centered inside the unified bottom toolbar (`.runnerBar`; the instructional caption lives in the modal, not the footer) — that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal opens with a **Watchlist Symbols** title and the subtitle *"Add a basket of pairs and keep only those with a clear decision."* directly above the input textarea. It accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, and runs the full Market Monitor pipeline on each pair one at a time. Pairs whose first `decision_context.trade_readiness === 'READY'` AND whose `advisory.directional_guidance ∈ {StrongLong, Long, Short, StrongShort}` are kept; all others are DELETE-removed from the workspace (§3.4.3). Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
+A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is an inline **Scan Watchlist** pill button — grouped with the **SCHEDULE SNAPSHOTS** pill and centered inside the unified bottom toolbar (`.runnerBar`; the instructional caption lives in the modal, not the footer) — that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal opens with a **Watchlist Symbols** title and the subtitle *"Add a basket of pairs and keep only those with a clear decision within the wait window (default 5 min)."* directly above the input textarea, followed by a **Wait window (minutes)** numeric input (integer 1–60, default 5, clamped via `clampWaitMinutes`). It accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, adds every pair concurrently, and watches **each pair for its own wait window** — a pair is kept the moment a recommendation to any side appears (see §3.4.1), and removed if the window elapses without one. The recommendation can land on a later candle — the pair is no longer judged on its first frame. Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
 
 The three phases share a single dialog (`phase: 'input' | 'running' | 'done'`):
 
-- **Phase 1 — Input** — Title + subtitle, then textarea parsed by `parseSymbols()` (drops dupes, enforces ≤10 chars per symbol). Live count chip. `Continue` is disabled when the session is inactive or the parsed list is empty.
-- **Phase 2 — Running** — Per-pair status rows showing `Queued → Add → Wait → Keep|Remove`. Footer reads `Processing N of M`. Cancel button forcibly aborts the run (already-added pairs stay added).
+- **Phase 1 — Input** — Title + subtitle, then textarea parsed by `parseSymbols()` (drops dupes, enforces ≤10 chars per symbol) and the wait-window input. Live count chip. `Continue` is disabled when the session is inactive or the parsed list is empty.
+- **Phase 2 — Running** — All pairs are added + wired concurrently (`Promise.all`), then each pair's window runs in parallel; per-pair status rows show `Queued → Add → Wait → Keep|Remove` with a live `Awaiting recommendation · window 5 min · 1:23 elapsed` label. Footer reads `Watching N of M · window 5 min`. Cancel button closes the modal (in-flight pair evaluation continues).
 - **Phase 3 — Done** — Summary card with `Added / Kept / Removed / Skipped` counts and group chips for each pair's reason. Single `Accept` button closes the modal.
 
 #### 3.4.1 Decision Rule
@@ -136,15 +138,15 @@ A pair is kept iff both:
 | `decision_context.trade_readiness` | L6 Decision Context (mirrored from `pair.decisionContext` via WS handler) | `'READY'` |
 | `advisory.directional_guidance` | L4.75 Advisory Matrix (mirrored from `pair.advisory` via WS handler) | `StrongLong`, `Long`, `Short`, `StrongShort` |
 
-The two fields are sourced from different WS frames — the scanner polls `pair.decisionContext.trade_readiness` first and then re-reads `pair.advisory` once the decision is in. The `decide()` helper in `ui/src/lib/watchlistScanner.ts` is the canonical implementation and is unit-tested.
+The two fields are sourced from different WS frames — the scanner polls the pair's slots over the wait window and resolves `READY` the first time `decide()` returns `KEEP` (any side). The `decide()` helper in `ui/src/lib/watchlistScanner.ts` is the canonical implementation and is unit-tested.
 
 #### 3.4.2 Execution Cadence
 
-Sequential `await` — one pair per loop iteration. Per pair:
+Parallel — all pairs added first, then one wait window per pair concurrently. Per pair:
 
 1. `POST /api/instances` (existing endpoint, `createInstance()` helper)
 2. `connectWsForInstance()` to attach the per-TF WS subscribers
-3. `waitForAdvisory(pairKey, 30_000)` — poll `pair.decisionContext.trade_readiness`
+3. `waitForAdvisory(pairKey, windowMs)` — poll `decide()` over the window (default 5 min = 300,000 ms; clamped 1–60 min); resolves `READY` at the first recommendation, `TIMEOUT` when the window elapses
 4. Apply `decide()` → `KEEP` or `DELETE`
 5. `DELETE` branch: `DELETE /api/instances/:id` + `app.removeInstance(pairKey)`
 
@@ -158,7 +160,7 @@ DELETE mappings by reason (for the summary chips):
 | `DIRECTION_NEUTRAL` | `trade_readiness === READY` AND `directional_guidance === Neutral` |
 | `AVOID_DIRECTIONAL` | `trade_readiness === READY` AND `directional_guidance === AvoidDirectionalExposure` |
 | `NO_DECISION` | `decisionContext` is null/never arrived |
-| `TIMEOUT` | 30s deadline elapsed without a `READY` populating `pair.decisionContext` |
+| `TIMEOUT` | the wait window elapsed without a recommendation to any side |
 | `UNAVAILABLE` | Backend rejected `POST /api/instances` (e.g. symbol not on selected exchange) |
 | `DUPLICATE` | Backend returned "already exists" — pair is left untouched in the workspace |
 | `NETWORK_ERROR` | Any other `POST /api/instances` failure |
@@ -239,23 +241,23 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 ### 5.3 Engine Mapping
 
-> **Implementation status (v6.8).** The Data Infrastructure and Market Monitoring engines are **implemented**; their dashboards read live data. The Trade Automation, Portfolio Management, and Performance Analytics engines are **WIP** — the screen surfaces listed below match the **spec** but the components themselves currently render hardcoded placeholder data (the analytics tabs of Performance Analytics are real, but the Backtesting panel is a UI mock). See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3, §2.4, §2.5 and the phased delivery plan for the phases that finish each dashboard.
+> **Implementation status (v10.1).** All six engine dashboards are **implemented** and read live data: DIE and MME are WS-fed, TAE/PME dashboards fetch `/api/instances/:id/automation`, `/api/instances/:id/portfolio`, and `/api/instances/:id/safety`, the PAE dashboard fetches `/api/dashboard/stats` + `/api/analytics/*` + `/api/analytics/comparison`, and the BTE dashboard is observe-only (`BacktestingDashboard`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
 | Display label | Internal key | Active content when selected | Status |
 |---------------|--------------|-------------------------------|--------|
-| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (backend `GET /api/exchange-status` served — see 06-01 §2.11), NTP Clock Monitor (backend `GET /api/system/clock` served — see 06-01 §2.11). Overview + Settings tabs. | ✅ Implemented |
-| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). | ✅ Implemented |
-| Trade Automation | `trade_automation` | `TradeAutomationDashboard` — 5-panel internal sidebar: Overview, Policies (expandable condition trees with risk parameters), Observability (trigger log), Paper Trading (positions/orders/history tabs), Lifecycle (per-instance cards with Start/Pause/Stop). Settings tab for strategy config. | ⚠️ WIP — backend live, dashboard is a hardcoded placeholder (Phase A of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| Portfolio Management | `portfolio` | `PortfolioDashboard` — 5-panel internal sidebar: Overview (safety state banner, equity composition), Positions (expandable cards with SL/TP/invalidation levels), Exposure (long/short bars, concentration, correlation), Capital (margin usage gauge, liquidation thresholds), Safety (circuit breakers, loss streaks, drawdown monitor, veto triggers). Settings tab for safety/fees config. | ⚠️ WIP — backend live, dashboard is a hardcoded placeholder (Phase A + C of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| Performance Analytics | `performance` | `PerformanceDashboard` — 6-panel internal sidebar: Overview (real `/api/dashboard/stats`), Strategy (real `/api/analytics/strategy`), Risk Metrics (real `/api/analytics/risk`), Regime Map (real `/api/analytics/performance`), Trade Analytics (real `/api/analytics/trades`), **Backtesting** (⚠️ UI mock today — `setTimeout` + placeholder data; no `/api/backtest/*` route). | ⚠️ WIP — analytics live, backtest UI mock (Phase D of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, active account count display, last sync timestamps. No Overview/Settings tabs (single-page engine). Added in v6.5. | ✅ Implemented |
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — v10.1 tabs: Overview (aggregate landing), Exchange Status (L1), Connectivity (L1), Market Data (L2, pipelines), NTP Clock Monitor, Data Quality (L3), Distribution (L4), Connection Settings (far-right, `[workspace.api_failover]` editor). Every tab carries an Export Data button. | Implemented |
+| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Analysis, Opportunities, Risks, Recommendation — v7.3 layer order). | Implemented |
+| Trade Automation | `trade_automation` | `TradeAutomationDashboard` — mode-aware (observe = Setup Radar with ghost would-be setups; paper = Paper Lab; live = Live Cockpit with venue reconciliation): tracked setup + projected risk/return, order board, position card with manual Close, invalidation banner, activity log, trade history (+ Export Data per tab). | Implemented |
+| Portfolio Management | `portfolio` | `PortfolioDashboard` — mode-aware (observe = Readiness Board with safety/capital blueprints): Overview (merged Portfolio/Overview, v10.1), Positions (L1), Exposure (L2, config-driven limits), Capital (L3, live margin critical zone), Safety ladder (+ Export Data per tab). | Implemented (informational) |
+| Performance Analytics | `performance` | `PerformanceDashboard` — v10.1 tabs: Overview (observe = Edge Validator), Trades (L1), Strategy (L2 NHST), Risk Metrics (L3), Performance (L4), Comparison (v10, sessions+backtests), History (persisted runs), Methodology (config-driven treatment). Observe keeps Overview / Comparison / History / Methodology (Backtesting moved to BTE in v8). | Implemented |
+| Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, rotation (`POST /api/keys/rotate`) and passphrase-keyed backup, active account count display, last sync timestamps. Added in v6.5; key rotation in v7.1. | Implemented |
 
 ### 5.4 Quit Session Flow
 
 1. User clicks **Quit Session** in the sidebar footer.
 2. Drawer closes (`isSidebarOpen = false`).
 3. `showQuitDialog = true` mounts the centered `<QuitDialog>` modal (see [§14.1](#141-quitdialog)).
-4. Confirming the dialog tears down the session via the engine's `/api/session/quit` endpoint and returns the user to `WelcomeGate`.
+4. Confirming the dialog tears down the session via the engine's `/api/session/quit` endpoint and returns the user to the `LaunchSetup` wizard.
 
 ---
 
@@ -375,11 +377,11 @@ Three new engine dashboards follow the same sub-sidebar pattern:
 | Panel | Key | Content |
 |-------|-----|---------|
 | Overview | `'overview'` | Core stats (Total P&L, Win Rate, Profit Factor, Expectancy, Avg R:R, Largest Gain/Loss). Risk-adjusted metrics (Sharpe, Sortino, Max Drawdown, Calmar, Ulcer, Volatility, VaR, Expected Shortfall) |
-| Strategy | `'strategy'` | Strategy analytics table: policy, trades, win rate, profit factor, expectancy, t-statistic, p-value, p_mc, Monte Carlo significance classification |
+| Strategy | `'strategy'` | Strategy analytics table: setup type, trades, win rate, profit factor, expectancy, t-statistic, p-value, p_mc, Monte Carlo significance classification |
 | Risk Metrics | `'risk'` | Detailed risk analytics cards with gauge bars and interpretative labels |
 | Regime Map | `'regimes'` | Per-regime performance cards (trade count, WR, PF, avg R, P&L) with compatibility labels (Strong/Favorable/Marginal/Avoid). Optimization recommendations |
 | Trade Analytics | `'trades'` | Trade ledger table: Trade ID, Symbol, Direction, Hold time, Gross/Net P&L, ROI, MFE, MAE, Flat flag |
-| **Backtesting** | `'backtesting'` | Strategy config form (policy selector, date range, capital, fee %). Run button with loading state. Results: 8 stat cards (trades, WR, PF, P&L, drawdown, Sharpe, expectancy, avg win/loss). Equity curve placeholder. Simulated trade log table |
+| **Backtesting** | `'backtesting'` | The v8.2 launcher wizard (Environment → Instances with 4 TF dropdowns + allocation % → Depth 1–365 → Run with progress bar + Cancel) → `POST /api/backtest/run` (async) + `GET /api/backtest/progress/:run_id` → Study Report with NHST verdict block (t, p, MC p, α = 0.05, edge), equity curve, trade log; results re-fetched via `GET /api/backtest/:id` |
 
 ### 7.3 Distinguishing Rules
 
@@ -545,7 +547,7 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `WelcomeGate.svelte` | Session init screen — exchange + currency selection, disabled before session is active. Lives at `ui/src/WelcomeGate.svelte` (top-level, not under `components/`). |
+| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (per-TF duration dropdowns, preseeded from the workspace ladder and offering the same `TIMEFRAME_OPTIONS` tiers as the Workspace Settings timeframe selector) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
 | `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). See [§14.1](#141-quitdialog). |
 
 ---
@@ -709,25 +711,25 @@ A `$effect` watches navigation state changes and calls `history.replaceState(nul
 
 ## 16. Performance & Equity Views
 
-### 16.1 Backtesting Panel (v6.5)
+### 16.1 Backtesting Panel (v7.1)
 
-The `PerformanceDashboard` Backtesting panel provides a frontend-only strategy simulation interface:
+The `PerformanceDashboard` Backtesting panel provides the **recorded-decision replay backtest**: `POST /api/backtest/run` replays recorded MME decision matrices through the unchanged TAE setup executor + paper execution engine, applies the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict), and persists the run (`backtest_runs`); results are re-fetched via `GET /api/backtest/:id`.
 
 **Configuration form:**
 | Field | Type | Range/Options | Default |
 |-------|------|---------------|---------|
-| Strategy | `<select>` | BTC Trend Following, ETH Mean Reversion, SOL Breakout | btc-trend-follow |
+| Strategy | `<select>` | Setup types from the recorded opportunity matrices (e.g. BTC Trend Following, ETH Mean Reversion, SOL Breakout) | btc-trend-follow |
 | Start Date | `<input type="date">` | any | 2024-01-01 |
 | End Date | `<input type="date">` | any | 2025-01-01 |
 | Capital ($) | `<input type="number">` | ≥ 100, step 1000 | 10000 |
 | Fee % | `<input type="number">` | 0–1, step 0.01 | 0.06 |
 
-**Results summary** (placeholder data until backend is implemented):
-- 8 stat cards: Total Trades, Win Rate, Profit Factor, Total P&L, Max Drawdown, Sharpe Ratio, Expectancy, Avg Win/Loss
+**Results summary** (live server-computed data):
+- 8 stat cards: Total Trades, Win Rate, Profit Factor, Total P&L, Max Drawdown, Sharpe Ratio, Expectancy, Avg Win/Loss — plus the NHST verdict block (t-statistic, p-value, Monte Carlo p, α = 0.05, significant / edge classification, `<30` trades → `InsufficientData`).
 
-**Equity curve:** Styled placeholder card with chart icon and "Equity curve visualization coming soon" message.
+**Equity curve:** Lightweight Charts area series rendered from the returned equity curve.
 
-**Trade log:** Table with 5 rows of simulated placeholder trades (Date, Symbol, Dir, Entry, Exit, Hold, P&L, ROI, Exit Reason).
+**Trade log:** Server-computed trade log (entry/exit, direction, P&L, ROI, exit reason).
 
 ### 16.2 Other Equity Views
 
@@ -755,5 +757,5 @@ The `PerformanceDashboard` Backtesting panel provides a frontend-only strategy s
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — Data sources for the WS demux.
 - [MME Layer 7 — Overview](../engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) — OverviewPanel data source.
 - [Decision Matrix](../matrices/02-04-decision-matrix.md) — Decision Matrix panel data.
-- [TAE Execution Policy Spec](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md) — TradeAutomationDashboard Policies panel.
-- [PME Layer 4 Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — PortfolioDashboard Safety panel.
+- [TAE Overview — Layer ⑦ Dashboard](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — TradeAutomationDashboard surface.
+- [PME Layer 4 Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) — PortfolioDashboard Safety panel.

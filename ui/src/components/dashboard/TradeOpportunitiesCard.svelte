@@ -1,17 +1,40 @@
 <script lang="ts">
     // TradeOpportunitiesCard — compact "what can I trade" summary.
-    // Surfaces the actionable count, best pair, direction, R:R and
-    // highest confidence. Inverse of the Header KPI strip — this is
+    // Surfaces the actionable count, best pair, direction, risk/reward
+    // and highest confidence. Inverse of the Header KPI strip — this is
     // the operator's "show me the plays" panel.
     import { useAppStore } from '../../state.svelte';
     import { collectActiveSetups, pickBestOpportunity } from '../../lib/tradeAggregates';
-    import { directionColor, formatRR, scoreColor } from '../../lib/dashboardColors';
+    import { directionColor, formatRewardRatio, scoreColor } from '../../lib/dashboardColors';
     import styles from './TradeOpportunitiesCard.module.css';
 
     const app = useAppStore();
 
+    // v7.2 parity: the server-computed hero (single source, also rendered
+    // by the CLI monitor) provides the best-opportunity summary; the local
+    // derivation is the warmup fallback.
     const summary = $derived.by(() => {
+        const serverHero = app.overviewMatrix?.hero;
+        const serverTotal = app.overviewMatrix?.instance_count ?? 0;
         const instances = Object.values(app.instancesMap);
+        if (serverHero && serverHero.candidate_count > 0) {
+            return {
+                validSetups: Math.min(serverHero.actionable_count, serverTotal),
+                total: serverTotal,
+                best: serverHero.best_symbol
+                    ? {
+                        symbol: serverHero.best_symbol,
+                        direction: serverHero.best_direction,
+                        rr: serverHero.best_rr,
+                        confidence: serverHero.best_confidence,
+                        opportunityScore: serverHero.best_score,
+                    }
+                    : null,
+                actionableCount: serverHero.actionable_count,
+                totalCandidates: serverHero.candidate_count,
+                highestConfidence: serverHero.best_confidence,
+            };
+        }
         const setups = collectActiveSetups(instances);
         const actionable = setups.filter(
             (s) => s.viability === 'Actionable' && s.readiness === 'READY',
@@ -55,8 +78,8 @@
                 </span>
             </div>
             <div class={styles.row}>
-                <span class={styles.label}>Best R:R</span>
-                <span class={styles.value}>{formatRR(summary.best.rr)}</span>
+                <span class={styles.label}>Best Risk/Reward</span>
+                <span class={styles.value}>{formatRewardRatio(summary.best.rr)}</span>
             </div>
             <div class={styles.row}>
                 <span class={styles.label}>Confidence</span>

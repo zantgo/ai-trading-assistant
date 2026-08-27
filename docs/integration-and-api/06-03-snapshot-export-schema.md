@@ -1,6 +1,6 @@
 # Snapshot Export — On-Disk JSON Schema
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 
 <!-- pascal-display-strings -->
@@ -31,16 +31,24 @@ interface SnapshotMetadata {
   tab: string;
   /// Pair-key, e.g. `"BTC-USDT"`.
   pair_key: string;
-  /// TF slot — `micro` / `fast` / `slow` / `macro`.
+  /// TF slot — from the snapshot's own `TimeframeSlot` (`micro` / `fast` / `slow` / `macro`).
   timeframe_slot: string;
-  /// TF in seconds.
+  /// TF in seconds — the snapshot's ACTUAL configured duration (never a
+  /// hardcoded 60/300/900/3600; a non-default `micro=1s` or `macro=1800s`
+  /// config produces its real value here).
   timeframe_secs: number;
 }
 ```
 
-The `payload` field is the per-tab matrix as it appears on the wire. It is the same JSON the
-per-tab export button in the GUI emits (modulo the dashboard's `meta`/`header` chrome), so any
-existing consumer of those exports is forward-compatible with the scheduler's output.
+The `payload` field is the per-tab matrix as it appears on the wire. **It is NOT the same JSON the
+per-tab export buttons in the GUI emit.** The GUI builders (`metricsTab.ts`, `mtfTab.ts`,
+`analysisTab.ts`, …) reconstruct dashboard-chrome-specific payloads from live store state — they
+wrap the underlying matrix in `meta`/`header` chrome, reshape fields for panel rendering, and
+normalize display strings. The scheduler instead serializes the **raw DTO snapshot** captured at
+tick time: the `metrics` tab is the entire `MarketSnapshot`, and every other tab is the
+serde-serialized matrix (or the small synthetic wrappers of §3) with no GUI chrome attached.
+Consumers must treat the two surfaces as sibling but distinct encodings of the same underlying
+state.
 
 ---
 
@@ -67,13 +75,13 @@ the `tabs` array of `SnapshotExportConfig`.
 | Tab id | Source matrix | Payload shape |
 |---|---|---|
 | `metrics` | `MarketSnapshot` itself (the full per-TF record) | The entire `MarketSnapshot` object — every per-TF field. Largest of the 9 payloads. |
-| `mtf` | Multi-timeframe wrapper | Small synthetic object joining the per-TF records: `{ slot, timeframe_secs, indicators_count, alignment, analysis, advisory, decision_context }`. |
+| `mtf` | Multi-timeframe wrapper | Small synthetic object joining the per-TF records: `{ slot, timeframe_secs, indicators, alignment, analysis, advisory, decision_context }`. `slot` is a string taken from the snapshot's `TimeframeSlot` (e.g. `"micro"`); `timeframe_secs` is the snapshot's actual configured duration; `indicators` is the indicator **count** for that TF (`snap.indicators.len()` — the field is named `indicators`, not `indicators_count`). |
 | `alignment` | `AlignmentMatrix` | The 10-dimension × score/state/confidence matrix + per-TF rows + consensus score. See [`../matrices/02-01-alignment-matrix.md`](../matrices/02-01-alignment-matrix.md). |
 | `opportunity` | `OpportunityMatrix` | The setup-quality + ranked opportunities + confluent levels. See [`../matrices/02-08-opportunity-matrix.md`](../matrices/02-08-opportunity-matrix.md). |
 | `risk` | `RiskMatrix` | The 8-dimension risk matrix + per-dimension confidences. See [`../matrices/02-11-risk-matrix.md`](../matrices/02-11-risk-matrix.md). |
 | `analysis` | `AnalysisMatrix` | Bias / regime / phase / quality + supporting & contradicting signals. See [`../matrices/02-02-analysis-matrix.md`](../matrices/02-02-analysis-matrix.md). |
 | `advisory` | `AdvisoryMatrix` | Directional guidance + strategy environment + entry/exit + protection/target + final recommendation. Schema documented in [`../matrices/02-04-decision-matrix.md §2.1`](../matrices/02-04-decision-matrix.md). |
-| `decision` | `DecisionContext` | Score / bias / confidence / expected R:R / trade readiness / contributing indicators. See [`../matrices/02-04-decision-matrix.md`](../matrices/02-04-decision-matrix.md). |
+| `decision` | `DecisionContext` | Score / bias / `score_confidence` / expected R:R / trade readiness / contributing indicators. See [`../matrices/02-04-decision-matrix.md`](../matrices/02-04-decision-matrix.md). |
 | `recommendation` | Synthetic | Small wrapper combining `advisory` + `decision_context` — the same view the GUI's Recommendation panel renders. |
 
 ---

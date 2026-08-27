@@ -1,9 +1,8 @@
+pub mod backend;
 pub mod engine;
-pub mod gates;
-pub mod order;
+pub mod session_tick;
 pub mod state_machine;
 
-pub use engine::{CapitalState, ExecutionEngine, PositionRecord};
-pub use gates::{GateResult, evaluate_gates};
-pub use order::construct_order;
+pub use backend::{ExecutionBackend, PaperSimulation};
+pub use engine::{ActivityEntry, ExecutionEngine, ReplayTrade};
 pub use state_machine::{OrderLifecycle, OrderTransition};

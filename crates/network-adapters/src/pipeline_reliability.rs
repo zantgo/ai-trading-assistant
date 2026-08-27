@@ -58,6 +58,12 @@ pub struct ReliabilityTracker {
     state: Arc<RwLock<PipelineReliabilityMetrics>>,
 }
 
+impl Default for ReliabilityTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReliabilityTracker {
     pub fn new() -> Self {
         Self {

@@ -132,7 +132,7 @@
     <!-- Positions Tab -->
     {#if activeConsoleTab === 'positions'}
         {@const pos = app.activePaperPosition ?? ({} as Record<string, unknown>)}
-        {@const entryPx = (pos.average_entry_price as number) ?? (pos.entry_price as number) ?? 0}
+        {@const entryPx = (pos.entry_price as number) ?? 0}
         {@const posSize = (pos.size as number) ?? 0}
         {@const posLiq = entryPx > 0 ? calcLiqPrice(entryPx, app.paperDirection as 'LONG' | 'SHORT', app.paperLeverage) : 0}
         {@const tps = positionBrackets.filter((b) => (b as { order_type: string }).order_type === 'LIMIT')}

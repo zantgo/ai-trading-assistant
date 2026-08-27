@@ -6,12 +6,16 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    clampWaitMinutes,
     decide,
     detectBackendErrorKind,
     parseSymbols,
     reasonFor,
     reasonLabel,
     summarize,
+    WAIT_WINDOW_DEFAULT,
+    WAIT_WINDOW_MAX,
+    WAIT_WINDOW_MIN,
     type PairOutcome,
 } from './watchlistScanner';
 import type { AdvisoryMatrix, DecisionContext } from '../types';
@@ -251,6 +255,35 @@ describe('reasonLabel', () => {
         expect(reasonLabel('NETWORK_ERROR')).toBe('Network error');
         expect(reasonLabel('NO_DECISION')).toBe('No decision');
         expect(reasonLabel(undefined)).toBe('Pending');
+    });
+});
+
+describe('clampWaitMinutes', () => {
+    it('keeps in-range values as-is', () => {
+        expect(clampWaitMinutes(5)).toBe(5);
+        expect(clampWaitMinutes(WAIT_WINDOW_MIN)).toBe(WAIT_WINDOW_MIN);
+        expect(clampWaitMinutes(WAIT_WINDOW_MAX)).toBe(WAIT_WINDOW_MAX);
+    });
+
+    it('clamps below the minimum to 1', () => {
+        expect(clampWaitMinutes(0)).toBe(1);
+        expect(clampWaitMinutes(-3)).toBe(1);
+    });
+
+    it('clamps above the maximum to 60', () => {
+        expect(clampWaitMinutes(120)).toBe(60);
+        expect(clampWaitMinutes(999)).toBe(WAIT_WINDOW_MAX);
+    });
+
+    it('rounds fractional values', () => {
+        expect(clampWaitMinutes(5.6)).toBe(6);
+        expect(clampWaitMinutes(2.4)).toBe(2);
+    });
+
+    it('falls back to the default for empty / non-finite input', () => {
+        expect(clampWaitMinutes(null)).toBe(WAIT_WINDOW_DEFAULT);
+        expect(clampWaitMinutes(undefined)).toBe(WAIT_WINDOW_DEFAULT);
+        expect(clampWaitMinutes(Number.NaN)).toBe(WAIT_WINDOW_DEFAULT);
     });
 });
 

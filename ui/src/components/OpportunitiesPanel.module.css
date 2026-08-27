@@ -3,22 +3,15 @@
 .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0; text-transform: uppercase; }
 .section { margin-bottom: 16px; }
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
-.oppTrend { background: rgba(34,197,94,0.18); color: #22c55e; }
-.oppBreakout { background: rgba(245,158,11,0.18); color: #f59e0b; }
-.oppPullback { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); }
-.oppReversal { background: rgba(239,68,68,0.18); color: #ef4444; }
-.oppNone { background: rgba(148,163,184,0.08); color: #64748b; }
-.oppDefault { background: rgba(148,163,184,0.12); color: #94a3b8; }
+.oppSideLong { background: rgba(34,197,94,0.14); color: #22c55e; }
+.oppSideShort { background: rgba(239,68,68,0.14); color: #ef4444; }
+.oppSideNeutral { background: rgba(148,163,184,0.10); color: #94a3b8; }
 .prime { background: rgba(34,197,94,0.18); color: #22c55e; }
 .strong { background: rgba(74,222,128,0.15); color: #4ade80; }
 .moderate { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .marginal { background: rgba(248,113,113,0.12); color: #f87171; }
 .none { background: rgba(148,163,184,0.10); color: #94a3b8; }
 .zoneCard { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; }
-.zoneLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
-.zoneValue { font-size: 12px; font-weight: 600; color: #e2e8f0; font-variant-numeric: tabular-nums; }
-.zoneGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-@media (max-width: 720px) { .zoneGrid { grid-template-columns: 1fr; } }
 /* v7.0: the Expected Reward-to-Risk section spans the FULL content width
    (the old 2-col zoneGrid capped each side card at ~50%). One row per
    side, aligned with the EVALUATED SETUPS card below it. */
@@ -27,8 +20,9 @@
 .bearish { color: #ef4444; }
 .rrValue { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
 
-/* ── OPPORTUNITY SUMMARY prose (v7.0) ── */
-.opportunitySummaryText { font-size: 12.5px; color: #cbd5e1; line-height: 1.6; margin: 0; }
+/* ── OPPORTUNITY SUMMARY prose (v7.0): typography is the unified
+   SummaryCard body language (12px slate, high-contrast strong). ── */
+.opportunitySummaryText { margin: 0; }
 
 /* ── Expected R:R card (v6.15): header row + 0→10x magnitude bar ── */
 .rrCardHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -85,11 +79,12 @@
 }
 .profileList { display: flex; flex-direction: column; gap: 6px; }
 .profileCard { padding: 8px 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; border-left-width: 3px; }
-.profileCard.oppTrend { border-left-color: #22c55e; }
-.profileCard.oppBreakout { border-left-color: #f59e0b; }
-.profileCard.oppReversal { border-left-color: #ef4444; }
-.profileCard.oppNone { border-left-color: #64748b; }
-.profileCard.oppDefault { border-left-color: #94a3b8; }
+.profileCard.oppSideLong { border-left-color: #22c55e; }
+.profileCard.oppSideShort { border-left-color: #ef4444; }
+.profileCard.oppSideNeutral { border-left-color: #94a3b8; }
+/* v10.1: the viability tag follows the card's side tint. */
+.profileCard.oppSideShort .profileViability { background: rgba(239,68,68,0.18); color: #ef4444; }
+.profileCard.oppSideNeutral .profileViability { background: rgba(245,158,11,0.16); color: #f59e0b; }
 .profileHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .profileType { font-size: 12px; font-weight: 700; color: #e2e8f0; }
 .profileScore { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -122,13 +117,13 @@
 .setupHeaderShort       { background: transparent; border-left: 3px solid #ef4444; }
 .setupHeaderQualifying  { background: transparent; border-left: 3px solid #f59e0b; }
 .setupHeaderReference   { background: transparent; border-left: 3px solid #64748b; }
-.setupHeaderInverted    { background: transparent; border-left: 3px solid #ef4444; }
+.setupHeaderInverted    { background: transparent; border-left: 3px solid #f59e0b; }
 .setupHeaderTitle { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.92); }
 .setupHeaderLong        .setupHeaderTitle { color: #22c55e; }
 .setupHeaderShort       .setupHeaderTitle { color: #ef4444; }
 .setupHeaderQualifying  .setupHeaderTitle { color: #f59e0b; }
 .setupHeaderReference   .setupHeaderTitle { color: #94a3b8; }
-.setupHeaderInverted    .setupHeaderTitle { color: #ef4444; }
+.setupHeaderInverted    .setupHeaderTitle { color: #f59e0b; }
 .setupHeaderRight { display: inline-flex; align-items: center; gap: 7px; }
 .setupScoreInline { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
 /* v6.10.21: compact outlined Quality Level Badge (PRIME/STRONG/MODERATE/
@@ -150,6 +145,25 @@
 .setupRowLabel { font-size: 9px; font-weight: 800; color: #22d3ee; letter-spacing: 0.04em; text-transform: uppercase; }
 .setupRowValue { font-weight: 700; color: rgba(255,255,255,0.95); text-align: right; }
 .setupRowStop { color: #ef4444; }
+.setupRowStopAmber { color: #f59e0b; }
+.setupRowStopGrey { color: rgba(148, 163, 184, 0.85); }
+/* v10.1: reference warn state — amber (below-floor / broken geometry);
+   grey stays for clean informational references. */
+.setupCardReferenceWarn { border-color: rgba(245, 158, 11, 0.45); border-style: dashed; }
+.setupHeaderReferenceWarn { background: transparent; border-left: 3px solid #f59e0b; }
+.setupHeaderReferenceWarn .setupHeaderTitle { color: #f59e0b; }
+.setupBadgeReferenceWarn {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    margin: 6px 12px 0;
+    border-radius: 3px;
+    background: rgba(245, 158, 11, 0.16);
+    color: #f59e0b;
+    text-transform: uppercase;
+    align-self: flex-start;
+}
 .setupRowRr { font-size: 9px; color: rgba(255,255,255,0.55); }
 .setupRowMeta { font-size: 9px; color: rgba(255,255,255,0.45); padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.06); margin-top: 2px; }
 .setupInvalidationNote { font-style: italic; font-size: 10px; color: rgba(255,255,255,0.50); line-height: 1.5; margin-top: 6px; }
@@ -160,7 +174,7 @@
 .rrNone { color: rgba(255, 255, 255, 0.50); }
 
 /* ── Geometry inversion warning (entry/target on wrong side of stop) ── */
-.setupCardInverted { border-color: rgba(239, 68, 68, 0.45); border-style: dashed; }
+.setupCardInverted { border-color: rgba(245, 158, 11, 0.5); border-style: dashed; }
 
 /* ── Per-card viability badges (v6.10.21: state-driven language) ──
    State A: bright actionable. State B: amber qualitative.
@@ -208,8 +222,8 @@
     padding: 2px 8px;
     margin: 6px 12px 0;
     border-radius: 3px;
-    background: rgba(239, 68, 68, 0.18);
-    color: #ef4444;
+    background: rgba(245, 158, 11, 0.18);
+    color: #f59e0b;
     text-transform: uppercase;
     align-self: flex-start;
 }
@@ -218,7 +232,7 @@
    The red colour stays as the flagging signal; the wavy underline was
    removed at operator request (distracting on every flagged price). */
 .setupRowFlagged {
-    color: #ef4444;
+    color: #fb923c;
 }
 
 /* ── State C: desaturated grey coordinate text on reference cards ── */
@@ -250,6 +264,21 @@
     color: #22d3ee;
     text-transform: uppercase;
     padding: 6px 0 2px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    margin-bottom: 4px;
+}
+
+.setupBadgeActionableShort {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    margin: 6px 12px 0;
+    border-radius: 3px;
+    background: rgba(239, 68, 68, 0.18);
+    color: #ef4444;
+    text-transform: uppercase;
+    align-self: flex-start;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     margin-bottom: 4px;
 }

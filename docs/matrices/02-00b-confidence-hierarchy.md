@@ -1,6 +1,6 @@
 # Confidence Field Hierarchy
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical reference for the platform's confidence-field pipeline. Documents the rename of `confidence` → `state_confidence` / `forecast_confidence` / `score_confidence` and the hierarchical flow from indicator-level up to the user-facing risk-attenuated assessment.
 
@@ -54,6 +54,8 @@ For unambiguous layer identification, three of the four `confidence` fields have
 | `AdvisoryMatrix.confidence_assessment` | (unchanged — already named) |
 
 **No backwards-compat aliases** — the JSON keys change outright. Any consumer must update to the new key.
+
+> **Code-truth note (`Analysis.confidence`).** The `AnalysisMatrix` struct still serializes a `confidence` field alongside `state_confidence` with the identical value (`analysis.rs` — both fields assigned at synthesis; neither is `skip_serializing_if`). This is a UI-facing duplicate retained from the pre-redesign wire so older dashboard revisions do not break; it is **not** a pipeline-level confidence field and carries no independent semantics. New consumers must read `state_confidence`; removal of the duplicate is a wire-breaking cleanup tracked in `docs/ROADMAP.md`.
 
 ---
 

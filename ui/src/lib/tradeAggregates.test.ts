@@ -22,7 +22,7 @@ function makeProfile(overrides: Partial<OpportunityProfile> = {}): OpportunityPr
         preconditions_met: 3,
         preconditions_total: 4,
         notes: '',
-        direction_family: 'TrendRiding',
+        direction_family: 'TREND_RIDING',
         long_entry_zone: null,
         long_target_zone: null,
         long_invalidation_level: null,
@@ -31,7 +31,7 @@ function makeProfile(overrides: Partial<OpportunityProfile> = {}): OpportunityPr
         short_invalidation_level: null,
         long_expected_rr_internal: 2.5,
         short_expected_rr_internal: null,
-        trade_viability: 'Actionable',
+        trade_viability: 'ACTIONABLE',
         ...overrides,
     } as OpportunityProfile;
 }
@@ -102,28 +102,28 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
 
 describe('profileDirection', () => {
     it('TrendRiding + Bullish = LONG', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'TrendRiding' }), 'Bullish')).toBe('LONG');
+        expect(profileDirection(makeProfile({ direction_family: 'TREND_RIDING' }), 'Bullish')).toBe('LONG');
     });
     it('TrendRiding + Bearish = SHORT', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'TrendRiding' }), 'Bearish')).toBe('SHORT');
+        expect(profileDirection(makeProfile({ direction_family: 'TREND_RIDING' }), 'Bearish')).toBe('SHORT');
     });
     it('TrendRiding + Neutral = NEUTRAL', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'TrendRiding' }), 'Neutral')).toBe('NEUTRAL');
+        expect(profileDirection(makeProfile({ direction_family: 'TREND_RIDING' }), 'Neutral')).toBe('NEUTRAL');
     });
     it('CounterTrend + Bullish = SHORT', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'CounterTrend' }), 'Bullish')).toBe('SHORT');
+        expect(profileDirection(makeProfile({ direction_family: 'COUNTER_TREND' }), 'Bullish')).toBe('SHORT');
     });
     it('CounterTrend + Bearish = LONG', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'CounterTrend' }), 'Bearish')).toBe('LONG');
+        expect(profileDirection(makeProfile({ direction_family: 'COUNTER_TREND' }), 'Bearish')).toBe('LONG');
     });
     it('Neutral family -> NEUTRAL regardless of bias', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'Neutral' }), 'Bullish')).toBe('NEUTRAL');
+        expect(profileDirection(makeProfile({ direction_family: 'NEUTRAL' }), 'Bullish')).toBe('NEUTRAL');
     });
     it('null family + bullish = NEUTRAL', () => {
         expect(profileDirection(makeProfile({ direction_family: null }), 'Bullish')).toBe('NEUTRAL');
     });
     it('null macro bias -> NEUTRAL', () => {
-        expect(profileDirection(makeProfile({ direction_family: 'TrendRiding' }), null)).toBe('NEUTRAL');
+        expect(profileDirection(makeProfile({ direction_family: 'TREND_RIDING' }), null)).toBe('NEUTRAL');
     });
 });
 
@@ -177,7 +177,7 @@ describe('collectActiveSetups', () => {
             symbol: 'ETH-USDT',
             analysis: { bias: 'Bullish' } as any,
             opportunity: makeOpportunity({
-                profiles: [makeProfile({ trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ trade_viability: 'ACTIONABLE' })],
             }),
         });
         const setups = collectActiveSetups([inst]);
@@ -192,7 +192,7 @@ describe('collectActiveSetups', () => {
         const inst = makeInstance({
             decisionContext: { trade_readiness: 'READY' } as any,
             opportunity: makeOpportunity({
-                profiles: [makeProfile({ trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ trade_viability: 'ACTIONABLE' })],
             }),
         });
         const setups = collectActiveSetups([inst]);
@@ -213,7 +213,7 @@ describe('computeHeroState', () => {
         const inst = makeInstance({
             decisionContext: { trade_readiness: 'READY' } as any,
             opportunity: makeOpportunity({
-                profiles: [makeProfile({ trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ trade_viability: 'ACTIONABLE' })],
             }),
         });
         expect(computeHeroState([inst])).toBe('TRADE');
@@ -223,7 +223,7 @@ describe('computeHeroState', () => {
         const inst = makeInstance({
             decisionContext: { trade_readiness: 'STAND_ASIDE' } as any,
             opportunity: makeOpportunity({
-                profiles: [makeProfile({ trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ trade_viability: 'ACTIONABLE' })],
             }),
         });
         expect(computeHeroState([inst])).toBe('WAIT');
@@ -233,7 +233,7 @@ describe('computeHeroState', () => {
         const inst = makeInstance({
             decisionContext: { trade_readiness: 'FORMING' } as any,
             opportunity: makeOpportunity({
-                profiles: [makeProfile({ trade_viability: 'DirectionalNeutral' })],
+                profiles: [makeProfile({ trade_viability: 'DIRECTIONAL_NEUTRAL' })],
             }),
         });
         expect(computeHeroState([inst])).toBe('WAIT');
@@ -251,7 +251,7 @@ describe('pickBestOpportunity', () => {
             decisionContext: { trade_readiness: 'READY' } as any,
             opportunity: makeOpportunity({
                 opportunity_score: 70,
-                profiles: [makeProfile({ score: 70, trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ score: 70, trade_viability: 'ACTIONABLE' })],
             }),
         });
         const b = makeInstance({
@@ -259,7 +259,7 @@ describe('pickBestOpportunity', () => {
             decisionContext: { trade_readiness: 'READY' } as any,
             opportunity: makeOpportunity({
                 opportunity_score: 90,
-                profiles: [makeProfile({ score: 90, trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ score: 90, trade_viability: 'ACTIONABLE' })],
             }),
         });
         const best = pickBestOpportunity([a, b]);
@@ -272,7 +272,7 @@ describe('pickBestOpportunity', () => {
             decisionContext: { trade_readiness: 'READY' } as any,
             opportunity: makeOpportunity({
                 opportunity_score: 60,
-                profiles: [makeProfile({ score: 60, trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ score: 60, trade_viability: 'ACTIONABLE' })],
             }),
         });
         const b = makeInstance({
@@ -280,7 +280,7 @@ describe('pickBestOpportunity', () => {
             decisionContext: { trade_readiness: 'STAND_ASIDE' } as any,
             opportunity: makeOpportunity({
                 opportunity_score: 95,
-                profiles: [makeProfile({ score: 95, trade_viability: 'Actionable' })],
+                profiles: [makeProfile({ score: 95, trade_viability: 'ACTIONABLE' })],
             }),
         });
         const best = pickBestOpportunity([a, b]);

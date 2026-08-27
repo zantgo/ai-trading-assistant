@@ -2,8 +2,10 @@
     ProjectRiskDrawer — "PROJECT RISK AND RETURN" expandable panel (v7.0).
 
     An on-demand, stateless what-if calculator mounted on the
-    Recommendation panel. It auto-pulls the active setup's geometry
-    (entry / stop-loss / take-profit midpoints), defaults capital to the
+    Recommendation panel, expanding directly beneath the LayerHeader as a
+    header extension (v7.3: square corners, header tone, no top border).
+    It auto-pulls the active setup's geometry (direction / entry /
+    stop-loss / take-profit) into editable fields, defaults capital to the
     active risk profile (falling back to $100) and leverage to the saved
     risk profile, and reuses the existing `/api/risk/calculate` endpoint
     (with payload overrides) — no new server-side math. The derived
@@ -67,8 +69,17 @@
 
     let debounce: ReturnType<typeof setTimeout> | null = null;
 
+    // The what-if calculator needs all three geometry legs; the seeded
+    // path always satisfies this, the manual path requires operator input.
+    function hasValidGeometry(): boolean {
+        const entry = parseFloat(app.riskEntryPrice) || 0;
+        const stop = parseFloat(app.riskStopLoss) || 0;
+        const tp = parseFloat(app.riskTakeProfit) || 0;
+        return entry > 0 && stop > 0 && tp > 0;
+    }
+
     function runCalc() {
-        if (!setup) return;
+        if (!hasValidGeometry()) return;
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
             app.calculateRisk({ capital, leverage, commissionPct });
@@ -77,70 +88,150 @@
 
     // Prefill the store's operation fields from the active setup and
     // recalculate whenever the setup or the operator's inputs change.
+    // v7.3: the fields are editable — the prefill only seeds them from
+    // the recommendation; operator edits flow straight into the store.
+    // v7.4: without an active setup the drawer stays usable as a manual
+    // what-if calculator — blank the shared geometry so stale values
+    // from another pair/panel never leak in.
     $effect(() => {
         const s = setup;
-        if (!s) return;
-        app.riskDirection = s.direction;
-        app.riskEntryPrice = String(s.entry);
-        app.riskStopLoss = String(s.stopLoss);
-        app.riskTakeProfit = String(s.takeProfit);
+        if (s) {
+            app.riskDirection = s.direction;
+            app.riskEntryPrice = String(s.entry);
+            app.riskStopLoss = String(s.stopLoss);
+            app.riskTakeProfit = String(s.takeProfit);
+        } else {
+            app.riskDirection = 'LONG';
+            app.riskEntryPrice = '';
+            app.riskStopLoss = '';
+            app.riskTakeProfit = '';
+        }
         runCalc();
     });
 
     // Lift the derived projection to the parent (feeds the export JSON).
+    // v7.3: uses the EDITED geometry so the export mirrors what the
+    // operator actually projects, not the original recommendation.
     $effect(() => {
         const calc = app.riskCalculation;
-        const s = setup;
-        if (!calc || !s) return;
-        onProjection(buildProjection(s, capital, leverage, commissionPct, calc));
+        if (!calc || !hasValidGeometry()) return;
+        onProjection(buildProjection({
+            direction: app.riskDirection,
+            entry: parseFloat(app.riskEntryPrice) || 0,
+            stopLoss: parseFloat(app.riskStopLoss) || 0,
+            takeProfit: parseFloat(app.riskTakeProfit) || 0,
+        }, capital, leverage, commissionPct, calc));
     });
 </script>
 
-{#if setup}
-    <div class={styles.drawer} aria-label="Project Risk and Return">
-        <div class={styles.drawerHead}>
-            <span class={styles.drawerTitle}>PROJECTED RISK AND RETURN</span>
-            <span class={styles.drawerSetup}>
-                {setup.direction} · entry {fmtPx(setup.entry)} · sl {fmtPx(setup.stopLoss)} · tp {fmtPx(setup.takeProfit)}
-            </span>
-        </div>
+<div class={styles.drawer} aria-label="Project Risk and Return">
+    <div class={styles.drawerHead}>
+        <span class={styles.drawerTitle}>PROJECTED RISK AND RETURN</span>
+    </div>
 
-        <div class={styles.drawerFields}>
-            <label class={styles.field} for="prr-capital">
-                <span class={styles.fieldLabel}>Capital Allocation</span>
-                <div class={styles.fieldRow}>
-                    <span class={styles.fieldPrefix}>$</span>
-                    <input
-                        id="prr-capital"
-                        type="number"
-                        min="1"
-                        step="any"
-                        class={styles.fieldInput}
-                        bind:value={capital}
-                        oninput={runCalc}
-                    />
-                </div>
-            </label>
-            <label class={styles.field} for="prr-leverage">
-                <span class={styles.fieldLabel}>Leverage</span>
-                <div class={styles.fieldRow}>
-                    <span class={styles.fieldPrefix}>×</span>
-                    <input
-                        id="prr-leverage"
-                        type="number"
-                        min="1"
-                        step="any"
-                        class={styles.fieldInput}
-                        bind:value={leverage}
-                        oninput={runCalc}
-                    />
-                </div>
-            </label>
-        </div>
+    <!-- v7.3: the recommendation geometry is settled into editable
+         fields — Direction / Entry / Stop Loss / Take Profit — seeded
+         from the active setup but fully operator-editable. -->
+    <div class={styles.setupFields}>
+        <label class={styles.field} for="prr-direction">
+            <span class={styles.fieldLabel}>Direction</span>
+            <select
+                id="prr-direction"
+                class={styles.fieldSelect}
+                bind:value={app.riskDirection}
+                onchange={runCalc}
+            >
+                <option value="LONG">LONG</option>
+                <option value="SHORT">SHORT</option>
+            </select>
+        </label>
+        <label class={styles.field} for="prr-entry">
+            <span class={styles.fieldLabel}>Entry</span>
+            <div class={styles.fieldRow}>
+                <span class={styles.fieldPrefix}>$</span>
+                <input
+                    id="prr-entry"
+                    type="number"
+                    min="0"
+                    step="any"
+                    class={styles.fieldInput}
+                    bind:value={app.riskEntryPrice}
+                    oninput={runCalc}
+                />
+            </div>
+        </label>
+        <label class={styles.field} for="prr-stoploss">
+            <span class={styles.fieldLabel}>Stop Loss</span>
+            <div class={styles.fieldRow}>
+                <span class={styles.fieldPrefix}>$</span>
+                <input
+                    id="prr-stoploss"
+                    type="number"
+                    min="0"
+                    step="any"
+                    class={styles.fieldInput}
+                    bind:value={app.riskStopLoss}
+                    oninput={runCalc}
+                />
+            </div>
+        </label>
+        <label class={styles.field} for="prr-takeprofit">
+            <span class={styles.fieldLabel}>Take Profit</span>
+            <div class={styles.fieldRow}>
+                <span class={styles.fieldPrefix}>$</span>
+                <input
+                    id="prr-takeprofit"
+                    type="number"
+                    min="0"
+                    step="any"
+                    class={styles.fieldInput}
+                    bind:value={app.riskTakeProfit}
+                    oninput={runCalc}
+                />
+            </div>
+        </label>
+    </div>
 
+    <div class={styles.drawerFields}>
+        <label class={styles.field} for="prr-capital">
+            <span class={styles.fieldLabel}>Capital Allocation</span>
+            <div class={styles.fieldRow}>
+                <span class={styles.fieldPrefix}>$</span>
+                <input
+                    id="prr-capital"
+                    type="number"
+                    min="1"
+                    step="any"
+                    class={styles.fieldInput}
+                    bind:value={capital}
+                    oninput={runCalc}
+                />
+            </div>
+        </label>
+        <label class={styles.field} for="prr-leverage">
+            <span class={styles.fieldLabel}>Leverage</span>
+            <div class={styles.fieldRow}>
+                <span class={styles.fieldPrefix}>×</span>
+                <input
+                    id="prr-leverage"
+                    type="number"
+                    min="1"
+                    step="any"
+                    class={styles.fieldInput}
+                    bind:value={leverage}
+                    oninput={runCalc}
+                />
+            </div>
+        </label>
+    </div>
+
+    <!-- v7.3: stable results region — the min-height prevents the
+         Calculating…→grid swap from popping the drawer's height, and
+         the fade transition smooths the state change. -->
+    <div class={styles.drawerResults}>
         {#if app.riskCalculating}
             <p class={styles.drawerNote}>Calculating…</p>
-        {:else if app.riskCalculation}
+        {:else if app.riskCalculation && hasValidGeometry()}
             <div class={styles.drawerGrid}>
                 <div class={styles.resultItem}>
                     <span class={styles.resultLabel}>Position Size</span>
@@ -155,20 +246,20 @@
                     <span class={styles.resultValue}>{fmtUsd(parseFloat(app.riskCalculation.margin_required) || 0)}</span>
                 </div>
                 <div class={styles.resultItem}>
+                    <span class={styles.resultLabel}>Liquidation Price</span>
+                    <span class="{styles.resultValue} {styles.resultValueAmber}">{fmtPx(parseFloat(app.riskCalculation.liquidation_price) || 0)}</span>
+                </div>
+                <div class={styles.resultItem}>
                     <span class={styles.resultLabel}>Entry Fee (est.)</span>
-                    <span class={styles.resultValue}>{fmtUsd(parseFloat(app.riskCalculation.position_notional) * Math.max(0, commissionPct) / 100 || 0)}</span>
+                    <span class="{styles.resultValue} {styles.resultValueRed}">{fmtUsd(parseFloat(app.riskCalculation.position_notional) * Math.max(0, commissionPct) / 100 || 0)}</span>
                 </div>
                 <div class={styles.resultItem}>
                     <span class={styles.resultLabel}>Exit Fee (est.)</span>
-                    <span class={styles.resultValue}>{fmtUsd(parseFloat(app.riskCalculation.position_notional) * Math.max(0, commissionPct) / 100 || 0)}</span>
+                    <span class="{styles.resultValue} {styles.resultValueRed}">{fmtUsd(parseFloat(app.riskCalculation.position_notional) * Math.max(0, commissionPct) / 100 || 0)}</span>
                 </div>
                 <div class={styles.resultItem}>
                     <span class={styles.resultLabel}>Total Costs</span>
-                    <span class={styles.resultValue}>{fmtUsd(parseFloat(app.riskCalculation.total_fees) || 0)}</span>
-                </div>
-                <div class={styles.resultItem}>
-                    <span class={styles.resultLabel}>Liquidation Price</span>
-                    <span class={styles.resultValue}>{fmtPx(parseFloat(app.riskCalculation.liquidation_price) || 0)}</span>
+                    <span class="{styles.resultValue} {styles.resultValueRed}">{fmtUsd(parseFloat(app.riskCalculation.total_fees) || 0)}</span>
                 </div>
                 <div class={styles.resultItem}>
                     <span class={styles.resultLabel}>Net Profit</span>
@@ -196,7 +287,7 @@
                 </div>
             </div>
         {:else}
-            <p class={styles.drawerNote}>Waiting for a valid setup — enter capital and leverage to project the trade economics.</p>
+            <p class={styles.drawerNote}>Enter direction, entry, stop-loss and take-profit to project the trade economics.</p>
         {/if}
     </div>
-{/if}
+</div>

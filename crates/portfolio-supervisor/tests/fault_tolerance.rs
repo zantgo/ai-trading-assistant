@@ -1,9 +1,9 @@
-use network_adapters::adapters;
-use market_analyzer::analyzer;
 use config_models::{FibonacciConfig, TimeframeConfig};
-use market_analyzer::indicators::DivergenceDetector;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
+use market_analyzer::analyzer;
+use market_analyzer::indicators::DivergenceDetector;
+use network_adapters::adapters;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -31,6 +31,8 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             name: "Test".into(),
             default_currency: "USDC".into(),
             default_exchange: "Hyperliquid".into(),
+            portfolio_capital_usd: 1000.0,
+            strategies: vec![config_models::StrategyConfig::default()],
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
             },
@@ -41,7 +43,6 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             fibonacci: Default::default(),
             pivots: Default::default(),
             leverage: Default::default(),
-            scoring: Default::default(),
             fees: Default::default(),
             defaults: Default::default(),
             safety: Default::default(),
@@ -50,10 +51,16 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             heatmap: Default::default(),
             activation: Default::default(),
             opportunity_matrix: Default::default(),
+            order_book: Default::default(),
             config_version: 1,
+            api_failover: Default::default(),
             instances: Vec::new(),
-            execution_policies: Vec::new(),
+            minimal_tae: Default::default(),
+            analytics: Default::default(),
+            risk_limits: Default::default(),
             execution: Default::default(),
+            backtest: Default::default(),
+            data_science: Default::default(),
         };
         let indicators = test_workspace.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);
@@ -68,6 +75,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let analyzer_pair_key = pair_key.clone();
         let analyzer_div_det = divergence_detector.clone();
         let analyzer_handle = tokio::spawn(async move {
+            let strategy = config_models::StrategyConfig::default();
             analyzer::run_single(
                 snapshot_rx,
                 analyzer_telemetry,
@@ -97,6 +105,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 None,
                 config_models::OrderBookConfig::default(),
+                strategy,
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
@@ -107,11 +116,15 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 None,
                 1,
+                300,
                 Arc::new(RwLock::new(None)),
-                Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-                Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
-
-        )
+                Arc::new(RwLock::new(
+                    core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+                )),
+                Arc::new(RwLock::new(
+                    core_domain::models::CandlePipelineState::Initializing,
+                )),
+            )
             .await;
         });
 

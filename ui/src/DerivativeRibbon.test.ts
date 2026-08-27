@@ -53,6 +53,9 @@ describe('DerivativeRibbon lastSeen contract', () => {
 
     it('preserves the stale threshold at 30s (parity between HL and Bitget)', async () => {
         const src = await readSrc();
-        expect(src).toMatch(/STALE_THRESHOLD_MS\s*=\s*30_000/);
+        // Audit M1: the threshold is compared in SECONDS (the wire
+        // timestamp is epoch-seconds; Date.now()/1000 both sides).
+        expect(src).toMatch(/STALE_THRESHOLD_SECS\s*=\s*30/);
+        expect(src).toMatch(/Date\.now\(\) \/ 1000 - lastUpdate/);
     });
 });

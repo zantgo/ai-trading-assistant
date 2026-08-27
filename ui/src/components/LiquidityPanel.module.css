@@ -409,3 +409,15 @@
 .signalEvidence li {
     padding: 0.1rem 0;
 }
+.stale-badge {
+    display: inline-block;
+    margin: 0 0 0.6rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid rgba(255, 170, 60, 0.6);
+    border-radius: 4px;
+    background: rgba(255, 170, 60, 0.12);
+    color: #ffaa3c;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}

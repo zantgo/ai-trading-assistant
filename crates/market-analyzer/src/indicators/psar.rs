@@ -29,12 +29,12 @@ impl ParabolicSar {
     pub fn new(af_step: f64, af_max: f64) -> Self {
         Self {
             af_step: Decimal::from_f64_retain(af_step)
-                .unwrap_or(Decimal::from_f64_retain(0.02).unwrap()),
+                .unwrap_or(Decimal::from_f64_retain(0.02).unwrap_or_default()),
             af_max: Decimal::from_f64_retain(af_max)
-                .unwrap_or(Decimal::from_f64_retain(0.20).unwrap()),
+                .unwrap_or(Decimal::from_f64_retain(0.20).unwrap_or_default()),
             sar: Decimal::ZERO,
             ep: Decimal::ZERO,
-            af: Decimal::from_f64_retain(0.02).unwrap(),
+            af: Decimal::from_f64_retain(0.02).unwrap_or_default(),
             direction: 1,
             initialized: false,
         }
@@ -68,7 +68,13 @@ impl ParabolicSar {
                 // Trend reverses to downside.
                 self.direction = -1;
                 flipped = true;
-                self.sar = high;
+                // AUDIT-M8: the standard (Wilder/TradingView) reversal
+                // anchors the new SAR at the prior trend's EP (the highest
+                // high of the completed uptrend), not the current bar's
+                // high — the old code could place the new SAR far above
+                // the real extreme on sharp reversals, distorting the
+                // trailing-stop geometry of the new trend.
+                self.sar = self.ep;
                 self.ep = low;
                 self.af = self.af_step;
             } else {
@@ -85,7 +91,8 @@ impl ParabolicSar {
                 // Trend reverses to upside.
                 self.direction = 1;
                 flipped = true;
-                self.sar = low;
+                // AUDIT-M8: anchor at the prior trend's EP (lowest low).
+                self.sar = self.ep;
                 self.ep = high;
                 self.af = self.af_step;
             } else {
@@ -112,7 +119,7 @@ mod tests {
     fn test_seeds_on_first_bar() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
         let out = psar.update(110.0, 90.0).unwrap();
-        assert_eq!(out.sar, Decimal::from_f64_retain(90.0).unwrap());
+        assert_eq!(out.sar, Decimal::from_f64_retain(90.0).unwrap_or_default());
         assert_eq!(out.direction, 1);
         assert!(!out.flipped);
     }
@@ -138,6 +145,46 @@ mod tests {
     }
 
     #[test]
+    fn test_reversal_anchors_at_prior_ep_not_current_bar_extreme() {
+        // AUDIT-M8: after an uptrend with EP = 114.0, a reversal bar that
+        // spiked to 120.0 must anchor the new SAR at the prior EP (114.0),
+        // not at the current bar's high (120.0).
+        let mut psar = ParabolicSar::new(0.02, 0.20);
+        psar.update(110.0, 90.0);
+        psar.update(112.0, 95.0);
+        psar.update(114.0, 97.0);
+        let out = psar.update(120.0, 85.0).unwrap();
+        assert_eq!(out.direction, -1);
+        assert!(out.flipped);
+        assert_eq!(
+            out.sar,
+            Decimal::from_f64_retain(114.0).unwrap_or_default(),
+            "new SAR must anchor at the prior trend's EP (highest high)"
+        );
+    }
+
+    #[test]
+    fn test_reversal_anchors_at_prior_ep_for_downside_to_upside() {
+        // Construct a downtrend state directly (EP = 80.0 = lowest low of
+        // the completed downtrend), then a reversal bar at the same high
+        // as the SAR.
+        let mut psar = ParabolicSar::new(0.02, 0.20);
+        psar.initialized = true;
+        psar.direction = -1;
+        psar.sar = Decimal::from_f64_retain(95.0).unwrap_or_default();
+        psar.ep = Decimal::from_f64_retain(80.0).unwrap_or_default();
+        psar.af = Decimal::from_f64_retain(0.04).unwrap_or_default();
+        let out = psar.update(95.0, 70.0).unwrap();
+        assert_eq!(out.direction, 1);
+        assert!(out.flipped);
+        assert_eq!(
+            out.sar,
+            Decimal::from_f64_retain(80.0).unwrap_or_default(),
+            "new SAR must anchor at the prior trend's EP (lowest low)"
+        );
+    }
+
+    #[test]
     fn test_af_accelerates_in_trend() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
         psar.update(110.0, 90.0);
@@ -147,6 +194,6 @@ mod tests {
             let l = 90 + i * 3;
             psar.update(h as f64, l as f64);
         }
-        assert!(psar.af > Decimal::from_f64_retain(0.02).unwrap());
+        assert!(psar.af > Decimal::from_f64_retain(0.02).unwrap_or_default());
     }
 }

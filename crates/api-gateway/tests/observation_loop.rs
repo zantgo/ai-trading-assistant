@@ -168,6 +168,7 @@ async fn observation_loop_latency_p95_below_threshold() {
             None,
             None, // heatmap_config (None → defaults)
             OrderBookConfig::default(),
+            config_models::StrategyConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -178,9 +179,14 @@ async fn observation_loop_latency_p95_below_threshold() {
             None,
             None,
             1,
+            300,
             Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            Arc::new(RwLock::new(
+                core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+            )),
+            Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
         )
     });
 

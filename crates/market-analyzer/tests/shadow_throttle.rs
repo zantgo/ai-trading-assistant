@@ -5,7 +5,10 @@
 //! flooding the frontend with redraws).
 //!
 //! The throttle caps the shadow (live/flickering) broadcast path at
-//! `max(100ms, min(250ms, timeframe_secs*1000/4))`. The candle-close
+//! `max(100ms, timeframe_secs*1000/4)` — one shadow per quarter-candle
+//! (AUDIT-AIU-122: the shipped formula; the earlier
+//! `max(100ms, min(250ms, tf*1000/4))` cap and the parity-doc
+//! `min(tf/4, 1s)` draft were both superseded). The candle-close
 //! path is unaffected and must still fire on every natural close.
 //!
 //! Test strategy: spawn a real `analyzer::run_single` task with
@@ -73,6 +76,7 @@ async fn spawn_analyzer(
     };
 
     tokio::spawn(async move {
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -100,8 +104,9 @@ async fn spawn_analyzer(
             Arc::new(RwLock::new(VecDeque::with_capacity(8))),
             Arc::new(RwLock::new(None)),
             None,
-            None,  // heatmap_config (None)
+            None, // heatmap_config (None)
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -112,9 +117,14 @@ async fn spawn_analyzer(
             None,
             None,
             1,
+            300,
             Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            Arc::new(RwLock::new(
+                core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+            )),
+            Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
         )
         .await
     })

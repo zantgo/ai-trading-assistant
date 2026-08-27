@@ -98,12 +98,20 @@ impl Rsi {
     }
 
     /// Compute RSI from the current avg_gain / avg_loss. Returns 100 when
-    /// avg_loss is exactly zero (no losses over the window).
+    /// avg_loss is exactly zero (no losses over the window) and gains exist,
+    /// 50 when the window is completely flat (neither gains nor losses —
+    /// a frozen market must read neutral, not maximum overbought; the
+    /// doji/idle-heartbeat path feeds flat candles into RSI on quiet
+    /// markets, which previously pinned OVERBOUGHT signals on every bar).
     fn compute_rsi(&self) -> Option<Decimal> {
         let ag = self.avg_gain?;
         let al = self.avg_loss?;
         if al == Decimal::ZERO {
-            Some(Decimal::from(100))
+            if ag == Decimal::ZERO {
+                Some(Decimal::from(50))
+            } else {
+                Some(Decimal::from(100))
+            }
         } else {
             let rs = ag / al;
             let rsi = Decimal::from(100) - (Decimal::from(100) / (Decimal::ONE + rs));
@@ -177,7 +185,7 @@ mod tests {
         }
         let result = rsi.update(price + 1.00).unwrap();
         assert!(
-            result > Decimal::from_f64_retain(50.00).unwrap(),
+            result > Decimal::from_f64_retain(50.00).unwrap_or_default(),
             "All gains should yield RSI > 50"
         );
     }
@@ -207,6 +215,26 @@ mod tests {
         let result = rsi.update(price + 2.00).unwrap();
         assert!(result > dec!(90.00));
         assert!(result <= dec!(100.00), "RSI should not exceed 100");
+    }
+
+    #[test]
+    fn test_flat_series_returns_rsi_50() {
+        // A market that never moves has zero gains AND zero losses — the
+        // result must be the neutral 50, not maximum overbought 100
+        // (which previously pinned OVERBOUGHT signals on every bar of a
+        // quiet market via the doji/idle-heartbeat path).
+        let mut rsi = Rsi::new(14);
+        rsi.update(100.00);
+        for _ in 0..15 {
+            let r = rsi.update(100.00);
+            if r.is_some() {
+                assert_eq!(
+                    r,
+                    Some(Decimal::from(50)),
+                    "A completely flat window must read neutral RSI 50"
+                );
+            }
+        }
     }
 
     #[test]

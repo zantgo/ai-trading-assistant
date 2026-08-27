@@ -32,13 +32,7 @@ pub fn extract_base_symbol(pair_key: &str) -> String {
 /// The output is always `<BASE>-<QUOTE>` using the session quote
 /// (fallback `USDC`, which matches `registry::add_instance`'s default).
 pub async fn default_pair_key(state: &AppState, symbol_entry: &str) -> String {
-    let quote = state
-        .session
-        .base_currency
-        .read()
-        .await
-        .clone()
-        .unwrap_or(Currency::USDC);
+    let quote = (*state.session.base_currency.read().await).unwrap_or(Currency::USDC);
     let raw = symbol_entry
         .split_once(':')
         .map(|(_, s)| s)

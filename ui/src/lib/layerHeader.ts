@@ -11,10 +11,9 @@
 // renames a field (e.g. `overall_label` → `dominant_bias`) update the
 // corresponding builder function in this file only.
 
-import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor, rrColor } from './dashboardColors';
+import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
-import { resolveEffectiveDirection, RR_MEANINGFUL_FLOOR } from './opportunityBars';
-import { resolveActiveRr } from './decisionRank';
+import { resolveEffectiveDirection } from './opportunityBars';
 import type {
     AdvisoryMatrix,
     AlignmentMatrix,
@@ -277,8 +276,10 @@ export function buildL1MetricsHeader(
         meta.push({ label: 'Age', value: `${ageBars}b`, color: COLORS.textMuted, state: 'valid' });
     }
     // Hide regime from chips when it's already implied by the badge label.
+    // `overall_label` is the MarketContext vocabulary
+    // (STRONG_BULL/WEAK_BULL/STRONG_BEAR/WEAK_BEAR/NEUTRAL).
     const regimeImplied =
-        (regime === 'TRENDING' && (label === 'BULLISH' || label === 'BEARISH')) ||
+        (regime === 'TRENDING' && (label.includes('BULL') || label.includes('BEAR'))) ||
         (regime === 'RANGE' && label === 'NEUTRAL');
     if (regime && !regimeImplied) {
         meta.push(chip('Regime', prettifyEnum(regime), null, () => COLORS.textMuted));
@@ -332,7 +333,7 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
             state: 'valid',
         },
         meta: [
-            chip('TFs', `${tfs}/4`, tfs, null, true),
+            chip('TFs', `${tfs} TF`, tfs, null, true),
             chip('Agreement', `${agreement.toFixed(0)}%`, agreement, scoreColor),
             chip('Cross', cross, cross, null, true),
         ],
@@ -367,7 +368,7 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
             // v7.0.1: the Score chip is gone too — the panel hero now
             // carries two circular dials (Agreement + Score); the header
             // chrome keeps only the badge and the TF-count chip.
-            chip('TFs', tfs != null ? `${tfs}/4` : null, tfs, null, true),
+            chip('TFs', tfs != null ? `${tfs} TF` : null, tfs, null, true),
         ],
         status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
     };
@@ -392,11 +393,11 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
         return { layerNumber: 3, layerName: 'Analysis', badge: emptyBadge(), meta: [], status: 'loading' };
     }
     const redundant =
-        (bias === 'Bullish' && regime === 'TRENDING_BULL') ||
-        (bias === 'Bearish' && regime === 'TRENDING_BEAR') ||
-        (bias === 'StrongBullish' && regime === 'TRENDING_BULL') ||
-        (bias === 'StrongBearish' && regime === 'TRENDING_BEAR') ||
-        (bias === 'Neutral' && regime === 'RANGE');
+        (bias === 'Bullish' && regime === 'TrendingBull') ||
+        (bias === 'Bearish' && regime === 'TrendingBear') ||
+        (bias === 'StrongBullish' && regime === 'TrendingBull') ||
+        (bias === 'StrongBearish' && regime === 'TrendingBear') ||
+        (bias === 'Neutral' && regime === 'Range');
 
     const meta: MetaChipSpec[] = [
         chip('Quality', quality, null, () => qualityColor(quality)),
@@ -423,11 +424,11 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
 // When no qualifying setup exists we surface `NO CLEAR SETUP` in amber
 // (operator rule: zero opportunity is neutral, not good).
 //
-// The meta rail is the panel's top badge cluster: Score / Reward-to-Risk
-// Ratio / Horizon (bracket-derived) plus the Timeframes-considered and
-// Confidence pills that previously lived in the panel's bottom
-// Environment section. All five always read the same matrices the body
-// renders, so the top cluster and the panel can never disagree.
+// The meta rail is the panel's top badge cluster: Score / Confidence /
+// Horizon / Timeframes (v7.3 — the Reward-to-Risk Ratio chip was removed
+// as redundant with the TRADE SETUPS cards and the Expected R:R section).
+// All four always read the same matrices the body renders, so the top
+// cluster and the panel can never disagree.
 export function buildL4OpportunityHeader(
     o: OpportunityMatrix | null | undefined,
     bias: MarketBias | null | undefined = null,
@@ -446,8 +447,8 @@ export function buildL4OpportunityHeader(
     const confidencePct =
         analysis?.confidence != null ? Math.round(analysis.confidence * 100) : null;
     const environmentMeta: MetaChipSpec[] = [
-        chip('Timeframes', tfs != null ? `${tfs}/4` : null, tfs, null, true),
         chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
+        chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
     ];
 
     if (noClear) {
@@ -475,10 +476,6 @@ export function buildL4OpportunityHeader(
     // (bear tone beside a DirectionalNeutral card and N/A R:R).
     const resolved = resolveEffectiveDirection(o, bias ?? null);
     const effectiveDir: 'LONG' | 'SHORT' | 'NEUTRAL' = resolved;
-    // RR-002 (v6.10.12): the header chip reads the active side's geometric
-    // R:R through the shared resolver (wire → aligned zones fallback), so
-    // it can never disagree with the cards or the R:R (Internal) section.
-    const activeRr = resolveActiveRr(o, undefined, undefined, undefined, bias ?? null).value;
 
     return {
         layerNumber: 4,
@@ -490,11 +487,15 @@ export function buildL4OpportunityHeader(
             background: hexToRgba(directionColor(effectiveDir), 0.08),
             state: 'valid',
         },
+        // v7.3: the Reward-to-Risk Ratio chip was removed (the metric is
+        // cleanly represented by the TRADE SETUPS cards and the Expected
+        // R:R section) and the rail is grouped Score / Confidence /
+        // Horizon / Timeframes.
         meta: [
             chip('Score', score, score, scoreColor),
-            chip('Reward-to-Risk Ratio', activeRr > 0 ? `1:${activeRr.toFixed(2)}` : null, activeRr, rrColor),
+            chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
             chip('Horizon', horizon ? prettifyEnum(horizon) : null, null, () => COLORS.textMuted),
-            ...environmentMeta,
+            chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
         ],
         status: 'live',
     };
@@ -627,6 +628,35 @@ export function buildL6DecisionHeader(input: {
 // L7 — Overview (system-wide). `systemic_risk_score = 0` is green.
 // Status is sourced from the L7 fetch state (live when fresh, stale
 // after >2× polling interval, error when the last attempt failed).
+/**
+ * v6.10.18 (I-10): under LOW coverage (≤2 active symbols) the global
+ * STRONG_* tokens overstate a breadth statistic that is statistically
+ * meaningless — demote the DISPLAY token one tier (STRONG_BULLISH →
+ * BULLISH, STRONG_BEARISH → BEARISH) and append the pair count to the
+ * sublabel so a professional trader reads "BULLISH (1 pair)", never
+ * "STRONG BULLISH 100% breadth" from a single symbol. The wire value
+ * stays intact for data consumers.
+ *
+ * Shared by the L7 header badge, the GeneralDashboard KPI strip and the
+ * overview export so every surface demotes identically.
+ */
+export function demoteBiasForCoverage(
+    bias: string | null | undefined,
+    lowCoverage: boolean,
+    count?: number | null,
+): { displayBias: string | null; coverageSuffix: string } {
+    if (!lowCoverage || !bias) return { displayBias: bias ?? null, coverageSuffix: '' };
+    const displayBias =
+        bias === 'STRONG_BULLISH'
+            ? 'BULLISH'
+            : bias === 'STRONG_BEARISH'
+              ? 'BEARISH'
+              : bias;
+    const coverageSuffix =
+        count != null ? ` (${count} pair${count === 1 ? '' : 's'})` : '';
+    return { displayBias, coverageSuffix };
+}
+
 export function buildL7OverviewHeader(
     overview: OverviewMatrix | null | undefined,
     fetchState: { lastSuccessMs: number | null; lastErrorMs: number | null; now: number; pollIntervalMs: number },
@@ -662,13 +692,7 @@ export function buildL7OverviewHeader(
     // "STRONG BULLISH 100% breadth" from a single symbol. The wire value
     // stays intact for data consumers.
     const lowCoverage = (overview.low_coverage ?? false) || (count != null && count <= 2);
-    const displayBias =
-        lowCoverage && bias === 'StrongBullish'
-            ? 'Bullish'
-            : lowCoverage && bias === 'StrongBearish'
-              ? 'Bearish'
-              : bias;
-    const coverageSuffix = lowCoverage && count != null ? ` (${count} pair${count === 1 ? '' : 's'})` : '';
+    const { displayBias, coverageSuffix } = demoteBiasForCoverage(bias, lowCoverage, count);
     return {
         layerNumber: 7,
         layerName: 'Overview',

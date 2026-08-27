@@ -38,13 +38,11 @@
         <span class={styles.dot} class:active={activeCount > 0}></span>
         {activeCount}/{totalCount} pairs
     </span>
-    <span class={styles.sep}>·</span>
-    <span class={styles.item}>
+    <span class={styles.pill}>
         <span class={styles.label}>last scan</span>
         <span class={styles.val}>{rel.label}</span>
     </span>
-    <span class={styles.sep}>·</span>
-    <span class={styles.item}>
+    <span class={styles.pill}>
         <span class={styles.label}>auto-refresh</span>
         <span class={styles.val}>on</span>
     </span>

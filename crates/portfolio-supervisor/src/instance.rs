@@ -1,16 +1,16 @@
 use sqlx::SqlitePool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use market_analyzer::analyzer;
-use config_models::{IntervalsConfig, SafetyConfig, Stance};
-use crate::safety::SafetyManager;
 use crate::lifecycle::LifecycleManager;
+use crate::safety::SafetyManager;
 use crate::WorkspaceState;
+use config_models::{IntervalsConfig, SafetyConfig};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
+use market_analyzer::analyzer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstanceStatus {
@@ -31,14 +31,14 @@ impl InstanceStatus {
 
 #[derive(Debug, Clone)]
 pub struct TradingState {
-    pub initial_capital: f64,
+    pub portfolio_capital: f64,
     pub current_equity: f64,
 }
 
 impl Default for TradingState {
     fn default() -> Self {
         Self {
-            initial_capital: 0.0,
+            portfolio_capital: 0.0,
             current_equity: 0.0,
         }
     }
@@ -46,8 +46,8 @@ impl Default for TradingState {
 
 impl TradingState {
     pub fn pnl_pct(&self) -> f64 {
-        if self.initial_capital > 0.0 {
-            ((self.current_equity - self.initial_capital) / self.initial_capital) * 100.0
+        if self.portfolio_capital > 0.0 {
+            ((self.current_equity - self.portfolio_capital) / self.portfolio_capital) * 100.0
         } else {
             0.0
         }
@@ -109,7 +109,12 @@ pub struct Instance {
     pub r#macro: TimeframeBuffers,
 
     pub lifecycle: RwLock<LifecycleManager>,
-    pub stances: RwLock<HashMap<String, Stance>>,
+
+    /// Per-instance execution mode (Observe / Paper / Live). `Observe`
+    /// instances are market-monitoring only: the TAE setup executor never
+    /// evaluates or dispatches orders for them. Mirrors the persisted
+    /// `InstanceEntry.mode` so the runtime gate needs no config round-trip.
+    pub execution_mode: RwLock<config_models::ExecutionMode>,
 }
 
 impl Instance {
@@ -137,11 +142,11 @@ impl Instance {
             safe_config.systemic_risk_threshold,
         ));
 
-        let symbol = active_pair.symbol.clone();
-        let mut stances = HashMap::new();
-        stances.insert(symbol.clone(), Stance::Active);
-
-        let mut lifecycle_mgr = LifecycleManager::new(None);
+        // v10.1 harden: default to paper-paused (close-only) even before
+        // boot_lifecycle is called — if a call site forgets boot_lifecycle the
+        // instance never starts trading without explicit activation.
+        let mut lifecycle_mgr =
+            LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Paper));
         lifecycle_mgr.set_db(id.clone(), Arc::new(pool.clone()));
 
         Self {
@@ -161,8 +166,25 @@ impl Instance {
             slow,
             r#macro,
             lifecycle: RwLock::new(lifecycle_mgr),
-            stances: RwLock::new(stances),
+            execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
         }
+    }
+
+    pub async fn execution_mode(&self) -> config_models::ExecutionMode {
+        *self.execution_mode.read().await
+    }
+
+    pub async fn set_execution_mode(&self, mode: config_models::ExecutionMode) {
+        *self.execution_mode.write().await = mode;
+    }
+
+    /// v10.1: boot the lifecycle for the instance's execution mode —
+    /// paper/live boots PAUSED (close-only, TAE not activated), observe
+    /// boots RUNNING (ghost radar). Call after `set_execution_mode`.
+    pub async fn boot_lifecycle(&self, mode: config_models::ExecutionMode) {
+        let mut lc = LifecycleManager::new_for_mode(None, Some(mode));
+        lc.set_db(self.id.clone(), Arc::new(self.pool.clone()));
+        *self.lifecycle.write().await = lc;
     }
 
     pub fn symbol(&self) -> String {
@@ -203,10 +225,12 @@ impl Instance {
         self.config_state.write().await.status = status;
     }
 
-    pub async fn set_initial_capital(&self, capital: f64) {
-        self.trading.write().await.initial_capital = capital;
+    pub async fn set_portfolio_capital(&self, capital: f64) {
+        self.trading.write().await.portfolio_capital = capital;
         self.safety
-            .set_initial_capital(rust_decimal::Decimal::from_f64_retain(capital).unwrap_or_default())
+            .set_portfolio_capital(
+                rust_decimal::Decimal::from_f64_retain(capital).unwrap_or_default(),
+            )
             .await;
     }
 
@@ -222,9 +246,9 @@ impl Instance {
     /// without spinning up a real WS pipeline.
     #[doc(hidden)]
     pub fn new_test(id: String, pair: (String, String), micro: TimeframeBuffers) -> Self {
-        use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
         use core_domain::models::MarketSnapshot;
         use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
+        use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
         use std::collections::VecDeque;
         use std::sync::Arc;
         use tokio::sync::broadcast;
@@ -261,7 +285,10 @@ impl Instance {
             // `cluster_matrix`). Tests don't exercise refresh, so we
             // initialize as Pending with empty fields.
             cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending(&format!("{}-{}", pair.0, pair.1), &slot.as_str()),
+                core_domain::liquidity::ClusterStatusSnapshot::pending(
+                    &format!("{}-{}", pair.0, pair.1),
+                    &slot.as_str(),
+                ),
             )),
             pipeline_state: Arc::new(RwLock::new(
                 core_domain::models::CandlePipelineState::Initializing,
@@ -299,9 +326,6 @@ impl Instance {
         // Use a no-op sqlite pool for tests. We never hit the DB.
         let pool =
             sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
-        let symbol = active_pair.symbol.clone();
-        let mut stances = HashMap::new();
-        stances.insert(symbol, Stance::Active);
 
         Self {
             id,
@@ -322,8 +346,11 @@ impl Instance {
             fast: empty_buffers.clone(),
             slow: empty_buffers.clone(),
             r#macro: empty_buffers,
-            lifecycle: RwLock::new(LifecycleManager::new(None)),
-            stances: RwLock::new(stances),
+            lifecycle: RwLock::new(LifecycleManager::new_for_mode(
+                None,
+                Some(config_models::ExecutionMode::Paper),
+            )),
+            execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
         }
     }
 }

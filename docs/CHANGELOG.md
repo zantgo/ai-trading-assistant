@@ -4,7 +4,354 @@
 
 ------
 
+## v11 (2026-08-26) — Execution Model v11: Stop Floor, TP Reachability, TF-Roles, Frequency Defaults
 
+**The short-TF execution model is rebuilt: stops survive micro noise, targets stay reachable, decision/stance move to the macro TF, and the default strategy actually trades 1m ladders. Diagnostics make "why no trades?" one SQL query.**
+
+- **Stop floor — floor, don't refuse** (`setup_executor.rs::tick_idle`): `SL = max(zone invalidation, floor)` where `tae.risk.stop_floor_source` = `l6_formula` (default; `advisory.stop_loss_distance_pct` from the stop-TF snapshot — 2% base + vol/10, clamp [0.5,15]) | `atr_mult` (`stop_floor_atr_mult × ATR`) | `zone_only` (legacy). `min_sl_atr` changed from **refuse** (`entry_blocked`) to **floor** semantics. Data-proven: ZEC T1 replay (0.72% zone SL → 2% floor) turns a loss into a win (TP hit 37 min later).
+- **TP reachability cap**: `tae.execution.max_tp_rr` (default 1.5) — `TP = entry ± min(net_rr, max_tp_rr) × SL_distance`. Kills unreachable micro-targets (observed T2: TP +2.43% vs MFE +0.62%).
+- **TF-role separation** (`strategy.ladder_roles`): `decision_tf` (bias/regime/stance/risk) / `entry_tf` (zones/timing) / `stop_tf` (SL floor) / `target_tf` (TP). Roles active when `micro < 1h`; otherwise legacy. Live (`analyzer/mod.rs`) and replay (`historical.rs`) pass identical role-selected snapshots — parity by construction. New spec: `03-03-08-tae-ladder-roles.md`.
+- **Frequency defaults become the default** (`StrategyConfig::default()` + `core-domain` mirrors): `min_net_rr 1.0→0.5`, `l4.preconditions` (trend 55, breakout 55/45, pullback 45, mean_rev 40, scalp struct 55, squeeze 0.25), `l3.bias` (strong 25/plain 12, agreement 60, votes 2), `l5.execution_liquidity.baseline 10` (rvol_high 5.0), `l6.stance` (constructive 55, neutral 50, cautious 75, avoid 90, aggressive 45), `readiness.ready_min 20`, `entry_vol_no_entry 80`. Verified: 7-day multi-symbol backtest goes 0 → 2 trades (loosened pass) and the gate chain is now data-driven.
+- **Gate-chain diagnostics**: per-tick `backtest_signals` gains `decision/market_stance`, `decision/confidence_assessment`, `analysis/market_regime`, `analysis/bias`, `opportunity/primary`; new CLI `--backtest-gates <id>` prints the READY%/stance/primary table.
+- **Bug fixes**: multi-symbol DS trade `symbol` carried per trade (was first-symbol only); `synthesis.rs` precondition counters now use `pc.*` (were hardcoded); equity logger reads `ExecutionEngine` equity (was legacy `paper_balances` → 0.0); `--tae-on` actually starts the instance lifecycle (was a dead flag).
+
+------
+
+## v10.1 (2026-08-24) — Quant-Metrics Hardening + UX Unification
+
+- **Direction-aware funding** (`settle_funding`): `−dir_sign × notional × rate` perp convention, per-position `funding_accrued`, `settle_funding_with_rate` for live ingested rates, and an 8h settlement clock in the recorded replay (previously historical-only).
+- **Slippage dial wired**: `tae.execution.slippage_bps` now applies to every simulated fill (`fill_market_order`, mid ± (half-spread + slippage), limit-clamped) — shared by paper/live/historical/recorded.
+- **Backtest cost columns**: `backtest_trades.slippage_bps / commission_fees / funding_fees` (migration `20260824000001`); `CloseOutcome` carries per-trade costs; `finalize_result` threads real roi/mfe/mae (no more 0.0 hardcodes).
+- **Long/short symmetry verdict**: `compare_direction_symmetry` (Welch two-sample t-test on roi_pct, ≥10/side) → PAE Overview card, BTE Study Report block, `dir_*` DS metrics, CLI monitor block.
+- **Log-return Sharpe**: `RiskAnalyticsRow.sharpe_ratio_log` (log daily returns, persisted via migration `20260824000002`) + `DashboardStats.log_returns` series + `sharpe_log` metric.
+- **Risk-free rate honored**: `AnalyticsParams.risk_free_rate_pct` (from `pae.risk_math`) subtracted in Sharpe/Sortino; the live pipeline now uses configured verdict params (no more `AnalyticsParams::default()`).
+- **Lifecycle unification**: TAE activation is the instance lifecycle — paper/live boot **PAUSED** (close-only, pending entries cancelled on pause), observe boots RUNNING; unified vocabulary ACTIVE / PAUSED / FLATTENING / TERMINATED / MONITORING (`ui/src/lib/lifecyclePresentation.ts`); TAE header switch + right-panel per-row toggle; CLI `Activate TAE? y/N` + `--tae-on`.
+- **UX**: sidebar Settings → Home; `[workspace.api_failover]` editor moved to DIE Connection Settings; Exchange tab live-only + DEX/CEX aware (Hyperliquid wallet/hex key vs Bitget API credentials); PME Portfolio Overview merged into Overview; BTE navbar reordered + collapses with no instance/run; SESSION #NNNN welcome chip; MME Settings `NoInstanceState`; schema-driven `StrategyForm` replaces raw JSON editing.
+- **Direction-first color discipline**: green = LONG only, red = SHORT only, amber = caution/states (dashed = broken bracket), grey = informational; reference brackets amber/grey; 3-band scores; side-tinted evaluated-setup cards; `riskDangerColor` unchanged.
+
+------
+
+## Unreleased (2026-08-22) — v10: TAE Lifecycle Hardening (setup-change management + entry/exit strictness dials)
+
+**The setup executor learns how to manage a position when the setup changes — plus per-strategy strictness dials for entry placement and SL/TP management. TP always closes the full position.**
+
+- **Tri-state posture (`tae.risk.setup_gone_policy = balanced | strict | risky`, default `balanced` — config + TAE Settings segmented control):** setup gone while **pending** → balanced: keep until bar-expiry (effective default 12 bars); strict: cancel (`setup_gone_cancel`); risky: keep immortal. Setup gone while **open** → balanced: hold (SL/TP/time-stop bound the risk); strict: close at market (`exit_reason = "setup_gone"`); risky: hold until an opposite-direction flip.
+- **Pending-entry re-pricing (R4):** a fresh same-direction/same-type setup re-prices the resting entry to the new geometry (cancel-first, then place; `SetupProjection` recomputed) behind `tae.lifecycle.min_reprice_delta_atr` (0.25 × ATR default; 0 = every candle). New activity event `reprice_pending`.
+- **Replacement adoption (R5):** `tae.lifecycle.replace_policy = cancel_and_adopt` (default) adopts a topping different-type setup in the same tick (gates re-run, `replaced_adopted`); `cancel` keeps the v9 `cancelled_replaced` behavior.
+- **Asymmetric bracket ratchet (R9/R10, always on):** a fresh same-direction setup may move an open position's SL **only in favor** (never widens — invariant I2) and refresh its TP **only** when the new bracket improves net RR by ≥ `tae.risk.tp_refresh_min_rr_delta` (I3); both gated by the min-reprice delta. Frozen breakeven/trailing/time-stop params are never touched (`bracket_refresh`).
+- **Entry dial (entry-point strictness):** `tae.execution.entry_mode` wired to `zone_midpoint | zone_edge | zone_any | market_on_ready | chase`; `chase` submits a market order only when the mid is within `chase_max_atr × ATR` beyond the zone **and** the setup scores ≥ `chase_score_floor` (conditional tolerance); `instant_fill_policy` wired (`take_better` | `cancel`); `spread_gate_bps` and `tae.intake.max_setup_age_bars` wired. `SetupPlan` carries `source_candle_ts` + target-zone edges.
+- **Exit dial (SL/TP strictness):** `tae.risk.sl_mode` (`invalidation | invalidation_padded | atr_anchored`) with `sl_padding_atr` / `atr_anchor_mult`; `min_sl_atr` skips trades whose stop sits inside noise; `tae.execution.tp_placement` (`zone_near_edge | zone_midpoint | zone_far_edge`) places the **100 %** TP limit inside the target zone; `tae.risk.confidence_drop_pct` wired (`exit_reason = "confidence_drop"`, baseline frozen at entry via `FrozenEntryParams.entry_confidence`).
+- **Exit-reason vocabulary extended:** `setup_gone` + `confidence_drop` added to `06-02` §3.2, `03-03-07`, `scripts/e2e_backtest_verify.py` (`EXIT_REASONS`) and `scripts/ds-verification-loop.sh` (vocab).
+- **Backtest parity (v10 fix):** the recorded replay now resolves the run's bound strategy and passes it into the executor tick (previously `strategy: None`); historical + recorded replay the v10 dials exactly like paper/live (`recorded::run_backtest` gains the strategy param; `analytics.rs` resolves `payload.strategy_id`).
+- **Historical strategy gates (v10):** the historical runner evaluates the same `evaluate_intake_gates` / `evaluate_portfolio_gates` functions the daemon applies live, on the simulated portfolio — breadth = cross-symbol bias share (`breadth_from_biases`), systemic veto inert (documented), exposure/margin gates read the replayed engine ledger; blocks log `entry_blocked` activity; the recorded replay keeps gates off (replay parity). Executor-level market-filter block test + historical gate fixtures (breadth floor, margin close-only) added; 08-04 parity contract documents the breadth-semantics boundary.
+- **Docs sweep:** `docs/README.md` engine table reads **The Six Engines** (+ BTE row, v10 implementation-status callout); `docs/ROADMAP.md` refreshed to the v10 reality (six engines implemented, WIP bucket = live-REST verifications + the Unreleased release sweep; Phase G acceptance table); 08-04 parity contract gains the v10 dials/gates rows.
+- **Zero-warning workspace + per-folder ports:** all 7 rustc warnings removed (dead `AlignmentMatrix::overall_label`, vestigial config clones in `registry/mod.rs`, redundant parens, `mut`/dead variable, unused import). The HTTP server is now **per-folder configurable**: new `[server] { bind, port }` section in `config.toml` (defaults `127.0.0.1:3000`, validated), overridable by `PLATFORM_PORT`/`PLATFORM_BIND` env or `--port`/`--bind` flags (flag > env > config). The K1 origin allowlist is built at boot from the resolved bind/port (plus the fixed Vite dev origins) — CORS, the cross-site middleware and the WS handler all read the runtime list. `manage.sh` resolves the folder port for its stop/status fallbacks. Several sessions can now run side by side on one machine, each folder with its own port.
+- **Parallel multi-session experiments + cross-folder comparison:** `--compare-folders <rootA> <rootB> …` (`cli_compare.rs`, DB-free) aggregates each folder's `ds/` tree — backtests (`run.json` summary/stats + risk metrics recomputed from `equity.ndjson` via `compute_risk_metrics_from_curve`) and paper sessions (`session.json` + `analytics/performance|strategy.ndjson` latest rows) — into one JSON + markdown table (folder, kind, id, exchange, strategy, symbol, trades, WR, PF, expectancy, Sharpe, Sortino, maxDD, verdict). `persist_backtest_run` now stamps `exchange` + `strategy_id` into `run.json` params (self-describing artifacts). `scripts/multi-session-compare.sh` runs N headless backtests in parallel (one folder per experiment, distinct ports, per-folder exchange) and writes `experiments/COMPARISON.md`; failed runs are surfaced, and the exchange-aware depth ceilings are documented in the header. Parity contract gains C18; `experiments/` gitignored. Verified live: 4 experiments (2 exchanges × 2 strategies) in parallel → correct comparison table.
+- **Executor hardening:** `StrategyPolicy` (resolved per-tick from the bound strategy, defaults when unbound); params-at-entry freeze now **always** stamped (platform defaults when no strategy is bound) so the balanced expiry/confidence baselines apply uniformly; `SymbolState.entry_is_market` records chase/market-on-ready dispatches (confirmation hold dispatches the same order type); `rr_units` / `marketable` / `source_atr` helpers.
+- **Specs:** `03-03-01` §6 rewritten (18-row scenario matrix + posture table + "why #13 holds"), §9 points at the strategy dials; `03-03-07` rewritten (canonical JSON, wired-knob lists, posture exception to the disable-friendly rule, extended exit-reason vocabulary, parity guarantee); `03-03-05` §4 (v10 activity events) + §6 parity row; `06-02` exit_reason comment; `DOCS-CONSISTENCY-MANIFEST` §12.8.
+- **Tests:** 16 new executor tests (re-price, adopt/cancel policies, posture × phase, balanced 12-bar expiry default, risky immortality, ratchet tighten/never-widen/TP-refresh, chase in/out of tolerance, instant-fill cancel, `min_sl_atr`, tp placement edges, confidence drop, padded SL); config-models validation + defaults + round-trip tests; recorded-parity test asserting `setup_gone` closes with the canonical reason.
+
+## Unreleased (2026-08-22) — Market Overview top-setup columns + Watchlist Scanner wait window
+
+**Asset Rankings gains the Opportunity Layer's top setup (entry / target / stop-loss) and the Watchlist Scanner stops judging pairs on their first frame — each pair now gets a configurable recommendation wait window.**
+
+- **Top-setup columns (server-computed):** `OverviewRow` gains `setup_side` / `entry_low` / `entry_high` / `target_low` / `target_high` / `invalidation` (serde-defaulted), computed once in `build_overview_panel` via the `top_setup_zones` port of `decisionRank.ts`'s legacy `topSetupSummary` zone chain (top qualifying profile → `select_profile_side` → profile zones → matrix-zone fallback with the net-bias side fallback). The Asset Rankings table grows from 12 to 15 columns: **ENTRY / TARGET / STOP** render the top setup's brackets, and **Risk/Reward moved next to them** (Symbol, Price, Bias, Signal, Direction, Score, Confidence, MTF Score, MTF Label, Risk, Entry, Target, Stop, Risk/Reward, Updated). GUI + CLI read the same payload (parity contract 01-10 gains C17; `cli_renderer.rs` renders ENTRY/TARGET/STOP). The overview export mirrors the new fields (`entry_display` / `target_display` / `stop_display` + raw levels).
+- **Watchlist Scanner wait window:** the SCAN WATCHLIST modal gains a **Wait window (minutes)** input (integer 1–60, **default 5**, clamped via `clampWaitMinutes`). `waitForAdvisory` now polls `decide()` over the whole window instead of returning on the first decision frame — a recommendation to **any side** at any point within the window keeps the instance, a window without one deletes it. The basket is now processed **in parallel** (all pairs added + wired concurrently, one window per pair running side by side) with live per-pair elapsed labels (`Awaiting recommendation · window 5 min · 1:23 elapsed`). 07-02 §3.4 rewritten (subtitle, cadence, TIMEOUT reason).
+
+## Unreleased (2026-08-22) — v10: Data-Science Layer
+
+**No new engine: cross-cutting session identity + a DS export layer on top of the existing PAE/BTE, plus full strategy-wiring completion (v9 Phase 2).**
+
+- **L1 threading (v9):** `l1.indicator_weights` / `monitor_only` / `context.trend_momentum_blend` / `regime_gate_damp` / `regime_rule` / `volatility_sources`, `l1.signals.confidence_boost` (per-SignalKind) / `max_age_bars` / `strength_buckets` → `strength_label`, `l1.ignore_reconstructed_candles`, `l1.order_book` — all wired (`market_context_synth.rs`, `apply_l1_signal_params`, pipeline spawn).
+- **L1.5/L2.5 threading (v9):** `liquidity_params.rs` resolver — strategy `l1_5` wins per-field over the legacy `[workspace.liquidity]`/`[heatmap]` sections; toggles, poll/retention ms, cluster refresh cadence, cascade thresholds, funding/magnet/vacuum/divergence, min notional, signal confidences, accumulator tuning, api failover, per-TF leverage. `l1_5.signal_weights` multiplies the L5 discrete-signal bonuses and the L4 signal-strength factor. `l2_5` estimation/oi_split/confidence/funding-modulation/signal thresholds now drive `estimate_clusters` (`ClusterEstimateInput`).
+- **TAE sizing (v9):** `tae.sizing` allocation + per-setup multipliers + `after_loss_step_down` + `max_total_exposure_pct`; `vol_scale` (fixed/auto) frozen at entry (`FrozenEntryParams.vol_factor`).
+- **PME portfolio-state gates (v9):** `evaluate_portfolio_gates` wired in the daemon tick (exposure caps + margin close-only); gates follow the instance's bound strategy.
+- **Session identity (v10):** `sessions` table + `session_id` on 7 telemetry tables; `GET /api/sessions`, `session_id` in session status; sidebar `SESSION #0007` chip + CLI header; graceful-close on quit/shutdown.
+- **DS export layer (v10):** `[workspace.data_science]` → `./ds/` NDJSON tree (sessions + backtests), same telemetry stream as the DB logger (one producer, three sinks); `persist_backtest_run` writes the backtest artifacts for web + CLI alike.
+- **Backtest enrichment (v10):** `backtest_trades` gains `ts_entry_secs`/`hold_secs`/`mfe_pct`/`mae_pct`/`roi_pct` (MFE/MAE tracked by `mark_to_market`); per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR95/ES95/dd duration) via `compute_risk_metrics_from_curve`; `GET /api/backtest/:id/input_bars`; new **Chart tab** (candles + entry/exit markers, MICRO/FAST/SLOW/MACRO pills).
+- **CLI parity (v10):** `--sessions`, `--session-report <id>`, `--backtest-show <id>` (same server-computed payloads as the GUI).
+- **Comparison (v10):** `GET /api/analytics/comparison` + PAE **Comparison tab** (sessions + backtests, verdict badges); `GET /api/sessions/:id/analytics`.
+- **Ontology + gates:** new docs `01-11-data-science-layer.md`, `01-12-data-information-learning-ontology.md` (D/I/L tiers + invariants), `06-04-ds-export-schema.md`, `07-10-data-science-surfaces.md`; parity contract C14–C16; new `test-doc` gates G18/G19/G20; `scripts/ds-verification-loop.sh` (12-run strategy matrix + DS invariants + cross-strategy sanity).
+- **DS writer robustness:** `write_backtest_ds` now truncates the run's directory before writing — a backtest id maps to one run per DB lifetime; appending to stale on-disk artifacts (DB reset reusing ids) previously mixed old rows into new runs and broke the DS invariants (trades-count, equity monotonicity, conservation). Regression test `backtest_writer_overwrites_on_rerun`.
+- **Verification green (2026-08-23):** `scripts/ds-verification-loop.sh` → **DS LOOP GREEN** (12 runs, all invariants, cross-strategy sanity, `--sessions`/`--backtest-show`); `./manage.sh e2e-backtest` → **26 PASS / 0 FAIL** incl. negatives + determinism double-run; runtime artifacts (`.e2e-*.stderr`, `ds/`, `snapshots/`, `config.toml`) untracked via `.gitignore` (local-only, `config.default.toml` remains the tracked template); workspace `cargo fmt --all` applied.
+
+## Unreleased (2026-08-21) — v9: Strategy Platform (Phase 0 — fixes & erasures)
+
+**One Strategy JSON becomes the single source of truth for all model behavior (MME L1–L7, TAE, PME, PAE). Phase 0 delivers the bug fixes, dead-config wiring, logic unification, and erasures that the strategy model builds on.**
+
+- **F-01 (oi_split funding anchor):** `estimate_long_oi_pct` now reads the configured `funding_extreme_pct` instead of a hardcoded 0.0005 — tuning the funding-extreme knob tunes the OI-split sensitivity consistently (`core-domain/src/liquidity/mod.rs`).
+- **F-02 (SR_BASED proximity):** the documented `distance_to_nearest_SR < 0.5·ATR` precondition is wired — SR_BASED now requires price within half an ATR of a structural level (session pivots / Fibonacci / volume-profile anchors), fail-closed to ATR_BASED otherwise (`advisory.rs`, `synthesis.rs::nearest_sr_distance_atr`).
+- **F-03 (L3 mirror erased):** the deprecated `AnalysisMatrix.opportunity_analysis` mirror of the L4 decision tree is erased from backend + frontend (types, exports, fixtures). The classification is L4-owned; `compute_advisory` falls back to `NoClearOpportunity` when the L4 matrix is absent.
+- **F-04 (dead config wired):** `[workspace.opportunity_matrix]` (ATR zone fallback `k_entry`/`k_target` + net-cost model 6/5/0 bps) and `[order_book]` now actually flow into the synthesis — previously hardcoded at the call sites. The BTE historical runner consumes the same wired params (`HistoricalRunConfig.opportunity_matrix`).
+- **F-05 (one param struct):** new `core-domain/src/decision_params.rs` — `DecisionParams` holds every L6 constant (stance grid, direction gates, entry/exit borders, stop formula, probability modulators, confluence weights, risk ceiling). `advisory.rs` and `decision_context.rs` now consume ONE shared struct instead of duplicated grids; the analyzer and BTE runner share the same confluence blend.
+- **F-06 (scaled entries erased):** `PositionScalingConfig`, `AllocationCurve(-Model)`, `ScoringConfig`, `use_scoring_allocation`, `position_slots`, and the Position Matrix scaled-entry fields are erased (backend + UI incl. `PositionScalingPanel`). **One position per instance, one side, one SL, one TP** — the PnL formula reduces to `direction_sign × (price − entry_price) × size`.
+- **F-07 (one capital dial):** per-instance `initial_capital_usd` is erased; `[workspace] portfolio_capital_usd` (default 1000) seeds the shared ledger. Session-default key, backtest payload (`portfolio_capital_usd`, serde-alias retained on the wire), CLI flag (`--portfolio-capital`) and UI labels all renamed.
+- **F-08 (relative position cap):** `max_position_size_usd` → `max_position_size_pct_of_equity` (a percentage of equity; serde-alias retained) — the strategy stays capital-size invariant.
+- **Specs:** new docs `03-02-17-mme-strategy-config.md` (canonical strategy JSON for L1/L1.5/L2/L2.5/L3/L4/L5/L6/L7), `03-03-07-tae-strategy-settings.md`, `03-04-06-pme-strategy-settings.md`, `03-05-07-pae-strategy-settings.md`, `07-08-account-profile.md`, `07-09-strategies-builder.md`, `06-00-cli-gui-parity.md`.
+
+## Unreleased (2026-08-21) — v8.2: backtesting production-ready
+
+**The Backtesting Engine becomes the whole platform nested inside itself — an installer-style launcher runs standalone multi-symbol historical simulations with the same functions, sizing, safety ladder and funding as paper mode, from the GUI or the CLI.**
+
+- **Backtest Launcher** (`ui/src/components/backtesting/BacktestLauncher.svelte`): installer-style wizard — Environment (exchange, settlement currency, capital) → Instances (multi-symbol: ticker + 4 timeframe dropdowns from the standard tier list, preseeded 1m/3m/5m/15m, + allocation %) → Historical Data (depth 1–365, no date pickers, per-TF readiness chips, per-exchange max-depth display) → Run (progress bar Fetching → Warming → Replaying → Analyzing + Cancel). The Overview tab renders the launcher with or without a running instance (preseeded from a bound instance when selected); Study/History/Settings unchanged; sidebar stays observe-only.
+- **Standalone multi-symbol historical runs**: `POST /api/backtest/run` accepts `{ exchange, symbols: [{ symbol, timeframes, allocation_pct }], initial_capital, from/to }` with no `instance_id`; the runner replays all symbols through the shared `run_tick` executor/engine (state keyed by symbol) against one virtual equity ledger; the tick clock is each symbol's smallest ladder TF merged k-way in timestamp order. Bound-instance payloads + recorded mode remain (backward compat).
+- **Allocation model (platform-wide)**: `[workspace.minimal_tae].allocation_pct` (default 10, 1–100) replaces `risk_per_trade_pct`; per-instance override; sizing = `equity × allocation_pct/100 ÷ entry_mid` (stop-loss no longer sizes the position; leverage/margin/liquidation/fees kept; `max_position_size_usd` clamp kept; `compute_risk` stays for the `/api/risk/calculate` drawer). Caps enforced: `max_open_positions` 1–100, ≤ 100 instances per workspace, Σ allocations ≤ 100 % at config-save, instance-create and run time.
+- **PME L4 renamed**: Portfolio Layer → **Overview Layer**; `PortfolioMatrix` → **`PortfolioOverviewMatrix`**; `portfolio_layer.rs` → `overview_layer.rs`; docs `03-04-05-pme-layer4-overview.md`; UI tab `portfolio` → `Overview`; wire JSON keys unchanged.
+- **TAE parity fixes (backtest = paper by construction)**: the historical runner carries a simulated `SafetyManager` per instance fed by replayed equity (soft gate blocks entries in `DRAWDOWN_STOP`/`SUSPENDED`), settles funding at simulated 8h boundaries, and force-closes open positions at the final replayed candle close (`exit_reason = "end_of_backtest"`).
+- **Async runs + progress/cancel**: `POST /api/backtest/run` returns `{ run_id, status }` immediately (spawned task, global run lock kept → 409); `GET /api/backtest/progress/:run_id` reports phase + pct; `POST /api/backtest/cancel/:run_id` aborts cleanly (no partial persistence). `RunProgress` callback at warm-chunk + replay-loop boundaries; `TrackedRun` in `BacktestRegistry`.
+- **Exchange-aware depth ceilings**: Hyperliquid's 5,000-candle endpoint (`[workspace.backtest.hyperliquid].max_candles_per_tf`) bounds the per-TF max depth (1m ≈ 3.4d, 15m ≈ 52d); **Bitget's v2 candles endpoint has per-granularity retention (measured 2026-08-21): 1m–30m ≈ 30d, 1H ≈ 45d, 4H ≈ 180d, 12H–1D ≈ 365d** — `backtesting_engine::backfill::{bitget_retention_days, exchange_max_depth_secs}` encodes the tables. Backfill, coverage, run validation, the launcher slider and the CLI all validate against the ceiling and fail loudly naming the limiting TF. No external historical-data providers; the local store is the SQLite `candle_archive` (HL deep history accumulates via the live-warm upsert); canonical-1m derivation deferred to v8.3 (documented in 08-02).
+- **Standalone backfill + coverage**: `POST /api/backtest/archive/backfill` accepts `{ exchange, symbol, timeframes[], depth_days }` (job key `exchange:symbol`); `GET /api/backtest/coverage` accepts `?symbol=&exchange=` and reports `max_depth_secs` per TF.
+- **CLI backtest mode**: the `--mode cli` launch prompt gains a Backtest option mirroring the wizard (terminal progress bar, Ctrl+C cancel, summary + persisted run); headless flags `--backtest --exchange --symbols --tf --depth --capital --allocation` print a JSON envelope on stdout (exit 0/1; the E2E harness hook).
+- **TAE docs**: Layer ② renamed **Lifecycle & Adoption Layer** (03-03-01); sizing §5 rewritten to the allocation model; 03-03-05 documents the v8.2 parity guarantees.
+- **Tests**: multi-symbol ordering/tick-clock/isolation, allocation bounds/Σ/caps, paper↔backtest size parity, simulated safety ladder, funding settle, end-of-run force-close, cancel abort, deterministic rerun, standalone API endpoints, CLI parsing/envelope/tiers; UI launcher wizard/progress/cancel/tab-rename; E2E matrix harness (`scripts/e2e-backtest-matrix.sh` → `./manage.sh e2e-backtest`).
+- **Docs**: 08-01/08-02/08-03/08-04/08-05 rewritten (launcher, ceilings, parity, persistence); 06-01 endpoint table; 07-07 §3.0 launcher UX; 08-01 §4.5 backtest walkthrough; 01-09 §3.1 CLI backtest; PME L4 rename sweep across the corpus.
+
+## Unreleased (2026-08-21) — v8.1: depth-driven auto backtest
+
+**The Backtesting run flow is now depth-only: specify the days, the system fetches the four ladder timeframes (micro/fast/slow/macro) and runs the full MME pipeline automatically.**
+
+- **Run form redesigned (v8.1):** the archive-depth slider (1..=365) is the only window control — Start/End date fields removed. The backtest window derives from it (`[now − days + burn_in, now]`; the burn-in portion warms the pipeline, the rest is scored). A per-TF readiness strip (MICRO · FAST · SLOW · MACRO · READY/FETCHING) shows all four timeframes with covered span vs required.
+- **Automatic data preparation:** pressing Run Backtest checks the four-timeframe archive coverage (burn-in included); when any TF is short, the flow auto-starts the backfill (reusing the resumable `POST /api/backtest/archive/backfill` + progress endpoints), shows live pages/candles progress, and fires the run the moment coverage is sufficient. The manual Backfill button moved off the form (stays on the DIE tab as an advanced tool).
+- **Coverage endpoint extended:** `GET /api/backtest/coverage?instance_id=` now carries `burn_in_secs` (= `warmup_bars × macro_tf`) and the instance `ladder` so the UI derives all required-coverage math from server numbers.
+- **MME fidelity:** the historical runner now builds per-slot `TimeframeConfig`s from the instance entry (micro/fast/slow/macro with registry fallbacks) and the `ActiveSet` from the global + per-instance `[activation]` union — exactly what the live MME builds — so the replay uses identical indicator periods, weights and activation toggles.
+- **Tests:** UI depth-driven window + auto-prepare state machine + per-TF chips; backend coverage payload (`burn_in_secs` + `ladder`). Docs: 08-01 §5, 08-03 §2, 07-07 §3.0.
+
+## v8.0 (2026-08-20) — Backtesting Engine
+
+**The sixth logical engine ships: deep-history backtesting over a candle archive, with a parity contract that makes backtest = paper by construction.**
+
+- **Candle archive + backfill** (`candle_archive` / `backfill_jobs` migrations; `crates/backtesting-engine`): every completed snapshot upserts OHLCV into the archive in all session modes; `POST /api/backtest/archive/backfill` pages the instance's exchange backward up to `[workspace.backtest].archive_depth_days` (1..=365, M8-validated), resumable, rate-limited, with live progress (`/api/backtest/archive/progress/:id`) and cancel.
+- **Historical runner** (`mode: "historical"`): archived candles → the SAME `warm_indicators_for_timeframe` path the live daemon boots through → `synthesize_cross_tf` + `DecisionContext::compute` → the SAME `run_tick` session body as paper/live. Burn-in = `warmup_bars × macro TF`; chunked warm replay (800-candle chunks, 300-candle overlap); parallel per-TF warms.
+- **Parity contract**: the daemon TAE loop body extracted into `portfolio_supervisor::execution::session_tick::run_tick` — the daemon, the recorded replay, and the historical runner all drive the identical code. Paper↔backtest parity is exact by construction; live = same logic, real venue (documented).
+- **Recorded replay moved** from PAE L5 to `backtesting-engine::recorded`; ms→seconds unit contract fixed (UI-driven recorded runs previously always matched zero rows); empty windows now fail loudly (`400 not_enough_data` with coverage); reconstructed rows excluded; `is_completed`-less schema clarified.
+- **Data-science persistence**: normalized `backtest_trades` / `backtest_equity` / `backtest_portfolio` / `backtest_signals` / `backtest_metrics` / `backtest_input_bars` tables + DS read endpoints; runs carry `instance_id` + `mode`.
+- **Run hardening**: `instance_id` binding (instance must exist + be running), global run lock → `409 backtest_busy`, historical coverage validation with per-TF detail.
+- **Config**: new `[workspace.backtest]` section (depth, warmup, page caps/delays per exchange) validated M8-style; editable via the BTE Settings tab through `POST /api/config`.
+- **UI**: `BacktestingDashboard` with one tab per simulated engine (DIE · MME · TAE · PME · PAE), Study Report (equity/drawdown/rolling win-rate/PnL histogram/exit reasons/verdict), History, Settings; dynamic navbar (no instance → Overview+History+Settings with `NoInstanceState`; running instance → full set, reactive re-charge); archive-depth slider + typed input (1..=365, validated); backfill progress bar; sidebar filtered per mode (BTE observe-only; TAE/PME/PAE paper/live).
+- **Docs**: `docs/engines/backtesting-engine/` (08-01…08-05); `03-05-06` marked moved; `06-01`/`06-02`/`07-07` updated; AGENTS.md engine table + nav matrix.
+
+## Unreleased (2026-08-20) — v7.4: unified editable settings system
+
+**Every settings panel is now an editor with one header-mounted save button — there are no read-only settings panels left.**
+
+- **Shared save control** (`ui/src/components/SettingsSaveButton.svelte` + `engine-dashboard.module.css` tokens): exactly one save button per panel, always in the unified header right side immediately before Export, with the single state machine `idle` (disabled) → `dirty` (enabled "SAVE") → `saving` (disabled "SAVING…") → `saved` (disabled "SAVED", green, ~2s → idle) | `error` (enabled retry + `alertBanner` at top of content). Never clickable unless dirty/error, never while saving, never after a successful save.
+- **Provenance + apply chips** (`ui/src/components/ConfigSourceChip.svelte`): every settings card shows `config.toml → [workspace.x]` plus a `LIVE` / `NEW_PIPELINES` / `RESTART` apply-semantics badge.
+- **MME Workspace Settings completed:** Identity (symbol/exchange), Visual Overlays (25 toggles in 5 groups), Automation Scheduler restored from dead state; **Position Sizing & Risk** card wires the previously orphaned `PositionScalingPanel` (backend already accepted `position_scaling` per instance and live-recharges — zero backend work); **Indicator Activation** card added (`InstanceConfigPayload.activation` + `ConfigResponse.activation`); dead `rules` state removed (`POST /api/rules` is read-only by design). One header save → `POST /api/instances/:id/config`.
+- **TAE / PME / PAE Settings tabs became validated editors:** Setup Executor + Execution + Allocation Scoring (TAE), Safety Ladder + Risk Limits (PME), Significance Treatment (with "changes every verdict" warning) + Capital Default (PAE) — each with header save via the extended `POST /api/config`. Header `settings` title/tab-label fallthrough fixed in all three dashboards; the dashboard headers no longer emit stub exports on the settings section.
+- **DIE Settings tab removed:** DIE is now Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution — platform config is read-only by design and exported from Profile → Share Config (live health/quality/clock data stays on the Overview). `DataInfraConfig.svelte` deleted.
+- **Profile → "Fees & Leverage"** (renamed from "Fee Projection"): Fees & Leverage editor (maker/taker/funding 8h + cross leverage — the single source for economics, `[workspace.fees]` + `[workspace.leverage]`) and a **funding-aware Cost Projection** (`ui/src/lib/costProjection.ts`): notional, round-trip fees, **funding drag** (`funding_rate × notional × hold periods`, new 1–30 input), combined min-profit %; duplicate result row removed; API Failover now lazy-loads, gains the header save + "applies to new pipelines" chip.
+- **Backend** (`crates/api-gateway`): `ConfigUpdateRequest` accepts `minimal_tae`, `safety`, `risk_limits`, `analytics`, `scoring`, `execution`, `fees`, `leverage`, `activation` (M8-style range validation, `400` + message on breach); engine-settings saves **recharge all running instances live** (idempotent, failures logged); `InstanceConfigPayload.activation` per instance; `ConfigResponse.activation`.
+- **Mode colors (v7.4-a):** observe = blue, paper = amber, live = green everywhere (`engine-dashboard`, `InstancePicker`, `LaunchSetup`, navbar `modeNavChip`).
+- **Tests:** +6 `SettingsSaveButton` state-machine cases, +4 `costProjection` math cases; `engineTabs` DIE set pinned to 7 tabs; TAE/PME/PAE settings-tab dashboard tests updated. Docs: `07-07` §3.5 (settings conventions), `07-02` tab table, `06-01` `POST /api/config`, AGENTS.md.
+- **Remove:** `DataInfraConfig.svelte`, `WorkspaceSettings` dead `rules` state, GeneralSettings dead `fmtPrice` import.
+
+## Unreleased (2026-08-19) — v7.3: per-side confluent R:R parity
+
+**The Expected R:R section now mirrors every directional reference bracket.** A NoClear state showed LONG/SHORT/NEUTRAL informational brackets while the confluent level sets carried only the single actionable side's levels — so the panel's Expected Reward-to-Risk section rendered a lone SHORT row (190R) next to a LONG reference bracket with no R:R at all.
+
+- **Backend** (`crates/market-analyzer/src/synthesis.rs`): the matrix-level `confluent_entry_levels` / `confluent_target_levels` / `confluent_invalidation_levels` now carry the **union of both sides' pools** (long ∪ short, stable-sorted by strength) instead of the actionable side's only. The legacy scalars (`entry_zone` / `target_zone` / `invalidation_level`) still key off the actionable side — PME/TAE consumers unchanged.
+- **Frontend** (`ui/src/lib/confluentRr.ts`): a side whose confluent set is incomplete (no entry or no target levels) falls back to the matrix's per-side bracket zones — the same geometry the reference-bracket cards render — with `riskBasis: 'bracket_geometry'` flagged on the row (tooltip: "risk = bracket invalidation — confluent set incomplete on this side"). The fallback is gated on at least one side-tagged confluent level existing somewhere, so the `no confluent levels` / `incomplete confluent levels` empty-states never fabricate rows from zones alone.
+- **Export** (`opportunityTab.ts`): `confluent_rr.sides[].risk_basis` gains the `"bracket_geometry"` value; the export mirrors the panel automatically (both call `computeConfluentRr`).
+- **Tests**: +1 Rust union pin (`confluent_levels_union_both_sides_even_when_single_side_actionable`), +5 `confluentRr` unit cases, +1 export audit case, +1 panel tooltip case; the `10R+` clamp panel test now expects both sides' cards. `atr_fallback_levels_respect_bias_directionality` selects levels by side tag (union order).
+- **Launch Setup parity** (`ui/src/LaunchSetup.svelte`): the wizard's Instances step replaces the four free-form number inputs with the **same timeframe dropdowns the Workspace Settings offer** — one per slot (micro/fast/slow/macro), fed by the shared `TIMEFRAME_OPTIONS` tier list (14 tiers, 1 s → 1 day) plus the disabled "Custom: …" fallback for non-tier durations, and **preseeded with the workspace ladder** (micro 60 s, fast 180 s, slow/macro from `GET /api/config`, shipped 300/900 s). Docs: `08-01` step 3, `07-02` §11 panel row, `01-09` §2.2 — all describe the dropdown parity. Tests: +2 (preseeded preset assertions + dropdown-selected durations flow into the `/config` payload).
+
+## Unreleased (2026-08-18) — v7.1 follow-up: Welcome session mode + paper capital
+
+**Welcome screen becomes the session entry point for execution mode.** The gate now asks for exchange, settlement currency, **execution mode (Paper Trading | Live Trading)**, and — in paper mode — the **Paper Session Capital (USD)**.
+
+- **Backend:** `SessionState` gains `mode` + `initial_capital_usd` defaults; `POST /api/session/init` accepts `mode` + `initial_capital_usd` (validated; **live requires an active API key** for the chosen exchange — clear `400` otherwise, error envelope JSON); `GET /api/session/status` echoes both. Instance creation (`POST /api/instances` + `registry::add_instance`) uses the session defaults for `mode` and `initial_capital_usd` (fallback paper / 1000) — the engine's boot equity seed picks the paper capital up naturally.
+- **Frontend:** `WelcomeGate` shows the mode selector + paper-capital number field (prefilled from the session); live mode hides the capital field and shows the "add an API key" hint; `SessionStore.initSession` sends mode/capital and stores them.
+- **Tests:** +4 session-init integration tests (paper capital stored + echoed, live-without-key rejected, live-with-key accepted, invalid mode rejected), +3 WelcomeGate UI tests. `test-doc` ALL CHECKS PASSED (corpus stays v7.1).
+
+## v7.1 (2026-08-18) — Bitget live + production hardening
+
+**Live trading completed for both venues.** The final production gap is closed:
+
+- **Bitget live broker** (`network-adapters/src/adapters/bitget_live.rs`): Bitget V5 signed REST client — HMAC-SHA256 auth (`ACCESS-KEY`/`ACCESS-SIGN`/`ACCESS-TIMESTAMP`/`ACCESS-PASSPHRASE`), `place-order` / `cancel-order` / `place-tpsl-order` (stop triggers) / `fills` / `accounts`; 10 req/s throttle; `productType` from the instance quote (`USDT-FUTURES`/`USDC-FUTURES`). Signing vector + symbol/product mapping tests.
+- **`BitgetLiveBroker`** (`portfolio-supervisor/src/execution/backend.rs`) implements `ExecutionBackend` (submit/cancel/poll_fills/fetch_equity). `ExecutionBackend::cancel_order` now takes the symbol so Hyperliquid cancels resolve the correct asset index (the placeholder-index hack removed).
+- **Engine live path hardened**: `set_paper_backend()` restore; venue-reported fill sizes applied; unit tests for live submit routing, external fills → position ledger, venue-cancel delegation, paper restore.
+- **Global-mode toggle**: `POST /api/instances/:id/mode { "mode": "paper"|"live" }` switches the engine paper ↔ live (engine-wide, one account per exchange), requires an active key, persists to config. Daemon live boot selects the broker by exchange (Hyperliquid wallet-key or Bitget key+passphrase); integration tests cover the toggle + missing-key rejection.
+- **Frontend**: Settings → Exchange API Keys panel is live (list/add/delete, plus **rotation** and **passphrase-keyed backup**); Automation dashboard gains the **Switch to LIVE/PAPER** toggle with inline errors.
+- **Docs**: `03-03-03 §5b` canonical **venue implementation matrix** (Hyperliquid vs Bitget); `06-01 §2.4/§2.10/§2.12` reconciled (keys mounted, reload/activation/mode served); `08-01` "Going Live" step-by-step; `config.toml` template documents `mode` + `[workspace.minimal_tae]`; `06-02 §3.8` matches the real `exchange_keys` schema with the per-venue field guide.
+- **Corpus version → v7.1** (full re-stamp).
+
+## v7.0 (2026-08-18) — TAE / PME / PAE production-ready
+
+**Roadmap complete.** All five engines are implemented; `./manage.sh test-doc` reports **ALL CHECKS PASSED** (release gates G1–G16). The finalization pass closed every remaining roadmap item:
+
+**Live trading (Phase E1, AUDIT-V6-406):**
+- `network-adapters/src/adapters/hyperliquid_live.rs` — signed order-dispatch client: EIP-712 (`HyperliquidSignTransaction` domain, `HyperliquidTransaction:Order`) with secp256k1 ECDSA (`k256`/`sha3`), `place_orders` / `cancel_orders` against `/exchange`, `userFills` + `clearinghouseState` via `/info`, coin→asset-index resolution. Signing round-trip unit-tested.
+- `portfolio-supervisor/src/execution/backend.rs` — `ExecutionBackend` extended (submit/cancel/poll_fills/fetch_equity via `async-trait`) + **`LiveBroker`** implementation; engine routes `submit_order` to the venue in live mode and applies venue fills via `apply_external_fills`; `cancel_order` cancels at the venue too.
+- Daemon: `mode = "live"` on any instance loads the active Hyperliquid credential from the encrypted `exchange_keys` table, swaps in the `LiveBroker`, and polls fills in the executor loop. Bitget live dispatch returns a clear unsupported error.
+- Migrations: `20260818000005_operator_identity.sql` (`risk_control_events.operator_id`), `20260818000006_rename_policy_column.sql` (`strategy_analytics_history.policy_id` → `setup_type`).
+
+**Key management (Phase E2, AUDIT-V6-077):**
+- `crypto.rs` — replaceable master key (`rotate_master_key`), key-parameterized encrypt/decrypt, passphrase-derived backup key.
+- Keys API **registered**: `POST /api/keys`, `GET /api/keys`, `DELETE /api/keys/:id` (existing encryption-aware handlers), new `POST /api/keys/rotate` (in-process re-encryption under a new master key) and `GET /api/keys/backup?passphrase=` (passphrase-keyed AES-256-GCM export). Integration test covers CRUD → rotation round-trip → backup decrypt.
+
+**Single-operator identity (Phase E3, AUDIT-V4-076 cancelled):**
+- The multi-client/SaaS framing is erased from the corpus: `06-01 §1` states the **single-operator local deployment** contract; dead pre-dispatch/override/decision-profile documentation removed; `X-Operator-Id` superseded by the fixed `operator_id = "local"`.
+- `risk_control_events` writers wired: safety release/reset/session-reset + automation manual close all stamp `operator_id = "local"` (previously nothing wrote the table).
+
+**Audit closure:** V6-212 `GET /api/instances/:id/activation` served; V7-310..314 `POST /api/instances/:id/reload` served; V4-046 deterministic safety-reconstruction test added; V4-005 verified (systemic score computed at `overview.rs:549`); V4-077/079 cancelled; V7-300..334 + V8-001..008 + V6-301/302/401..406 marked shipped; V8-400..407 superseded by V6-407 (Unscheduled, perf-only); every remaining §Open Items row has a terminal target.
+
+**Version + sign-off:** corpus version → **v7.0 (2026-08-18)** (138 docs re-stamped); README/MANIFEST coherent; ROADMAP §4 WIP-marker inventory retired, §6 checklist fully ✅; engine docs statuses all Implemented.
+
+**Backend + UI + docs.** The Performance Analytics Engine gains its final layer: a **backtest engine** that replays recorded MME decisions through the unchanged TAE setup executor + unified paper engine, with the full statistical treatment applied to the simulated trades. PAE is now production-complete.
+
+**Backtest (PAE L5):**
+- Migration `20260818000004_pae_backtest.sql`: `market_snapshots` now records `market_regime`, `opportunity_json`, `decision_context_json`, `analysis_json`, `advisory_json` (the WAL snapshot logger persists them — also fixes the latent broken `ms.market_regime` query); new `backtest_runs` table.
+- `performance-analytics/src/backtest.rs` — `BacktestParams` + `run_backtest`: deterministic replay of recorded completed snapshots (bounded 50k, single timeframe per run) through a fresh paper `ExecutionEngine` + the unchanged `SetupExecutor`; result = classic metrics (win rate, PF, expectancy, max drawdown) + **NHST block** (t-statistic, p-value, 10k Monte Carlo p, `alpha: 0.05`, `is_significant`, edge classification with the <30-trade `InsufficientData` rule) + trade log + equity curve.
+- API: `POST /api/backtest/run` + `GET /api/backtest/:id` (persisted round-trip).
+- `database_storage::query_backtest_snapshots` (CAST REAL for TEXT price columns) + `insert_backtest_run` / `query_backtest_run`.
+
+**Statistical contract made explicit:**
+- `strategy_analytics::ALPHA = 0.05` public const; `is_significant` uses it; `StrategyAnalyticsRow` gains `alpha` on the wire.
+- Grouping renamed end-to-end from per-policy to per-**setup type**: `StrategyAnalyticsRow.policy_id` → `setup_type`, `PerformanceMatrixRow`/`PerformanceMatrixSummary` same; frontend Strategy panel shows "Setup Type" + `P_MC (10k)` + edge badge + "sig @ α" marker.
+- Optimizer dedup: `strategy_optimizer::build_optimization_report` is now the single implementation shared by the scheduled task and `GET /api/analytics/optimization` (inline handler copy removed).
+
+**UI:** `PerformanceDashboard` backtest tab is live — symbol/timeframe/date-range/capital form → `POST /api/backtest/run` → stat cards, **EDGE VERDICT card** ("significant at α = 0.05 — t-test p …, Monte Carlo p … (10,000 runs)"), trade log with exit reasons, and an SVG equity curve. The `setTimeout` mock + "coming soon" placeholder are gone.
+
+**Tests:** +2 backtest runner unit tests (recorded-decision replay → trade + stats; empty-setup run), +2 backtest API integration tests (run/get round-trip, 404), +1 dashboard backtest-tab UI test. Full suites green.
+
+**Docs:** `03-05-01` (L5 layer map + statistical contract), new `03-05-06-pae-layer5-backtest.md` (record/replay + NHST contract), layer banners updated, ROADMAP §1/§2.5/Phase D/§6.3 → PAE ✅ Implemented.
+
+## Unreleased (2026-08-18) — PME v7: informational portfolio state
+
+**Backend + UI + docs.** The Portfolio Management Engine was redesigned from "capital custodian + safety authority" to a **purely informational portfolio mirror** — the veto/stance machinery is fully erased; PME computes and reports the account state, and the TAE setup executor consumes `safety_state` as its single soft entry gate.
+
+**Critical fix — safety state unfrozen:** the veto-loop deletion (TAE v7) left `update_peak_equity` / `check_capital_drawdown` / `record_trade_outcome` / `evaluate_daily_drawdown_warn` with zero callers, freezing the state at NORMAL. Now:
+- `SafetyManager::update(equity)` — new informational per-tick update (peak equity, daily PnL vs session start, WARN / DRAWDOWN_STOP), called every executor tick (main.rs).
+- `ExecutionEngine` — mark-to-market per tick (live unrealized PnL) + `last_close` outcome tracking; the setup executor feeds `record_trade_outcome` on every close (CAUTIOUS at 3 losses / SUSPENDED at 5, per `[workspace.safety]`).
+- The executor's soft gate (no new entries in DRAWDOWN_STOP/SUSPENDED) now reacts to real state changes.
+
+**Erased:** `SafetyManager::evaluate_all` (VetoTrigger emission), manual stance, `check_allow_trade`, `portfolio_risk.rs` (uncalled), `core_domain::portfolio::VetoTrigger`, `PortfolioMatrix.active_stances`/`default_stances`; `portfolio_layer` peak-equity hardcoded-0 fixed.
+
+**API (served, read-only):** `GET /api/instances/:id/portfolio` (rich: equity, PnL, drawdown, exposure, capital, positions, safety, systemic risk), `GET /api/instances/:id/exposure`, `GET /api/instances/:id/capital`, extended `GET /api/instances/:id/safety` (+ drawdown/daily/margin), `POST /api/instances/:id/safety/session-reset` (informational rebaseline).
+
+**UI:** `PortfolioDashboard` rebuilt live (Overview / Positions / Exposure / Capital / Safety panels; instance selector; 2 s polling; informational resets; no placeholder data).
+
+**Tests:** +3 safety `update()` state tests, +4 engine mark-to-market/last-close tests, +2 executor safety-ladder e2e tests, +5 PME API integration tests, +6 dashboard UI tests. Full suites green.
+
+**Docs:** `03-04-01` + `03-04-05` rewritten (informational, read-only contract, no veto); layer banners updated; ROADMAP §1/§2.4/Phase C/§6.3 updated (PME → ✅ informational).
+
+## Unreleased (2026-08-18) — TAE v7 redesign: setup executor + unified execution engine
+
+**Backend + UI + docs.** The Trade Automation Engine was redesigned from a policy-driven trigger engine into a **setup executor** that consumes the MME's top setup directly and executes it in paper mode through a single unified execution engine.
+
+**Erased (v7):** `portfolio-supervisor/src/policy/` (engine, evaluator, veto), `trigger_engine.rs`, `veto_loop.rs`, `execution/gates.rs`, `execution/order.rs`, `profile_evaluation` decision-profile authoring/evaluation (pure monitor helpers retained), decision-profiles API routes, pre-dispatch + manual open/close routes, `ExecutionPolicy` / `ConditionGroup` / `Condition` / `Operator` / `ConditionValue` / `TriggerMode` / `Stance` / `RiskParams` config types, `execution_policies` field, stance machinery (`Instance.stances`). Docs `03-03-02` + `03-03-04` deleted; `02-14-policy-matrix.md` deleted.
+
+**Built (v7):**
+- `setup_executor.rs` — `extract_top_setup` (best Actionable/READY profile across the 4 latest completed TF snapshots; net-RR ≥ `min_net_rr` filter; zone-midpoint entry geometry), per-symbol state machine Idle → PendingEntry → PositionOpen, LEVEL (SL breach) / SIGNAL (direction flip) / REPLACED invalidation, direction-flip market close while open, neutral-holds, instant marketable-limit fills, no re-entry on the closing candle, setup-fingerprint dedup, global position cap, safety soft gate (DRAWDOWN_STOP/SUSPENDED), lifecycle gate (RUNNING only), `compute_risk` sizing + projected risk/return.
+- `execution/engine.rs` (rewritten) — unified `ExecutionEngine`: orders (existing `OrderLifecycle`), positions, Decimal equity ledger, fees/slippage/funding, bracket management, SL-before-TP fill priority, bracket cleanup on market close, canonical persistence (`paper_trades`, `trade_telemetry_history`, `portfolio_equity_history` — the three previously-broken INSERTs are fixed), `automation_activity` + `tae_open_state` restart-recovery tables.
+- `execution/backend.rs` — `ExecutionBackend` trait + `PaperSimulation` (the only mode-dependent part; a `LiveBroker` can implement the same trait later — all accounting is shared).
+- Daemon: 1s setup-executor loop (all 4 TF buffers per instance), 8h funding, STOPPING flatten, boot-time recovery-flatten log, equity seeding on the unified engine. Veto loop and policy TAE loop removed.
+- API: `GET /api/instances/:id/automation` (full executor state), `POST /api/instances/:id/automation/close` (manual override), `/api/instances/:id/portfolio` now returns real position + equity.
+- UI: `TradeAutomationDashboard` rebuilt live (PAPER/LIVE badge, active-setup card with projected risk/return, order board, position card with Close now, invalidation banner + explainer copy, activity log, trade history). No placeholder data.
+
+**Tests:** 19 new setup-executor unit tests (acceptance, bracket arming, TP/SL closes, LEVEL/SIGNAL/REPLACED invalidation, instant fill, gap SL, safety/cap gates, no-reentry, mode-neutral ledger); 5 new dashboard UI tests. Full suites green: `./manage.sh test` (core → engine → ui → indicators).
+
+**Docs:** `03-03-01` (overview: 7 layers, terminology, invalidation table, config, API), `03-03-03` (unified engine + backend trait), `03-03-05` (simulation backend + persistence + recovery), `03-03-06` (lifecycle trimmed); `03-03-02` + `03-03-04` deleted; ROADMAP §1/§2.3/§3/§6 updated (TAE → ✅ paper mode; Phase B superseded by the v7 design).
+
+## Unreleased (2026-08-17) — MME coherence audit sweep
+
+**Backend + UI + docs.** MME coherence audit sweep (2026-08): fix cascade_asymmetry sign interpretation (positive = SHORT_SQUEEZE_RISK) across liquidity signal derivation, LiquidityPanel and metrics export; make POST /api/config accept the GET response body (partial merge) and implement the real [api_failover] config consumed by the HL derivatives poller; fix per-instance config application on load (instances is an array); fix LIQUIDITY_VACUUM dead signal (depth_bias key); drop WARMING placeholder zeros from /api/history; emit real order-book mid + top-of-book depth sizes; NaN-hardening in market-context synthesis + cluster confidence; infinite WS reconnect + history cache purge on reconnect; DerivativeRibbon depth-bias classification fix; side-resolved gross R:R export; snapshot-export slot/timeframe fixes; funding display unit fixes (percent4 format); enum-casing alignment of frontend comparisons (MarketRegime/MarketPhase/AlignState/GlobalBias wire formats).
+
+### Full MME audit pass (2026-08-17, second sweep)
+
+**Critical backend / contract fixes**
+- TAE policy evaluator (`portfolio-supervisor/src/policy/evaluator.rs`): `decision.bias` numeric conditions matched SCREAMING_SNAKE never seen on the wire — every bias condition degraded to Neutral (2.0). Now matches the PascalCase wire values; `analysis.market_regime` string resolution aligned to the PascalCase wire; `decision.confidence_assessment` now maps to `AdvisoryMatrix.confidence_assessment` and `decision.score_confidence` added. TAE docs `03-03-02` / `03-03-04` rewritten to the wire-casing contract.
+- Configurable activation (CA-01…CA-15, AUDIT-V6-208…214): `ActiveSet::from_config` wired into `build_pipelines` (global `[activation]` + per-instance union + `config_version`); `[liquidity]` sub-toggles honored — `liquidation_feed` gates the L1.5 accumulator, `cluster_estimation` gates the L2.5 refresh spawn, `signals` gates LiquiditySignal emission, master `enabled=false` absents `liquidity`/`cluster`/`liquidity_signals` from the snapshot. End-to-end tests in `crates/market-analyzer/tests/activation_wiring.rs`.
+- Gate 7 (execution-daemon): safety state forwarded via `SafetyState::as_str()` (SCREAMING_SNAKE) instead of `{:?}` PascalCase — the direct `DRAWDOWN_STOP`/`SUSPENDED` guard now fires.
+- `GET /api/rules` now serves `docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md` (was a nonexistent `docs/indicators-guide.md` — permanent 404). Path pinned by a test.
+- Config validation: `InstanceEntry.custom_pipelines` (configured-but-unimplemented custom slots) now fails fast at load with a clear error instead of being silently ignored.
+
+**Frontend fixes**
+- `LevelsView`: liquidation-magnet `distance_from_mid_pct` rendered 100× inflated (0.6 → "60.00%") — fixed to the wire's absolute-percentage semantics.
+- `websocket.svelte.ts`: divergence-signal carry-forward now applies to shadow frames only (completed frames authoritatively expire divergences — stale divergences no longer live forever with frozen `age_bars`); `liquidity_signals` no longer wiped to `[]` on every shadow tick (completed frames remain authoritative); per-handler errors are logged instead of silently swallowed.
+- `OpportunitiesPanel`: `TOP · ACTIONABLE` badge index now derived from the final viability-tier-sorted order (mixed-tier setups no longer flag the wrong card; screen matches the export).
+- `RecommendationPanel`: Risk-Adjusted R:R KPI color now derived from the displayed (fallback) value; removed dead `dangerState`.
+- `IndicatorsView`: WARMING check runs before the `onoff` branch; `ratio2` renders `--` for null (was fabricated "1.00").
+- `AlignmentPanel`: dead underscore-variant branches cleaned.
+
+**Docs adapted to code (code is the source of truth)**
+- `06-02-database-schema-spec.md` §3.1: `market_snapshots` DDL rewritten to the real applied schema (95 columns); the documented-but-absent matrix JSON columns (`alignment_json`…`metrics_config_json`, `indicators_json`, `pair_key`, `is_completed`, `reconstructed`) removed; persistence boundary stated honestly (L2–L6 matrices are not persisted; `query_latest_snapshot` reconstructs `None`).
+- Liquidity cross-engine flow (`03-02-11`, `01-05`): restated to the actual mechanism — user-authored policy conditions on `opportunity.primary_opportunity`; no built-in CLOSE_ONLY stance from `LiquiditySqueeze`; `cascade_risk`/`liquidity_signals` are frontend-consumed only; built-in TAE/PME cascade consumers tracked in ROADMAP.
+- `AnalysisMatrix.confidence` duplicate mirror acknowledged in `01-01` / `02-00b` (no longer claimed "no backwards-compat alias").
+- Overview `instance_count`/`active_symbols` "invariant" corrected to code reality (coincide in single-instance-per-symbol deployments; not code-enforced).
+- Signals counts: `05-02-00` refreshed to 101 declarations / 52 parent indicators; the 11 per-indicator spec tables aligned to the registry `signal_types` manifest with explicit runtime-deriver annotations (`bbwp`, `squeeze`, `aroon`, `stochastic`, `mfi`, `macd`, `volume_profile`, `smc_liquidity`, `obv`, `cmf`, `linreg_slope`).
+- `03-02-15` §4 `bars_required` table rewritten from the registry (all 52 entries; ema_stack 1 per AUDIT-V8-001).
+- Stale "50/51 indicators" → 52 across 6 crate doc comments + 3 docs; README matrices count 15 → 17; `03-02-13` bins default 50 → 100; systemic-risk row points to the P7 TF-decay note.
+### Full MME audit pass (2026-08-17, fourth sweep — production deployment blockers)
+
+**Security (K1)**
+- CORS locked from `allow_origin(Any)` to the dashboard's own origins (`http://127.0.0.1:3000` + localhost/Vite-dev variants); new outermost `reject_cross_site` middleware refuses any request whose `Sec-Fetch-Site` is `cross-site` or whose `Origin` is foreign (browser-based attackers previously had full read/write control of the unauthenticated API: config.toml rewrite, instance lifecycle, safety-veto release, live_trading mode).
+- `/ws` hardened: cross-site upgrades refused, connection cap (64 concurrent), unknown-pair sockets close after 10 s instead of hanging forever.
+- `POST /api/rules` is now read-only (405) — it previously overwrote the git-tracked indicators guide with arbitrary content.
+
+**Shutdown (K2 + K4)**
+- `[clock_monitor] breach_action = "panic"` now terminates the process (`std::process::exit(1)`) — the previous `panic!` inside the spawned monitor task was discarded by `join_all`, so the configured hard-stop was a no-op and drift enforcement died silently.
+- Graceful shutdown on SIGINT/SIGTERM: cancels every pipeline, lets the SQLite logger drain the telemetry queue (~2 s), then exits cleanly. Previously the process was killed abruptly — up to 10k queued messages and the WAL tail were lost.
+
+**Outage recovery (K3 + M2)**
+- Gap recovery raised 60 → 500 bars (≈8 h at 1 m TF) in the analyzer AND 60 → 1000 in `/api/history` — outages longer than an hour no longer leave permanent chart/DB holes.
+- Reconstructed candles (doji-fill, idle-heartbeat, gap-fill) are now persisted to `market_snapshots` with a new `reconstructed` provenance column (migration `20260818000000`); `query_recent_candles` maps the column back so restarts and the history DB fallback keep provenance.
+- Telemetry sends switched to a bounded drop policy (`try_send` + drop counter, logged) — a slow SQLite logger can no longer freeze the MME analysis/WS pipeline via awaited sends.
+
+**Config truth (M1/M8)**
+- `[quality]` added to the shipped config.toml (median spike filter previously shipped DISABLED).
+- `cluster_refresh_secs` 300 → 0 (per-TF candle cadence — the shipped 300 s made every LIQ HEATMAP 5× staler than documented).
+- Config validation rejects zero-valued `duration_seconds` / `rsi_period` / MACD periods / `median_window_size` at boot (`InvalidNumeric`) + defensive clamp in `MedianPriceFilter`.
+- Dead config keys removed from config.toml (MACD/squeeze/ATR/macd-threshold keys hardcoded in calculators; the `[workspace.opportunity_matrix]` section; the `[liquidity]` sub-toggle duplicates); false doc comments in `config-models` corrected (`opportunity_matrix` consultation, `[order_book]` overridability).
+- Docs aligned: clock budget 10 ms default (was 50 µs/100 µs claims), LIVE floor `max(size/10, 50)` (was "full size"), `sub_minute_skip_historical` default false, 08-04 fictional `[adapters.ema_window]`/`gap_threshold_secs` config claims removed.
+
+**Ops + resilience (M4/M5/M7/M9/M10)**
+- manage.sh: background start builds then execs the binary directly (PID file now records the daemon, not the cargo wrapper — no more orphaned daemons / bind panics); stop waits 10 s for the graceful shutdown then SIGKILLs; check_status exits 1 when stopped; engine.log rotates at 50 MB (3 kept).
+- `connection_quality_samples` pruned on the 30-day rolling window (previously unbounded).
+- Instance boot: paused/stopped instances are no longer force-started; failed spawns retry every 30 s for ~10 minutes (previously a boot-time network blip left an empty deployment).
+- XSS hardening: the two `{@html}` sinks (`highlightKeywords`, `highlightOpportunitySummary`) HTML-escape backend-sourced text before keyword wrapping (+ regression tests).
+- `risk_control_events` table created (migration `20260818000001`) — the veto loop and gate chain had INSERTed into a nonexistent table since v4.0, silently dropping every veto/gate audit record.
+- AUDIT-V7-330…334 marked shipped; AUDIT-V6-208…210 marked shipped, V6-211 cancelled (not a persistence concern), V6-212…214 remain open with scope notes.
+
+### Full MME audit pass (2026-08-17, third sweep — export parity + Overview)
+
+**Critical fixes**
+- Overview `InstanceMeta.symbol` fed the QUOTE currency (`inst.pair.1` = "USDT") — `risk_distribution` (always 0/100/0), `risk_environment` (always HIGH_RISK), `AssetRank.risk_level` (always MODERATE), `active_symbols` (quote leak) and `low_coverage` (2-symbol case) were all corrupted. Now `inst.symbol()`; pinned by two core-domain tests (`risk_data_binds_when_meta_symbol_matches_advisory_symbol`, `mismatched_meta_symbol_leaks_quote_into_active_symbols`).
+- Export parity: `AnalysisPayload` gained `key_metrics` (Overall Score / Timeframe Agreement / Total Signals — the panel's KEY METRICS row); `OpportunityPayload` gained `confluent_rr` (the per-side Expected R:R section); MTF payload gained `cross_tf_tables` (per-TF signal tallies, divergence cells, level chips — the three screen tables) and the WARMING/gated cells now report `active:false` / `warming` / `gated` instead of fabricating 0.0 readings; `trade_setups[].rank_idx` remapped post-viability-sort (screen/export drift, the M7 class).
+- `meta.timesframes` typo renamed to `meta.timeframes` (all consumers + pinned test updated).
+
+**Major fixes**
+- DerivativeRibbon feed status: `Date.now()` (ms) vs wire epoch-seconds timestamp made every badge permanently STALE — status is now computed in seconds; 3 component tests.
+- `liquidity_signals` can never clear: serde omits the empty array, so a completed frame WITHOUT the field is now the authoritative empty state (clears the carried-forward list). The regression fixture was corrected to the serde-realistic shape.
+- WS handler: slot-less / custom-slot connections no longer panic (`expect` on `None`) — they fall back to the micro channel (best-effort per 06-01 §3.1).
+- Overview `is_active` now excludes lifecycle-STOPPED/STOPPING instances (was `!cancel` only) — `LifecycleManager::current()` getter added.
+- Scheduler tab labels made honest: scheduled exports are server-side raw serde dumps, not UI-builder shapes.
+- `types.ts`: `MarketSnapshot.volume_profile` added (was consumed but untyped); `IndicatorLifecycleStatus.bars_seen_real` (PRI-12) added.
+
+**Docs adapted**
+- 06-01: Overview described as WS-only → REST `/api/overview` (with `low_coverage` top-level, not nested); `/reload`, `/activation`, `/orders/:id/override-readiness`, `/pre-dispatch/*`, `/keys/*` marked "specified but not yet registered" (return 404); `/instances/:id/portfolio` + `/safety` moved out of the planned table (they ARE served); session `active`/quit-200 drift corrected; `/api/liquidity/cluster-status` documented; `/api/analytics` catch-all corrected to not-registered.
+- 03-02-02: phantom `pending_candle` wire property removed from the shadow-path description; `metrics_config` claim scoped to completed frames; "51 technical calculators" → 52.
+- 06-02: `mark_price`/`index_price`/`mark_index_spread_pct` applied-but-unwritten columns noted; `liquidation_events` schema documented; `liquidation_real_buckets` added to the table inventory (27 tables).
+
+**Third sweep (2026-08-17):**
+- **Volume-profile default raised 50 → 100 bins** (`default_volume_profile_bins`, `config.toml` ×5, warm-up test pin, AGENTS.md / 03-02-13 / 07-05 docs): halves bin-width resolution error on high-priced majors (POC/VAH/VAL ±$40 → ±$20 on BTC), refines HVN level quoting, and matches the original dynamic-bin spec's [30,120] design window at zero CPU/wire cost (profile rides completed frames only).
+- **`heatmap_leverage_tiers` persisted from TimeframeSettings** — `buildIndicators()` now emits the field (wider `Record<string, number | number[]>`), so a per-TF save no longer silently resets operator tiers to `[10]` (WorkspaceSettings parity).
+- **`/api/history` custom-slot parity** — `clusters` / `volume_profiles` / `liquidity_flows` now iterate `ActivePair.custom_pipelines` (`custom-<id>` keys) alongside the 4 default slots (PRI-07).
+- **Alignment export panel-parity** — `alignmentTab.ts` `shortStateLabel` normalizes case+underscores (was rendering `STRONGBULLISH`/`NODATA` for the PascalCase wire); fixture flipped to real wire values.
+- **Cascade-asymmetry display unified** — RiskPanel + riskTab adopt the ±0.3 dead-band and `SHORT_SQUEEZE_RISK`/`LONG_SQUEEZE_RISK` vocabulary (extracted to `ui/src/lib/liquidityPanel.ts` with a regression suite); matches LiquidityPanel/metricsTab/03-02-11.
+- **One Score definition per ranking column** — AssetRankingsTable + overview export consume the backend `asset_ranking.score` (`0.5×mean_conf+50`) with local fallback.
+- **I-10 demotion parity complete** — KPI strip + overview export demote the bias *color* and append the pair-count suffix (shared `demoteBiasForCoverage`); parity tests added.
+- **Hardening** — `opportunityBars` exp-cap (R:R ≥ 237 can no longer NaN the conviction bars); `FundingExtreme` strength denominator floored; cluster estimator `is_finite()` input gate; doji-fill envelope applies the −20 gap penalty (3rd site); registry `config_params` key corrected to `funding_extreme_pct`.
+- **TS contract** — `MarketSnapshot.volume_profile`, `AnalysisMatrix.market_bias_score`, `IndicatorMeta.bars_required/data_source/signal_capability`, matrix-level `OpportunityMatrix.direction_family` typed; `TradeViabilityWire` SCREAMING union types the wire field (normalized at the boundary).
+- **Tests/fixtures** — gross R:R side-resolution regression tests; `analysisTab`/`recommendationTab`/`GeneralDashboard`/`metricsTab`/`layerHeader`/`makeContext` fixtures moved to real wire vocabulary; 06-01 §2.2 trimmed to implemented semantics; stale doc refs updated (02-13 cadence, 02-12 bucket_index formula, 02-08:54, 02-03 §2, "50-indicator" ×3, 06-03 decision row, types.ts/prettifyPhase/registry comments).
+
+**Follow-up sweep (2026-08-17):**
+- **CRITICAL fix:** `POST /api/config` now persists through `config_models::save_workspace` — the previous bare `toml::to_string_pretty(&WorkspaceConfig)` dropped the `[workspace]` wrapper and all platform sections (`[hyperliquid]`, `[bitget]`, `[clock_monitor]`, `[reconnect]`, `[candle_buffer]`, `[snapshot_export]`), producing a file the daemon could not boot from. New integration tests (`crates/api-gateway/tests/config_round_trip.rs`) cover the GET→mutate→POST→reload round-trip and the partial-body merge.
+- **Sign-inversion closure:** `MagnetActivated` direction fixed (above-mid short-liq cluster = short squeeze = Bullish; below-mid long-liq = Bearish) with a regression test; `LiquidationClusterMatrix.cascade_asymmetry` docstring corrected; StructuralAnchorsStrip ladder label "short liq if dumped" → "short liq if squeezed"; 07-04 §2 color-token table + §5.5/§7 copy aligned.
+- **I-10 parity:** the low-coverage STRONG_* demotion is shared (`demoteBiasForCoverage`) and now applied to the HeaderKpiStrip market-bias tile and the overview export KPI, not just the L7 header badge.
+- **Unit fixes:** `tradePlan.ts` stop-loss fallback no longer double-scales percent-scale `stop_loss_distance_pct` (was producing negative prices); `metricsExport.ts` gains the `percent4` funding case; `net_rr` gains a finite guard; market-context group-dimension NaN-guard; warm-up snapshots no longer emit candle volume as top-of-book depth; custom-slot volume-profile `timeframe_slot` uses the canonical `custom-N` string; force-close `quality_envelope.is_valid` mirrors the validity gate.
+- **Real config:** `IndicatorsConfig.heatmap_leverage_tiers` implemented backend-side (was a frontend-only phantom that reset to `[10]` on every reload); failover default fallback aligned (30).
+- **Casing/export hardening:** `evaluated_setups[].viability` normalized to PascalCase (matches `trade_setups`); fixtures and 07-05 export-schema examples corrected to real wire values (MarketContext `TRENDING` vocabulary, `TrendingBull`/`Markup`, `short_squeeze_risk` for +asymmetry); StatisticalContext TS type aligned to the wire shape; doc corrections for 02-03 envelope shape, 02-07 null-vs-omitted semantics, 03-02-11 vacuum band defaults, 03-02-14 dynamic-bin dead-code note, 02-09 §6 summary clause, 06-01 liquidity_signals omission.
 
 ## v6.18 (2026-08-16) — Invalidation note: direction-aware, strictly bound to the setup card
 
@@ -345,8 +692,6 @@ Live-capture audit (2026-08-15 00:03–00:05 UTC, BTC-USDC): the system answered
 
 **Doc corrections:** 02-02 §3.1 (grace + hysteresis + vote pinning + COMPRESSION exclusion + haircut scope), 02-01 §4.2 (thin-participation reweight + `blend_weights`), 08-09 §5 (sweep manual), 07-05 (analysis hero, strategy block, asset rows).
 
-
-
 ## v6.10.15 (2026-08-14) — L4 Neutral-bias fix + L6 STAND_ASIDE gate consistency
 
 Two real inconsistencies surfaced from live captures: the Opportunity panel could render directional conviction (57% "bearish" bars + bear-tone badge) on a directionally-neutral setup, and the Recommendation panel rendered a green "+60%" LONG needle plus an "Entry: immediate" final verdict under a STAND ASIDE badge.
@@ -635,7 +980,6 @@ Fixes the sub-minute EMA rendering anomalies (lines all starting at the same rig
 
 ------
 
-
 ## v6.10.4 (2026-08-13) — Snapshot Export scheduler + Interactive CLI setup
 
 The Trading Platform gains a periodic per-tab JSON dump for offline data science, plus an interactive CLI for headless / first-boot configuration. Both GUI and CLI converge on the same `SnapshotExportRuntime` shared via `AppState` — `GET /api/snapshot-export/status` is the single source of truth.
@@ -764,8 +1108,6 @@ The Overview Matrix (L7) gains three new aggregate fields sourced from each inst
 
 **Tests added:** 5 unit tests in `crates/core-domain/src/overview.rs::tests` (alignment distribution counts; consensus index mean; AssetRank mirror; AssetRank default when missing; empty alignments don't break advisories). 5 new tests in `ui/src/components/dashboard/MarketAlignmentCard.test.ts`. 1 new test in `ui/src/components/GeneralDashboard.test.ts` for the populated-state path; the existing 11-column asset rankings assertion updated.
 
-
-
 ## v6.10.2 (2026-08-13) — Analytical Input Universe correctness audit (AUDIT-AIU-001 … 091)
 
 Full forensic audit of every item in the Analytical Input Universe (51 indicators + 11 liquidity signals + synthesis layers). All 51 indicators and 11 liquidity signals were verified against their canonical math and docs; every defect below was fixed with a regression test.
@@ -799,8 +1141,6 @@ Full forensic audit of every item in the Analytical Input Universe (51 indicator
 **Lifecycle (Phase 8):** AUDIT-AIU-080 registry `bars_required` aligned to real warmup (rsi 14→15, stochastic 14→30, squeeze 20→39, hv 20→21; bbwp stays 200 — the `INDICATORS_MAX_BARS_REQUIRED` invariant — with a documented WARMING 200→272).
 
 **Docs (Phase 9):** AUDIT-AIU-090 donchian/keltner/bollinger LevelTest labels, psar removed signal, williams_r normalization, spread scale, RSI divergence labels, mark-index writers status all synced to runtime; AUDIT-AIU-091 stale "writers pending (AUDIT-V6-301)" notes corrected (in-memory writers live; DB persistence remains open).
-
-
 
 ## v7.0-verify (2026-08-13) — Export-JSON ↔ screen parity audit (every MME tab)
 
@@ -859,7 +1199,6 @@ Full field-by-field audit of every Market Monitoring tab's rendered values again
 **Backwards compatibility.** Risk consumers (`advisory::entry_danger_score`) read `opportunity_score`; they will now see a slightly higher entry-danger for inactive setups. This is informational, not actionable — the dashboard already shows the activation state separately. Trade Automation Engine gating uses `opportunity_score ≥ threshold` for setup selection; this now scales with raw viability rather than activation, which is more conservative (inactive setups are no longer auto-filtered by score-zero).
 
 **Docs touched.** `docs/matrices/02-08-opportunity-matrix.md §6` (added "Activation vs viability" clarification), `docs/engines/market-monitoring-engine/03-02-05-mme-layer4-opportunity.md §3` (cross-reference), `docs/DOCS-CONSISTENCY-MANIFEST.md` (verified stamp refresh).
-
 
 ## v6.10 (2026-08-05) — MME hardening audit + architecture extensions
 
@@ -925,7 +1264,6 @@ Hardens the Market Monitoring Engine from a comprehensive audit that identified 
 ### Backwards compatibility
 
 `DecisionContext.score` still accepts `f64` in `[-100, 100]` for legacy callers that may pre-date the unsign change. Strictly new callers should produce `[0, 100]`. `ActiveSet::liquidity_enabled` defaults to `true` so existing operators see no behavior change.
-
 
 ## v6.9 (2026-08-04) — Field removal: `OpportunityMatrix.expected_rr_internal` + three-state R:R
 
@@ -1204,7 +1542,7 @@ Documentation-only release applying the corpus-wide architectural consistency au
 ### Fixed (logic)
 
 - **Decision Matrix §3.2:** reordered MarketStance rules 4/5 — AGGRESSIVE (EXCELLENT + risk < 20) now evaluates before CONSTRUCTIVE (GOOD|EXCELLENT + risk < 30). AGGRESSIVE is reachable (was shadowed).
-- **Hard-Exit invariant:** removed the false "Gate 1 would block the emergency order" rationale (03-03-02 §7, 03-04-05 §4.2, 01-03 Sequence D). `is_emergency_liquidation` bypass is unconditional per 08-02; the 2a→2c ordering is re-justified on sizing-snapshot and audit grounds.
+- **Hard-Exit invariant:** removed the false "Gate 1 would block the emergency order" rationale (03-03-01 §6, 03-04-05 §4.2, 01-03 Sequence D). `is_emergency_liquidation` bypass is unconditional per 08-02; the 2a→2c ordering is re-justified on sizing-snapshot and audit grounds.
 - **07-04 §5.2:** cascade_asymmetry sign mapping corrected to match 02-13 (`> +0.3` → SHORT_SQUEEZE_RISK; `< −0.3` → LONG_SQUEEZE_RISK).
 - **UI navigation:** instance tab set is 7 tabs everywhere (Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Decision). Liquidity inline on Charts; Connection Quality under Data Infrastructure. Updated 08-01 §4, 07-01 §5.1, 07-02 §1 wireframe.
 - **Connection-quality persistence:** single owner (`network-adapters::connection_quality_tracker::run_persistence_loop` → `connection_quality_samples`). 01-06 §3.3 corrected; `connection_quality_events` / `connection_quality_persistence/mod.rs` references are retired-concept only.
@@ -1293,30 +1631,30 @@ This revision closes the second-tier documentation issues identified after the v
 
 | ID | Doc | Issue | Resolution |
 |---|---|---|---|
-| `AUDIT-V6-021` | `02-10-raw-data-matrix.md` | JSON example used a fictional `event_type` discriminator field that the actual wire format does not emit. | Replaced with per-variant flat-object examples matching the real `NormalizedEvent` JSON shape. |
-| `AUDIT-V6-022` | `02-10-raw-data-matrix.md`, `03-01-02-die-layer1-raw-data.md` | `bids`/`asks` notation inconsistent (map vs array). | Standardized on `Vec<[Decimal; 2]>` with `[price, size]` tuples; both docs updated. |
-| `AUDIT-V6-023` | `06-01-api-gateway-contract.md` | Three names (`instance_id` / `pair_key` / "Active pair") for the same identifier; no canonical glossary. | Added §1.0 "Canonical glossary (Market Instance identifier)" as the single source of truth. |
-| `AUDIT-V6-024` | `08-04-candle-reconstruction.md` | "Reconstruction" / "Synthesis" / "Fill" used interchangeably without distinction. | Added glossary at the top of the doc: synthesis ⊂ fill; reconstruction is the whole process. |
-| `AUDIT-V6-025` | `02-03-data-quality-matrix.md`, `03-01-04-die-layer3-data-quality.md` | "Data Quality Matrix" (per-candle) and "Reliability Metrics" (per-instance) share the word "Quality" with divergent schemas. | Renamed: per-candle envelope is `CandleQualityEnvelope`; per-instance rollup is `PipelineReliabilityMetrics`. Both terms now disambiguated in each doc. |
-| `AUDIT-V6-026` | `08-05-connection-quality.md` | Composite score formula used 3 of 5 report fields; `total_data_loss_secs` and `reconstructed_candles` were "informational only" with no defined role. | Extended formula to use all 5 fields with documented saturation points (5 s reconnect, 10 disconnects, 600 s data loss, 100 reconstructed candles). New worked example recomputes to `65.45` (clamped to `65.5`). |
-| `AUDIT-V6-027` | `03-01-01-die-overview-spec.md` | `ConnectionStatus` lifecycle diagram (`Reconnecting → Connecting` arrow) implied a cyclic state machine not present in the enum. | Replaced with `Connecting → Connected ↔ Disconnected ↔ Reconnecting → Connected (on resume) | Failed` matching the enum and 08-03 §State Transitions. |
-| `AUDIT-V6-028` | `03-01-03-die-layer2-market-data.md` | `average_volume` field is consumed by the MME but its provenance was undocumented. | Added note in §2: `average_volume` is derived from `volume / trades_count` on the MME side; the L2 layer never emits it. |
-| `AUDIT-V6-029` | `03-01-01-die-overview-spec.md` | Retry budget described only the supervisor layer; the adapter-layer `ReconnectPolicy` was implicit. | §3 Performance Targets now points to 08-03 §Retry Budgets for the three-layer model. §4.1 distinguishes "supervisor cycles" from "adapter max_attempts". |
-| `AUDIT-V6-030` | `08-06-clock-monitor.md` | Drift-breach consequence on candle alignment was undocumented — `warn` mode silently violates the alignment invariant. | Added §Drift-breach consequence paragraph explaining the silent violation and the recommended operational pattern (`panic` for fail-fast, or `warn` + active monitoring via `/api/system/clock`). |
-| `AUDIT-V6-031` | `03-01-01-die-overview-spec.md` | "Micro" (tier name), "sub-minute" (duration class), "<1m" (shorthand) — three terms for the same concept without a glossary. | Added §1.0 glossary: micro is the tier; sub-minute/<1m describe the duration class. |
-| `AUDIT-V6-032` | `03-01-04-die-layer3-data-quality.md` | `out_of_order_dropped` counter had no persistence path. | Added to §5 `PipelineReliabilityMetrics`; documented as in-memory only, surfaced through `/api/data-quality`. |
-| `AUDIT-V6-033` | `03-01-04-die-layer3-data-quality.md` | `outlier_tolerance` parameter default and config key were undefined. | Added canonical defaults table: `median_window_size = 20`, `outlier_tolerance = 0.05`, `bypass_on_zero_median = true`. |
-| `AUDIT-V6-034` | `03-01-01..05` | Operational acceptance criteria were missing (only unit-test names listed). | Added §1.3 (DIE), §6.1 (L2), §7.1 (L3), §5.1 (L4) with concrete AC-DIE-NN / AC-LN-NN criteria and verification pointers. |
-| `AUDIT-V6-035` | `03-01-01..05`, `02-03`, `02-06`, `02-07`, `02-10`, `06-01`, `06-02`, `08-03..06` | No integrated end-to-end DIE flow document. | Created `03-01-00-die-end-to-end-flow.md` as the single integrated narrative. |
-| `AUDIT-V6-036` | `06-02 §3.8`, `06-01 §2.10` | Exchange-key rotation procedure was undocumented. | Created `08-07-exchange-key-rotation.md` with pre-rotation checklist, rotation procedure, emergency rotation, and future-work list. |
-| `AUDIT-V6-037` | `03-01-01`, `03-01-02`, `03-01-03`, `03-01-04`, `03-01-05` | "Target Architecture (Not Yet Implemented)" callouts scattered across 4 layer docs without a roadmap. | Created `01-07-target-architecture-roadmap.md` as the single source of truth; updated each callout to point to the roadmap. |
-| `AUDIT-V6-038` | `06-01`, `06-02` | No consumer onboarding summary; new integrators had to assemble the contract from 3+ docs. | Created `06-00-consumer-onboarding.md` as the single-page orientation. |
-| `AUDIT-V6-039` | `03-01-01 §4.1` | `retry_cooldown` term used inconsistently with 08-03's `backoff`. | Renamed `retry_cooldown` → `backoff` throughout §4.1; matches `ReconnectPolicy` field names. |
-| `AUDIT-V6-040` | `02-07-metrics-matrix.md` | "Aggregate envelope" claim implied portfolio-wide aggregates ride a single WS frame. | Reworded: composite envelope is per-instance only; portfolio-wide Overview Matrix L7 lives on a separate path. |
-| `AUDIT-V6-041` | `03-01-03`, `03-01-04` | L2 vs L3 boundary on sequence auditing was unclear (both docs mentioned chronological order / dedup). | L2 owns single-stream candle generation; L3 owns cross-stream integrity. Boundary table added. |
-| `AUDIT-V6-042` | `03-01-05 §2.1` | "Zero Shared State" claim was aspirational; `Arc<…>` state is shared via `RegistryContext`. | Reworded to "Decoupled Producer/Consumer"; shared-state caveat paragraph added. |
-| `AUDIT-V6-043` | `06-01 §2.8`, `03-01-03 §5` | `latency_ms` field ambiguous (observation loop vs ingest skew vs heartbeat). | Renamed to `observation_loop_latency_ms`, `ingest_skew_ms`, `system_heartbeat_latency_ms`; `/api/system/status` updated. |
-| `AUDIT-V6-044` | `08-01-user-manual.md §7` | 7-day retention hard-coded without config surface. | Documented `config.toml [retention]` block (Phase 1 surfaces it); manual updated. |
+| `AUDIT-V6-021` | `02-10-raw-data-matrix.md`  | JSON example used a fictional `event_type` discriminator field that the actual wire format does not emit. | Unscheduled |
+| `AUDIT-V6-022` | `02-10-raw-data-matrix.md`, `03-01-02-die-layer1-raw-data.md`  | `bids`/`asks` notation inconsistent (map vs array). | Unscheduled |
+| `AUDIT-V6-023` | `06-01-api-gateway-contract.md`  | Three names (`instance_id` / `pair_key` / "Active pair") for the same identifier; no canonical glossary. | Unscheduled |
+| `AUDIT-V6-024` | `08-04-candle-reconstruction.md`  | "Reconstruction" / "Synthesis" / "Fill" used interchangeably without distinction. | Unscheduled |
+| `AUDIT-V6-025` | `02-03-data-quality-matrix.md`, `03-01-04-die-layer3-data-quality.md`  | "Data Quality Matrix" (per-candle) and "Reliability Metrics" (per-instance) share the word "Quality" with divergent schemas. | Unscheduled |
+| `AUDIT-V6-026` | `08-05-connection-quality.md`  | Composite score formula used 3 of 5 report fields; `total_data_loss_secs` and `reconstructed_candles` were "informational only" with no defined role. | Unscheduled |
+| `AUDIT-V6-027` | `03-01-01-die-overview-spec.md` | `ConnectionStatus` lifecycle diagram (`Reconnecting → Connecting` arrow) implied a cyclic state machine not present in the enum.  | Replaced with `Connecting → Connected ↔ Disconnected ↔ Reconnecting → Connected (on resume) | Unscheduled |
+| `AUDIT-V6-028` | `03-01-03-die-layer2-market-data.md`  | `average_volume` field is consumed by the MME but its provenance was undocumented. | Unscheduled |
+| `AUDIT-V6-029` | `03-01-01-die-overview-spec.md`  | Retry budget described only the supervisor layer; the adapter-layer `ReconnectPolicy` was implicit. | Unscheduled |
+| `AUDIT-V6-030` | `08-06-clock-monitor.md`  | Drift-breach consequence on candle alignment was undocumented — `warn` mode silently violates the alignment invariant. | Unscheduled |
+| `AUDIT-V6-031` | `03-01-01-die-overview-spec.md`  | "Micro" (tier name), "sub-minute" (duration class), "<1m" (shorthand) — three terms for the same concept without a glossary. | Unscheduled |
+| `AUDIT-V6-032` | `03-01-04-die-layer3-data-quality.md`  | `out_of_order_dropped` counter had no persistence path. | Unscheduled |
+| `AUDIT-V6-033` | `03-01-04-die-layer3-data-quality.md`  | `outlier_tolerance` parameter default and config key were undefined. | Unscheduled |
+| `AUDIT-V6-034` | `03-01-01..05`  | Operational acceptance criteria were missing (only unit-test names listed). | Unscheduled |
+| `AUDIT-V6-035` | `03-01-01..05`, `02-03`, `02-06`, `02-07`, `02-10`, `06-01`, `06-02`, `08-03..06`  | No integrated end-to-end DIE flow document. | Unscheduled |
+| `AUDIT-V6-036` | `06-02 §3.8`, `06-01 §2.10`  | Exchange-key rotation procedure was undocumented. | Unscheduled |
+| `AUDIT-V6-037` | `03-01-01`, `03-01-02`, `03-01-03`, `03-01-04`, `03-01-05`  | "Target Architecture (Not Yet Implemented)" callouts scattered across 4 layer docs without a roadmap. | Unscheduled |
+| `AUDIT-V6-038` | `06-01`, `06-02`  | No consumer onboarding summary; new integrators had to assemble the contract from 3+ docs. | Unscheduled |
+| `AUDIT-V6-039` | `03-01-01 §4.1`  | `retry_cooldown` term used inconsistently with 08-03's `backoff`. | Unscheduled |
+| `AUDIT-V6-040` | `02-07-metrics-matrix.md`  | "Aggregate envelope" claim implied portfolio-wide aggregates ride a single WS frame. | Unscheduled |
+| `AUDIT-V6-041` | `03-01-03`, `03-01-04`  | L2 vs L3 boundary on sequence auditing was unclear (both docs mentioned chronological order / dedup). | Unscheduled |
+| `AUDIT-V6-042` | `03-01-05 §2.1`  | "Zero Shared State" claim was aspirational; `Arc<…>` state is shared via `RegistryContext`. | Unscheduled |
+| `AUDIT-V6-043` | `06-01 §2.8`, `03-01-03 §5`  | `latency_ms` field ambiguous (observation loop vs ingest skew vs heartbeat). | Unscheduled |
+| `AUDIT-V6-044` | `08-01-user-manual.md §7`  | 7-day retention hard-coded without config surface. | Unscheduled |
 
 ### New files added
 
@@ -1345,31 +1683,31 @@ Phase 0 of the v6.0 DIE closure plan resolves **20 DIE-surface documentation iss
 
 | ID | Doc | Issue | Resolution |
 |---|---|---|---|
-| `AUDIT-V6-001` | `08-05-connection-quality.md` | Two conflicting `CREATE TABLE connection_quality_samples` blocks in the same file (8-column process-wide + 10-column per-instance). | Merged into a single 11-column per-instance DDL (`id, pair_key, timeframe_secs, timestamp_ms, window, uptime_pct, disconnect_count, avg_reconnect_ms, total_data_loss_secs, reconstructed_candles, score`) with the unified index `idx_cq_pair_timeframe_window_time`. |
-| `AUDIT-V6-002` | `02-06-market-data-matrix.md` | `LinearInterpolation` variant still listed in the field table despite `AUDIT-V4-024` rename. | Renamed to `LinearExtrapolation` to match `08-04` and `06-02`. |
-| `AUDIT-V6-003` | `08-06-clock-monitor.md` | "*no* `config.toml` exists" wording inside a `config.toml` spec. | Replaced with positive "single source of configuration truth" wording; JSON example rewritten in TOML. |
-| `AUDIT-V6-004` | `02-10-raw-data-matrix.md` | `Status` payload field `state` (mismatched `03-01-02` `status`). | Field renamed `state → status` to match the Rust enum and the layer doc. |
-| `AUDIT-V6-005` | `02-05-distribution-matrix.md` | "Channel per symbol" granularity (4× coarser than `03-01-05` claim). | Reworded to "Channel per `(symbol, timeframe)` pipeline" matching `03-01-05 §2`. |
-| `AUDIT-V6-006` | `03-01-03-die-layer2-market-data.md` | `NormalizedCandle` struct missing `exchange` field (present in `02-06`). | Added `exchange: String` to the struct block; aligned with the matrix spec. |
-| `AUDIT-V6-007` | `08-05-connection-quality.md` | Frontend placement described as "between Risks and Analysis workspace tabs" (stale post-`bbfd184`). | Replaced with "Data Infrastructure → Overview → Connectivity" sub-tab reference. |
-| `AUDIT-V6-008` | `08-06-clock-monitor.md` | JSON-key ↔ Rust-struct unit mapping (secs, micros, Duration) undocumented. | Added mapping table covering `poll_interval_secs`, `threshold_micros`, `breach_action`, `jitter_window_size`, `query_timeout`. |
-| `AUDIT-V6-009` | `08-06-clock-monitor.md` | "The TODO comment … has been replaced" claim with no verification. | Reworded to a verifiable cross-reference: "see `crates/market-analyzer/src/candle_aggregator.rs` (verify post-Phase 1)". |
-| `AUDIT-V6-010` | `02-06-market-data-matrix.md` | Field-name registry explained only `reconstructed`/`reconstruction_method`, silent on `timestamp` ↔ `start_time_ms` and `timeframe_secs` ↔ `duration_ms`. | Expanded the registry to all three field-name surfaces (provenance, timestamp, duration). |
+| `AUDIT-V6-001` | `08-05-connection-quality.md`  | Two conflicting `CREATE TABLE connection_quality_samples` blocks in the same file (8-column process-wide + 10-column per-instance). | Unscheduled |
+| `AUDIT-V6-002` | `02-06-market-data-matrix.md`  | `LinearInterpolation` variant still listed in the field table despite `AUDIT-V4-024` rename. | Unscheduled |
+| `AUDIT-V6-003` | `08-06-clock-monitor.md`  | "*no* `config.toml` exists" wording inside a `config.toml` spec. | Unscheduled |
+| `AUDIT-V6-004` | `02-10-raw-data-matrix.md`  | `Status` payload field `state` (mismatched `03-01-02` `status`). | Unscheduled |
+| `AUDIT-V6-005` | `02-05-distribution-matrix.md`  | "Channel per symbol" granularity (4× coarser than `03-01-05` claim). | Unscheduled |
+| `AUDIT-V6-006` | `03-01-03-die-layer2-market-data.md`  | `NormalizedCandle` struct missing `exchange` field (present in `02-06`). | Unscheduled |
+| `AUDIT-V6-007` | `08-05-connection-quality.md`  | Frontend placement described as "between Risks and Analysis workspace tabs" (stale post-`bbfd184`). | Unscheduled |
+| `AUDIT-V6-008` | `08-06-clock-monitor.md`  | JSON-key ↔ Rust-struct unit mapping (secs, micros, Duration) undocumented. | Unscheduled |
+| `AUDIT-V6-009` | `08-06-clock-monitor.md`  | "The TODO comment … has been replaced" claim with no verification. | Unscheduled |
+| `AUDIT-V6-010` | `02-06-market-data-matrix.md`  | Field-name registry explained only `reconstructed`/`reconstruction_method`, silent on `timestamp` ↔ `start_time_ms` and `timeframe_secs` ↔ `duration_ms`. | Unscheduled |
 
 ### Logical / spec gaps resolved
 
 | ID | Doc | Issue | Resolution |
 |---|---|---|---|
-| `AUDIT-V6-011` | `03-01-04-die-layer3-data-quality.md` | "Out-of-order arrival → reorder into interval bucket" vs L4 immutability invariant — undocumented conflict. | Late ticks are **dropped** at L3 and counted in the new `out_of_order_dropped` reliability metric. L4 immutability wins. |
-| `AUDIT-V6-012` | `03-01-04-die-layer3-data-quality.md` | §6 said "feeds through all indicator calculators" (contradicts DIE "no market interpretation" boundary). | Reworded: DIE feeds sanitized candle histories to the MME warm-up pipeline; indicator computation is MME's responsibility. |
-| `AUDIT-V6-013` | `08-04-candle-reconstruction.md` | EMA N=200 with only 50 closes is conceptually misleading. | Added "EMA seeded at first close" note explaining the warm-up behaviour. |
-| `AUDIT-V6-014` | `03-01-05-die-layer4-data-distribution.md` | "Shadow throttling" wording implied undocumented rate-limiting. | Removed "throttling"; replaced with "Shadow frames stream at tick cadence; any local rate-limiting is the consumer's responsibility". |
-| `AUDIT-V6-015` | `03-01-04-die-layer3-data-quality.md` | §2.1 conflated startup bootstrap with live gap-fill. | Split into §2.1.1 (startup bootstrap: DB → REST 200-cap → live) and §2.1.2 (live gap-fill: `GapDetector` → EMA/linear). |
-| `AUDIT-V6-016` | `08-05-connection-quality.md` | `total_data_loss_secs` and `reconstructed_candles` not in the composite score formula; role undefined. | Added "Informational-only fields" note. **Superseded by AUDIT-V6-026** (v6.5): the two fields were later added as subtractive penalty terms to the composite score formula, making this informational-only resolution stale. |
-| `AUDIT-V6-017` | `08-05-connection-quality.md` | "All three windows computed and persisted in parallel" ambiguous about API shape. | Reworded: three independent rows per tick; REST API returns one report per request; tab switch re-fetches. |
-| `AUDIT-V6-018` | `03-01-05-die-layer4-data-distribution.md` | Two broadcast topologies (`NormalizedCandle` vs `MarketSnapshot`) implicit but undocumented. | Added paragraph explicitly distinguishing the two channels and their consumers. |
-| `AUDIT-V6-019` | `03-01-04-die-layer3-data-quality.md` | `WarmedPipelineState` referenced but undefined anywhere. | Defined inline in §6.1 with a 4-field shape (`per_tf_indicator_buffer`, `per_tf_last_bar_ms`, `warmup_complete`, `source_history_len`). |
-| `AUDIT-V6-020` | `06-02-database-schema-spec.md` + `08-05-connection-quality.md` | `connection_quality_events` table referenced in code (`connection_quality_persistence/mod.rs`) is not in the active schema catalog. | Confirmed single canonical home: `connection_quality_samples` with the 11-column shape. The `connection_quality_events` path is removed in a future phase. |
+| `AUDIT-V6-011` | `03-01-04-die-layer3-data-quality.md`  | "Out-of-order arrival → reorder into interval bucket" vs L4 immutability invariant — undocumented conflict. | Unscheduled |
+| `AUDIT-V6-012` | `03-01-04-die-layer3-data-quality.md`  | §6 said "feeds through all indicator calculators" (contradicts DIE "no market interpretation" boundary). | Unscheduled |
+| `AUDIT-V6-013` | `08-04-candle-reconstruction.md`  | EMA N=200 with only 50 closes is conceptually misleading. | Unscheduled |
+| `AUDIT-V6-014` | `03-01-05-die-layer4-data-distribution.md`  | "Shadow throttling" wording implied undocumented rate-limiting. | Unscheduled |
+| `AUDIT-V6-015` | `03-01-04-die-layer3-data-quality.md`  | §2.1 conflated startup bootstrap with live gap-fill. | Unscheduled |
+| `AUDIT-V6-016` | `08-05-connection-quality.md`  | `total_data_loss_secs` and `reconstructed_candles` not in the composite score formula; role undefined. | Unscheduled |
+| `AUDIT-V6-017` | `08-05-connection-quality.md`  | "All three windows computed and persisted in parallel" ambiguous about API shape. | Unscheduled |
+| `AUDIT-V6-018` | `03-01-05-die-layer4-data-distribution.md`  | Two broadcast topologies (`NormalizedCandle` vs `MarketSnapshot`) implicit but undocumented. | Unscheduled |
+| `AUDIT-V6-019` | `03-01-04-die-layer3-data-quality.md`  | `WarmedPipelineState` referenced but undefined anywhere. | Unscheduled |
+| `AUDIT-V6-020` | `06-02-database-schema-spec.md` + `08-05-connection-quality.md`  | `connection_quality_events` table referenced in code (`connection_quality_persistence/mod.rs`) is not in the active schema catalog. | Unscheduled |
 
 ### Bumped to v6.0
 
@@ -1532,7 +1870,8 @@ Every audit issue from v2.x is closed below. New identifiers (`AUDIT-V4-NN`) are
 | `Issue 2.B` | `AUDIT-V4-002` | `opportunity_classification` removed from L6 (canonical is L4 `primary_opportunity`) | Confirmed in v4.0 |
 | `Issue 2.C` | `AUDIT-V4-003` | L4 institutional redesign fields (`entry_zone`, `target_zone`, `invalidation_level`, `expected_rr_internal`, `time_horizon`) | Stable in v2.1; v4.0 confirms `invalidation_level` (not `invalid_level`) is the canonical name across L4 and Position Matrix |
 | `Issue 2.D` | `AUDIT-V4-004` | `entry_danger` rename (L6, from `environment_favorability`) | Stable in v2.1; doc-confirmed |
-| `Issue 2.E` | `AUDIT-V4-005` | `cascade_risk_index` placeholder in Overview Matrix | Stable (still placeholder, deferred to v4.x follow-up) |
+| `Issue 2.E` | `AUDIT-V4-076` | ~~`X-Operator-Id` optional header for caller-supplied operator identity~~ | **Cancelled (2026-08-18)** — single-operator local deployment by design; every audit event carries `operator_id = "local"`; no caller-supplied identity | Unscheduled |
+| `AUDIT-V4-005` | `cascade_risk_index` placeholder in Overview Matrix | Stable (still placeholder, deferred to v4.x follow-up) |
 | `SIG-02` | `AUDIT-V4-006` | Aroon `Crossover` → `TrendFlip` reclassification | Stable in v2.1 |
 | `SIG-03` | `AUDIT-V4-007` | Supertrend `BandTouch` → `LevelTest` reclassification | Stable in v2.1 |
 | `MAT-04` | `AUDIT-V4-008` | Risk Matrix banding (half-open intervals) | Confirmed in v4.0 §Decision Matrix §3.8 and Risk Matrix §2.3 cross-reference |
@@ -1571,7 +1910,7 @@ Every audit issue from v2.x is closed below. New identifiers (`AUDIT-V4-NN`) are
 
 | Legacy ID | New ID | Description | Resolution |
 |---|---|---|---|
-| — | `AUDIT-V4-029` | LiquidityPanel reversed `cascade_asymmetry` sign | Fixed; normative mapping block added |
+| — | `AUDIT-V4-029` | LiquidityPanel reversed `cascade_asymmetry` sign | Fixed; normative mapping block added (the 2026-08 audit found the sign interpretation was still inverted at four sites — cluster signal direction, LiquidityPanel labels, metrics export description, module docstring — and fixed it; regression test pins positive = short squeeze risk) |
 | — | `AUDIT-V4-030` | LiquidityPanel data path `microTerm` | Kept as `instance.microTerm.*` (canonical; the `timeframes.micro` alias was removed per v6.3) |
 | — | `AUDIT-V4-031` | LiquidityPanel used shortened signal names | Replaced with canonical `LIQUIDITY_*` prefixed names |
 | — | `AUDIT-V4-032` | UI dashboard "19 indicator panes" | Corrected to "18 dedicated indicator panes + PriceChart overlay + shared generics" |
@@ -1656,79 +1995,79 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 
 | ID | Item | Status | Target |
 |---|---|---|---|
-| `AUDIT-V4-005` | `cascade_risk_index` aggregation into `systemic_risk_score` | Open (placeholder field in canonical schema; aggregation formula deferred) | v6.10 |
-| `AUDIT-V4-044` | `roi_percentage` legacy field removal | Deprecated in v4.0; remove entirely | v6.10 |
-| `AUDIT-V4-046` | `safety_state` deterministic reconstruction algorithm | Open (reconstruction rule documented but not yet unit-tested) | Unscheduled |
-| `AUDIT-V4-076` | `X-Operator-Id` optional header for caller-supplied operator identity | Open (single-user `local_operator` fixed identity; caller-supplied identity deferred) | Unscheduled |
-| `AUDIT-V4-077` | Authentication beyond `local_operator` (multi-user / OAuth / mTLS) | Open | Unscheduled |
+| `AUDIT-V4-076` | ~~`X-Operator-Id` optional header for caller-supplied operator identity~~  | Cancelled (2026-08-18) | Unscheduled |
+| `AUDIT-V4-005` | `cascade_risk_index` aggregation into `systemic_risk_score`  | Open (placeholder field in canonical schema; aggregation formula deferred) | Unscheduled |
+| `AUDIT-V4-044` | `roi_percentage` legacy field removal  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V4-046` | `safety_state` deterministic reconstruction algorithm  | Open (reconstruction rule documented but not yet unit-tested) | Unscheduled |
+| `AUDIT-V4-077` | Authentication beyond `local_operator` (multi-user / OAuth / mTLS)  | Cancelled (2026-08-18) | Unscheduled |
 | `AUDIT-V4-078` | Per-WASM lightweight connection-quality scoring | Open | Unscheduled |
-| `AUDIT-V4-079` | PriceChart marker overlay for cluster positions (Phase 4 extension) | Deferred | Unscheduled |
-| `AUDIT-V4-080` | `liquidation_events` → PAE backtest ingestion | Deferred | Unscheduled |
-| `AUDIT-V6-077` | In-process exchange-key rotation tool (`POST /api/keys/rotate` re-encryption under a new master key, SIGHUP hot rotation, encrypted-backup export) — manual procedure documented in `08-07` | Open | Unscheduled |
-| `AUDIT-V6-202` | `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions) | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V6-203` | `database-storage`: add `instance_lifecycle` + `instance_lifecycle_events` migrations; bump `user_version` | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V6-204` | `api-gateway`: implement `POST /api/instances/:instance_id/start`; rewrite `/pause` (entry-gate semantics) and `/stop` (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V6-205` | `portfolio-supervisor`: implement Gate 0 check in pre-trade chain | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V6-206` | `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true` | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V7-300` | `config-models`: introduce `CandleBufferConfig` struct + `[candle_buffer]` block; remove `analysis_limit` from `TimeframeConfig`; add migration log line for legacy `analysis_limit` keys | Open (specified in `08-08` §7) | v6.10 |
-| `AUDIT-V7-301` | `core-domain`: introduce `CandlePipelineState`, `IndicatorLifecycleState`, `IndicatorLifecycleStatus` (see `03-01-06` §2 and `03-02-15` §2) | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-302` | `network-adapters`: introduce `HistoricalFetchPolicy` trait; implement `HyperliquidHistoricalFetch` (paginated backward cursor); implement `BitgetHistoricalFetch` (paginated forward cursor with `limit=200` per page) | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-303` | `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 50 registry entries; publish `tf.pipeline_state` | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-304` | `portfolio-supervisor`: rewrite `collect_candles` to use `HistoricalFetchPolicy`; sub-minute returns empty Vec; ≥ 1 minute paginates until `size` then merges DB; expose `reload_timeframe(instance_id, slot, new_config)` API | Open (specified in `08-08` §7) | v6.10 |
-| `AUDIT-V7-305` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` clamp to `candle_buffer.size`; add `pipeline_state` + `indicator_lifecycle` to the `/api/history` response | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-306` | `execution-daemon`: fix `--web` boot so `init_session` does not deactivate before auto-spawning configured instances | Open (specified in `08-08` §7) | v6.10 |
-| `AUDIT-V7-307` | `ui`: introduce `IndicatorStatusBadge.svelte`; honor `tf.pipeline_state` in chart headers; stop merging old values when a snapshot arrives with `pipeline_state = LOADING`; remove the `analysisLimit` selector (replace with read-only display of `candle_buffer.size`) | Open (specified in `08-08` §7) | v6.10 |
-| `AUDIT-V7-310` | `core-domain`: add `CandlePipelineState` enum + `IndicatorLifecycleStatus` map type; extend `MarketSnapshot` with `pipeline_state` + `indicator_lifecycle` fields | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-311` | `database-storage`: migration `00XX_add_candle_pipeline_state_events.sql` + `00XX_alter_market_snapshots.sql`; bump `user_version` | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V8-001` | `market-analyzer`: per-line EMA ribbon warm-up — `ema_stack.bars_required` 200→1; `inject_ema_values` gates each line on `bar_count ≥` its configured period (`fast`@10, `medium`@50, `slow`@100, `long`@200); `NormalizeParams.ema_periods` threaded through all four `build_indicator_map` call sites | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-002` | `market-analyzer`: stale-mid guard — force-close/doji-fill only uses the order-book mid while the book is fresh (≤ grace period), else falls back to the last trade close; tracked via `last_ob_ms` | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-003` | `market-analyzer`: idle-bucket heartbeat — sub-minute stale check synthesizes one doji per elapsed empty bucket (last known close, `reconstructed: SYNTHETIC`), advances all indicators, broadcasts, pushes to in-memory `snapshot_history` | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-004` | `api-gateway`: `/api/history` marks heartbeat/gap-filled candles `reconstructed: SYNTHETIC` from `quality_envelope.is_gap_filled`; force-close + doji snapshots pushed into in-memory `snapshot_history` for continuous sub-minute history | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-005` | `market-analyzer`: reconnect-gap recovery feeds reconstructed candles through `apply_candle_to_indicators` and broadcasts fully-populated snapshots (was empty-indicators `build_gapfill_snapshot`); `build_gapfill_snapshot` now test-only | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-006` | `api-gateway`: `/api/history` indicator arrays built against the gap-filled `times` axis (null rows for scaffold Doji indices) so `times[i]` ↔ `values[*][i]` always align | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-007` | `ui`: PriceChart history bootstrap gap-fills after filtering + `buildPaintCandles` keeps backend SYNTHETIC candles in the paint array — painted candle axis always matches the indicator `times` axis | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V8-008` | `ui`: sub-minute chart viewport widened to the full seeded history window (`seedCountFor × timeframe`) so the EMA-200 line is reachable on ≤5 s charts | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
-| `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09) | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11 | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle` | Open (specified in `03-01-06` §7) | v6.10 |
-| `AUDIT-V7-320` | `network-adapters`: introduce `HistoricalFetchPolicy` trait + request/error types in `adapters/historical_fetch.rs` | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-321` | `network-adapters`: implement `HyperliquidHistoricalFetch` with backward `startTime` cursor pagination (HFP-05) | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-322` | `network-adapters`: implement `BitgetHistoricalFetch` with forward `startTime` cursor pagination + `limit=200` per page (HFP-06) | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-323` | `portfolio-supervisor`: replace `collect_candles` with `HistoricalFetchPolicy` caller; HFP-03 sub-minute short-circuit; HFP-09 merge; HFP-10 timeout handling | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-324` | `tests`: add 5 tests — (a) sub-minute returns empty, (b) Hyperliquid paginates to `size`, (c) Bitget paginates `limit=200` to `size`, (d) DB-precedence on overlap, (e) timeout returns partial + warning | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each of the 50 indicator metadata entries in `crates/market-analyzer/src/indicators/registry.rs` | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V8-400` | `market-analyzer/indicators/traits.rs`: DOD hot-path contract applied — `BarInput` fields are `f64`, `Indicator::Output = f64`. Migration code-converter at the trait boundary for all ~30 `Indicator` impls. | Staged (v6.5) | v6.10 |
-| `AUDIT-V8-401` | `market-analyzer/indicators/ema.rs`: migrate EMA `update(price: Decimal) → update(price: f64)`. Expected: ~50 line change (10 lines signature + 40 lines test). | Staged | v6.10 |
-| `AUDIT-V8-402` | `market-analyzer/indicators/rsi.rs`: migrate RSI `update(close: Decimal) → update(close: f64)`. Expected: ~60 line change. | Staged | v6.10 |
-| `AUDIT-V8-403` | `market-analyzer/indicators/macd.rs`: migrate MACD `update(close: Decimal) → update(close: f64)`. Expected: ~80 line change. | Staged | v6.10 |
-| `AUDIT-V8-404` | `market-analyzer/indicators/{atr,adx,bbwp,stochastic,chandemo,supertrend,keltner,donchian,obv,cmf,mfi,hv,aroon,choppiness,linreg,zscore,bollinger,squeeze,cci,psar,williams_r,hull_ma,awesome_oscillator,force_index,stddev_channel,ichimoku,anchored_vwap,pivot_points,candlestick,patterns,fibonacci,smart_money,volume_profile,open_interest,funding}.rs`: migrate remaining 35 indicator `update()` signatures from `Decimal` to `f64`. Per-indicator commits, ~50-70 line changes each (signature + arithmetic + tests). Total: ~1750-2450 line change across 35 files. | Staged | v6.10 |
-| `AUDIT-V8-405` | `market-analyzer/src/analyzer/mod.rs` (`run_single`): add single `Decimal→f64` batch conversion at the top of the per-candle hot loop (OHLCV → `open_f/high_f/low_f/close_f/volume_f`); feed `_f` values to every indicator `update()` call. Remove 150+ inline `completed.close.to_f64()` per-candle conversions. | Staged | v6.10 |
-| `AUDIT-V8-406` | `market-analyzer/src/analyzer/warm.rs` (`warm_indicators_for_timeframe`): same pattern — single `Decimal→f64` batch conversion per historical candle; feed `_f` values to indicators. | Staged | v6.10 |
-| `AUDIT-V8-407` | `market-analyzer/src/analyzer/normalize.rs`: update `NormalizeParams` to accept `f64`; remove `d2f()`/`od2f()` conversion helpers; simplify `build_indicator_map` to consume `f64` directly. | Staged (dependent on AUDIT-V8-401…V8-404) | v6.10 |
-| `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status` | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version` | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Partially resolved (v6.4.1): the three handlers are served (06-01 §2.11). Remaining open: `mark_index_spread_pct` writers; persistent `/api/system/clock.breach_count` counter (placeholder `0` today) | v6.10 |
-| `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed) | Open | v6.10 |
-| `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers) | Open | v6.10 |
-| `AUDIT-V6-304` | PAE→DB feedback (persist PAE analytical feedback to configuration databases for off-line policy optimization) | Open | Unscheduled |
+| `AUDIT-V4-079` | PriceChart marker overlay for cluster positions (Phase 4 extension)  | Cancelled (2026-08-18) | Unscheduled |
+| `AUDIT-V4-080` | `liquidation_events` → PAE backtest ingestion  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-077` | In-process exchange-key rotation tool (`POST /api/keys/rotate` re-encryption under a new master key, SIGHUP hot rotation, encrypted-backup export) — manual procedure documented in `08-07`  | Open | Unscheduled |
+| `AUDIT-V6-202` | `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions)  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-203` | `database-storage`: add `instance_lifecycle` + `instance_lifecycle_events` migrations; bump `user_version`  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-204` | `api-gateway`: implement `POST /api/instances/:instance_id/start`; rewrite `/pause` (entry-gate semantics) and `/stop` (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-205` | `portfolio-supervisor`: implement Gate 0 check in pre-trade chain  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-206` | `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true`  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V7-300` | `config-models`: introduce `CandleBufferConfig` struct + `[candle_buffer]` block; remove `analysis_limit` from `TimeframeConfig`; add migration log line for legacy `analysis_limit` keys  | Open (specified in `08-08` §7) | Unscheduled |
+| `AUDIT-V7-301` | `core-domain`: introduce `CandlePipelineState`, `IndicatorLifecycleState`, `IndicatorLifecycleStatus` (see `03-01-06` §2 and `03-02-15` §2)  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-302` | `network-adapters`: introduce `HistoricalFetchPolicy` trait; implement `HyperliquidHistoricalFetch` (paginated backward cursor); implement `BitgetHistoricalFetch` (paginated forward cursor with `limit=200` per page)  | Open (specified in `03-01-07` §7) | Unscheduled |
+| `AUDIT-V7-303` | `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 50 registry entries; publish `tf.pipeline_state`  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-304` | `portfolio-supervisor`: rewrite `collect_candles` to use `HistoricalFetchPolicy`; sub-minute returns empty Vec; ≥ 1 minute paginates until `size` then merges DB; expose `reload_timeframe(instance_id, slot, new_config)` API  | Open (specified in `08-08` §7) | Unscheduled |
+| `AUDIT-V7-305` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` clamp to `candle_buffer.size`; add `pipeline_state` + `indicator_lifecycle` to the `/api/history` response  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-306` | `execution-daemon`: fix `--web` boot so `init_session` does not deactivate before auto-spawning configured instances  | Open (specified in `08-08` §7) | Unscheduled |
+| `AUDIT-V7-307` | `ui`: introduce `IndicatorStatusBadge.svelte`; honor `tf.pipeline_state` in chart headers; stop merging old values when a snapshot arrives with `pipeline_state = LOADING`; remove the `analysisLimit` selector (replace with read-only display of `candle_buffer.size`)  | Open (specified in `08-08` §7) | Unscheduled |
+| `AUDIT-V7-310` | `core-domain`: add `CandlePipelineState` enum + `IndicatorLifecycleStatus` map type; extend `MarketSnapshot` with `pipeline_state` + `indicator_lifecycle` fields  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-311` | `database-storage`: migration `00XX_add_candle_pipeline_state_events.sql` + `00XX_alter_market_snapshots.sql`; bump `user_version`  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V8-001` | `market-analyzer`: per-line EMA ribbon warm-up — `ema_stack.bars_required` 200→1; `inject_ema_values` gates each line on `bar_count ≥` its configured period (`fast`@10, `medium`@50, `slow`@100, `long`@200); `NormalizeParams.ema_periods` threaded through all four `build_indicator_map` call sites  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-002` | `market-analyzer`: stale-mid guard — force-close/doji-fill only uses the order-book mid while the book is fresh (≤ grace period), else falls back to the last trade close; tracked via `last_ob_ms`  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-003` | `market-analyzer`: idle-bucket heartbeat — sub-minute stale check synthesizes one doji per elapsed empty bucket (last known close, `reconstructed: SYNTHETIC`), advances all indicators, broadcasts, pushes to in-memory `snapshot_history`  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-004` | `api-gateway`: `/api/history` marks heartbeat/gap-filled candles `reconstructed: SYNTHETIC` from `quality_envelope.is_gap_filled`; force-close + doji snapshots pushed into in-memory `snapshot_history` for continuous sub-minute history  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-005` | `market-analyzer`: reconnect-gap recovery feeds reconstructed candles through `apply_candle_to_indicators` and broadcasts fully-populated snapshots (was empty-indicators `build_gapfill_snapshot`); `build_gapfill_snapshot` now test-only  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-006` | `api-gateway`: `/api/history` indicator arrays built against the gap-filled `times` axis (null rows for scaffold Doji indices) so `times[i]` ↔ `values[*][i]` always align  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-007` | `ui`: PriceChart history bootstrap gap-fills after filtering + `buildPaintCandles` keeps backend SYNTHETIC candles in the paint array — painted candle axis always matches the indicator `times` axis  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V8-008` | `ui`: sub-minute chart viewport widened to the full seeded history window (`seedCountFor × timeframe`) so the EMA-200 line is reachable on ≤5 s charts  | **Shipped in v6.10.5** (see v6.10.5 entry) | Unscheduled |
+| `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09)  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle`  | Open (specified in `03-01-06` §7) | Unscheduled |
+| `AUDIT-V7-320` | `network-adapters`: introduce `HistoricalFetchPolicy` trait + request/error types in `adapters/historical_fetch.rs`  | Open (specified in `03-01-07` §7) | Unscheduled |
+| `AUDIT-V7-321` | `network-adapters`: implement `HyperliquidHistoricalFetch` with backward `startTime` cursor pagination (HFP-05)  | Open (specified in `03-01-07` §7) | Unscheduled |
+| `AUDIT-V7-322` | `network-adapters`: implement `BitgetHistoricalFetch` with forward `startTime` cursor pagination + `limit=200` per page (HFP-06)  | Open (specified in `03-01-07` §7) | Unscheduled |
+| `AUDIT-V7-323` | `portfolio-supervisor`: replace `collect_candles` with `HistoricalFetchPolicy` caller; HFP-03 sub-minute short-circuit; HFP-09 merge; HFP-10 timeout handling  | Open (specified in `03-01-07` §7) | Unscheduled |
+| `AUDIT-V7-324` | `tests`: add 5 tests — (a) sub-minute returns empty, (b) Hyperliquid paginates to `size`, (c) Bitget paginates `limit=200` to `size`, (d) DB-precedence on overlap, (e) timeout returns partial + warning  | Open (specified in `03-01-07` §7) | Unscheduled |
+| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields  | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | Unscheduled |
+| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each indicator metadata entry in `crates/market-analyzer/src/indicators/registry.rs` (all **52** entries)  | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | Unscheduled |
+| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override  | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | Unscheduled |
+| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting  | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | Unscheduled |
+| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector  | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | Unscheduled |
+| `AUDIT-V8-400` | `market-analyzer/indicators/traits.rs`: DOD hot-path contract applied — `BarInput` fields are `f64`, `Indicator::Output = f64`. Migration code-converter at the trait boundary for all ~30 `Indicator` impls.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-401` | `market-analyzer/indicators/ema.rs`: migrate EMA `update(price: Decimal) → update(price: f64)`. Expected: ~50 line change (10 lines signature + 40 lines test).  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-402` | `market-analyzer/indicators/rsi.rs`: migrate RSI `update(close: Decimal) → update(close: f64)`. Expected: ~60 line change.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-403` | `market-analyzer/indicators/macd.rs`: migrate MACD `update(close: Decimal) → update(close: f64)`. Expected: ~80 line change.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-404` | `market-analyzer/indicators/{atr,adx,bbwp,stochastic,chandemo,supertrend,keltner,donchian,obv,cmf,mfi,hv,aroon,choppiness,linreg,zscore,bollinger,squeeze,cci,psar,williams_r,hull_ma,awesome_oscillator,force_index,stddev_channel,ichimoku,anchored_vwap,pivot_points,candlestick,patterns,fibonacci,smart_money,volume_profile,open_interest,funding}.rs`: migrate remaining 35 indicator `update()` signatures from `Decimal` to `f64`. Per-indicator commits, ~50-70 line changes each (signature + arithmetic + tests). Total: ~1750-2450 line change across 35 files.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-405` | `market-analyzer/src/analyzer/mod.rs` (`run_single`): add single `Decimal→f64` batch conversion at the top of the per-candle hot loop (OHLCV → `open_f/high_f/low_f/close_f/volume_f`); feed `_f` values to every indicator `update()` call. Remove 150+ inline `completed.close.to_f64()` per-candle conversions.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-406` | `market-analyzer/src/analyzer/warm.rs` (`warm_indicators_for_timeframe`): same pattern — single `Decimal→f64` batch conversion per historical candle; feed `_f` values to indicators.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V8-407` | `market-analyzer/src/analyzer/normalize.rs`: update `NormalizeParams` to accept `f64`; remove `d2f()`/`od2f()` conversion helpers; simplify `build_indicator_map` to consume `f64` directly.  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables  | **Shipped** (2026-08-17 audit sweep) | Unscheduled |
+| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set  | **Shipped** (2026-08-17 audit sweep: `ActiveSet::from_config` wired in `build_pipelines`; disabled indicators absent from the map; liquidity sub-toggles honored) | Unscheduled |
+| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status`  | **Shipped** (2026-08-17 audit sweep: `metrics_config` emission verified end-to-end) | Unscheduled |
+| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version`  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200  | Open (runtime surface pending; activation is applied config-side) | Unscheduled |
+| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers  | Partially resolved (v6.4.1): the three handlers are served (06-01 §2.11). Remaining open: `mark_index_spread_pct` writers; persistent `/api/system/clock.breach_count` counter (placeholder `0` today) | Unscheduled |
+| `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed)  | Open | Unscheduled |
+| `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers)  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
+| `AUDIT-V6-304` | PAE→DB feedback (persist PAE analytical feedback to configuration databases for off-line policy optimization)  | Superseded (v7 design — see the v7.0 entry) | Unscheduled |
 | `AUDIT-V6-305` | Remote config backends (load platform configuration from remote backends, not only local `config.toml`) | Open | Unscheduled |
-| `AUDIT-V6-401` | Wire `TradeAutomationDashboard` to live API (`/api/instances/:id/{policies,triggers,paper/{positions,orders,history},lifecycle}`) — Phase A of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
-| `AUDIT-V6-402` | Wire `PortfolioDashboard` to live API (`/api/instances/:id/{portfolio,safety,exposure,capital,veto}`) — Phase A + C of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
-| `AUDIT-V6-403` | `POST /api/backtest/run` + `GET /api/backtest/:id` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
-| `AUDIT-V6-404` | Replace `setTimeout` UI mock in `PerformanceDashboard.runBacktest` with a real `fetch` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
-| `AUDIT-V6-405` | Equity-curve chart replaces "Equity curve visualization coming soon" — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
-| `AUDIT-V6-406` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
-| `AUDIT-V6-407` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-401` | Wire `TradeAutomationDashboard` to live API (`/api/instances/:id/{policies,triggers,paper/{positions,orders,history},lifecycle}`) — Phase A of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
+| `AUDIT-V6-402` | Wire `PortfolioDashboard` to live API (`/api/instances/:id/{portfolio,safety,exposure,capital,veto}`) — Phase A + C of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
+| `AUDIT-V6-403` | `POST /api/backtest/run` + `GET /api/backtest/:id` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
+| `AUDIT-V6-404` | Replace `setTimeout` UI mock in `PerformanceDashboard.runBacktest` with a real `fetch` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
+| `AUDIT-V6-405` | Equity-curve chart replaces "Equity curve visualization coming soon" — Phase D of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
+| `AUDIT-V6-406` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
+| `AUDIT-V6-407` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md)  | Open | Unscheduled |
 
 ---
 

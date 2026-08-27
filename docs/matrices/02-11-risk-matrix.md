@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -50,8 +50,8 @@ Implemented as `RiskMatrix` (`crates/core-domain/src/risk.rs`), produced by `com
 | Field | Type | Range | Description |
 |-------|------|-------|-------------|
 | `score` | `f64` | `[0, 100]` | **Unipolar** risk score — higher is riskier. |
-| `level` | `RiskLevel` | — | `VERY_LOW` / `LOW` / `MODERATE` / `HIGH` / `EXTREME`. |
-| `state` | `RiskState` | — | `STABLE` / `INCREASING` / `ELEVATED` / `CRITICAL` / `IMPROVING`. **Functional since v6.10.9** — derived by `derive_risk_state` (level escalation `≥ 80 → CRITICAL`, `≥ 60 → ELEVATED`, else the previous-synthesis delta `> +10 → INCREASING`, `< −10 → IMPROVING`, else `STABLE`). Descriptive only — it never feeds back into the weighted sum. |
+| `level` | `RiskLevel` | — | Wire values (PascalCase): `VeryLow` / `Low` / `Moderate` / `High` / `Extreme`. |
+| `state` | `RiskState` | — | Wire values (PascalCase): `Stable` / `Increasing` / `Elevated` / `Critical` / `Improving`. **Functional since v6.10.9** — derived by `derive_risk_state` (level escalation `≥ 80 → Critical`, `≥ 60 → Elevated`, else the previous-synthesis delta `> +10 → Increasing`, `< −10 → Improving`, else `Stable`). Descriptive only — it never feeds back into the weighted sum. |
 | `confidence` | `f64` | `[0, 100]` | Confidence in the measurement. |
 | `evidence` | `string[]` | — | Human-readable contributing factors. |
 | `volatility_to_spread_ratio` | `f64?` | — | **v6.11.** `ATR(14) ÷ top-of-book bid-ask spread` (raw price units) — execution-friction gauge. Populated **only** on `execution_risk`; absent (`Option::None`, omitted from the wire) on the other eight dimensions. A high ratio (e.g. `> 10`) means the average candle range dwarfs transaction cost (scalp-friendly); a low ratio (e.g. `< 1.5`) means spread friction consumes potential profits. |
@@ -145,9 +145,11 @@ score = max(score, flow.cascade_intensity)                       // pull in 0..1
 +15  if flow.cascade_state == Detected                           // premium 0..15 per state
  +0  if flow.cascade_state == Exhausted                          // decaying, no premium
 +0..30  if |cluster.cascade_asymmetry| > 0.3                     // forward-looking pressure
++0..15  per OI-price-divergence liquidity signal (positioning stress, ×strength/100)
++0..10  per funding-flip liquidity signal (crowd positioning stress, ×strength/100)
 ```
 
-Evidence strings record both the cascade state (when active) and any significant cluster asymmetry.
+Evidence strings record the cascade state (when active), any significant cluster asymmetry, and the AUDIT-AIU-062 discrete-signal bonuses (OI-price divergence / funding flip — capped at +25 total; scores clamp at 100).
 
 ### 4.9 Overall Risk (weighted aggregate)
 
@@ -168,19 +170,19 @@ A representative Risk Matrix frame. The example illustrates the JSON shape and t
 ```json
 {
   "symbol": "BTC-USDT",
-  "market_risk":     { "score": 35.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0, "evidence": ["High confidence"] },
-  "volatility_risk": { "score": 45.0, "level": "MODERATE", "state": "STABLE", "confidence": 50.0, "evidence": ["BBWP elevated"] },
-  "execution_liquidity_risk": { "score": 15.0, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong participation"] },
-  "structure_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "momentum_risk":   { "score": 20.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "signal_risk":     { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "execution_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0, "volatility_to_spread_ratio": 8.4 },
-  "cascade_risk":    { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "overall_risk":    { "score": 28.3, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
+  "market_risk":     { "score": 35.0, "level": "Low",      "state": "Stable", "confidence": 50.0, "evidence": ["High confidence"] },
+  "volatility_risk": { "score": 45.0, "level": "Moderate", "state": "Stable", "confidence": 50.0, "evidence": ["BBWP elevated"] },
+  "execution_liquidity_risk": { "score": 15.0, "level": "VeryLow", "state": "Stable", "confidence": 50.0, "evidence": ["Strong participation"] },
+  "structure_risk":  { "score": 25.0, "level": "Low",      "state": "Stable", "confidence": 50.0 },
+  "momentum_risk":   { "score": 20.0, "level": "Low",      "state": "Stable", "confidence": 50.0 },
+  "signal_risk":     { "score": 30.0, "level": "Low",      "state": "Stable", "confidence": 50.0 },
+  "execution_risk":  { "score": 25.0, "level": "Low",      "state": "Stable", "confidence": 50.0, "volatility_to_spread_ratio": 8.4 },
+  "cascade_risk":    { "score": 30.0, "level": "Low",      "state": "Stable", "confidence": 50.0 },
+  "overall_risk":    { "score": 28.3, "level": "Low",      "state": "Stable", "confidence": 50.0 }
 }
 ```
 
-Empty `evidence` arrays are omitted. Enum values serialize as `SCREAMING_SNAKE_CASE`. `volatility_to_spread_ratio` is `Option<f64>` — omitted from the wire when `None` (all dimensions except `execution_risk`).
+Empty `evidence` arrays are omitted. `RiskLevel` / `RiskState` values serialize as **PascalCase** on the wire (as shown above); the SCREAMING forms (`VERY_LOW`, `CRITICAL`, …) are the `Display` vocabulary. `volatility_to_spread_ratio` is `Option<f64>` — omitted from the wire when `None` (all dimensions except `execution_risk`). The `confidence` range matches the code: `[0, 100]` (the RiskDimension `confidence` field carries `state_confidence × 100`).
 
 ---
 

@@ -1,651 +1,216 @@
-.dashboard {
-    display: flex;
-    height: 100%;
-    background: #000;
-    color: #fff;
-    font-family: var(--mono);
-}
+/* PortfolioDashboard — local layout details only. The shared vocabulary
+   (headers, badges, KPI cards, tables, banners) lives in
+   ../styles/engine-dashboard.module.css. */
 
-.sidebar {
-    width: 200px;
-    border-right: 1px solid rgba(255, 255, 255, 0.07);
-    padding: 1rem 0;
-    flex-shrink: 0;
-}
-
-.sidebarTitle {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.35);
-    padding: 0 1rem;
-    margin-bottom: 0.75rem;
-}
-
-.sidebarBtn {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 0.5rem 1rem;
-    border: none;
-    background: transparent;
+.infoLine {
+    font-size: 11px;
     color: rgba(255, 255, 255, 0.45);
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-family: var(--mono);
-    transition: background 0.15s;
+    margin: 0 0 10px;
+    line-height: 1.5;
 }
 
-.sidebarBtn:hover { background: rgba(255, 255, 255, 0.04); }
-.sidebarBtnActive { background: rgba(255, 255, 255, 0.06); color: #fff; }
+/* ── Safety ladder (readiness blueprint) ── */
 
-.content {
-    flex: 1;
-    padding: 1.5rem;
-    overflow-y: auto;
-}
-
-.sectionTitle {
-    font-size: 1rem;
-    margin-bottom: 0.5rem;
-}
-
-.sectionDesc {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 0.8rem;
-    margin-bottom: 1rem;
-}
-
-/* ─── Safety state banner ─── */
-.safetyBanner {
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-}
-
-.safetyNormal { background: rgba(76, 175, 80, 0.12); border: 1px solid rgba(76, 175, 80, 0.3); color: #4caf50; }
-.safetyWarn { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); color: #ffb74d; }
-.safetyCautious { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #ff9800; }
-.safetySuspended { background: rgba(239, 83, 80, 0.12); border: 1px solid rgba(239, 83, 80, 0.3); color: #ef5350; }
-.safetyDrawdown { background: rgba(183, 28, 28, 0.2); border: 1px solid rgba(183, 28, 28, 0.5); color: #e53935; }
-
-.safetyIcon {
-    font-size: 1.2rem;
-}
-
-.safetyBadge {
-    padding: 0.2rem 0.6rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.safetyBadgeNormal { background: #1b5e20; color: #4caf50; }
-.safetyBadgeWarn { background: #e65100; color: #ffb74d; }
-.safetyBadgeCautious { background: #bf360c; color: #ff9800; }
-.safetyBadgeSuspended { background: #b71c1c; color: #ef5350; }
-.safetyBadgeDrawdown { background: #880e4f; color: #e53935; }
-
-/* ─── Stats grid ─── */
-.statsGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-}
-
-.statCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.statLabel {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.35rem;
-}
-
-.statValue {
-    font-size: 1.3rem;
-    font-weight: 600;
-}
-
-.statSub {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-.statPositive { color: #4caf50; }
-.statNegative { color: #ef5350; }
-.statNeutral { color: #ffb74d; }
-
-/* ─── Table ─── */
-.table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.78rem;
-}
-
-.table th {
-    text-align: left;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.table td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
-}
-
-.table tr:hover { background: rgba(255, 255, 255, 0.03); }
-
-.tdRight { text-align: right; font-variant-numeric: tabular-nums; }
-.tdCenter { text-align: center; }
-.tdMono { font-family: var(--mono); font-size: 0.75rem; }
-
-/* ─── Badges ─── */
-.badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
-
-.badgeLong { background: rgba(76,175,80,0.15); color: #4caf50; }
-.badgeShort { background: rgba(239,83,80,0.15); color: #ef5350; }
-
-/* ─── Exposure bars ─── */
-.exposureRow {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.78rem;
-}
-
-.exposureLabel {
-    width: 130px;
-    text-align: right;
-    color: rgba(255, 255, 255, 0.45);
-    flex-shrink: 0;
-}
-
-.exposureBar {
-    flex: 1;
-    height: 10px;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 5px;
-    overflow: hidden;
-    position: relative;
-}
-
-.exposureFill {
-    height: 100%;
-    border-radius: 5px;
-    transition: width 0.4s ease;
-}
-
-.exposureFillLong { background: #4caf50; }
-.exposureFillShort { background: #ef5350; }
-.exposureFillNet { background: #64ffda; }
-
-.exposureValue {
-    width: 120px;
-    font-size: 0.72rem;
-    color: rgba(255, 255, 255, 0.85);
-    font-variant-numeric: tabular-nums;
-}
-
-/* ─── Concentration card ─── */
-.concentrationCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.concentrationHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.3rem;
-}
-
-.concentrationSymbol {
-    font-weight: 600;
-    font-size: 0.82rem;
-}
-
-.concentrationPct {
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
-}
-
-.concentrationLimitBar {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    position: relative;
-}
-
-.concentrationLimitFill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.4s ease;
-}
-
-.concentrationLimitLine {
-    position: absolute;
-    top: -2px;
-    height: 10px;
-    width: 1px;
-    background: #ef5350;
-}
-
-.concentrationLimitLabel {
-    font-size: 0.6rem;
-    color: #ef5350;
-    margin-top: 0.1rem;
-}
-
-/* ─── Capital gauge ─── */
-.capitalGauge {
-    margin-bottom: 1rem;
-}
-
-.capitalGaugeHeader {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.72rem;
-    margin-bottom: 0.25rem;
-}
-
-.capitalGaugeLabel { color: rgba(255, 255, 255, 0.45); }
-.capitalGaugeValue { font-variant-numeric: tabular-nums; }
-
-.capitalGaugeBar {
-    width: 100%;
-    height: 12px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    position: relative;
-}
-
-.capitalGaugeFill {
-    height: 100%;
-    border-radius: 6px;
-    transition: width 0.4s ease;
-}
-
-.capitalGaugeMarkers {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.6rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-/* ─── Threshold info row ─── */
-.thresholdRow {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.3rem 0;
-    font-size: 0.72rem;
-}
-
-.thresholdLevel {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-.thresholdText {
-    color: rgba(255, 255, 255, 0.45);
-}
-
-/* ─── Drawdown monitor ─── */
-.drawdownCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 0.75rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.drawdownStats {
-    display: flex;
-    gap: 1.5rem;
-    margin-bottom: 0.5rem;
-}
-
-.drawdownStat {
+.ladder {
     display: flex;
     flex-direction: column;
+    gap: 8px;
 }
 
-.drawdownStatLabel {
-    font-size: 0.65rem;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-}
-
-.drawdownStatValue {
-    font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.85);
-    font-variant-numeric: tabular-nums;
-}
-
-.drawdownBar {
-    height: 8px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-}
-
-.drawdownBarFill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.5s ease;
-}
-
-.drawdownBarMarker {
-    position: absolute;
-    top: -3px;
-    height: 14px;
-    width: 1px;
-    background: #ef5350;
-    z-index: 1;
-}
-
-/* ─── Veto triggers table ─── */
-.vetoCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.vetoHeader {
+.rung {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.3rem;
-}
-
-.vetoTrigger {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
-}
-
-.vetoArrow {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.7rem;
-}
-
-.vetoResult {
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-
-.vetoHardExit {
-    font-size: 0.7rem;
-    color: #ef5350;
-    font-weight: 600;
-}
-
-.vetoMeta {
-    font-size: 0.68rem;
-    color: rgba(255, 255, 255, 0.35);
-    display: flex;
-    gap: 0.75rem;
-}
-
-/* ─── Positions grid ─── */
-.positionCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    margin-bottom: 0.75rem;
-    overflow: hidden;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
     background: rgba(255, 255, 255, 0.02);
+    font-size: 12px;
+    opacity: 0.65;
 }
 
-.positionHeader {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    transition: background 0.15s;
+.rungLit {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.04);
 }
 
-.positionHeader:hover { background: rgba(255, 255, 255, 0.03); }
-
-.positionSymbol {
-    font-weight: 600;
-    font-size: 0.85rem;
+.rungDesc {
+    flex: 1;
+    color: rgba(255, 255, 255, 0.55);
 }
 
-.positionDirection {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.positionPnl {
-    font-size: 0.8rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-}
-
-.positionMeta {
-    margin-left: auto;
-    font-size: 0.7rem;
+.rungState {
+    font-family: var(--mono, 'SF Mono', monospace);
+    font-size: 10px;
+    letter-spacing: 0.06em;
     color: rgba(255, 255, 255, 0.35);
-    display: flex;
-    gap: 0.75rem;
 }
 
-.positionDetail {
-    padding: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.3);
-}
+/* ── Capital blueprint ── */
 
-.positionDetailGrid {
+.blueprintGrid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
 }
 
-.positionField {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.72rem;
-}
-
-.positionFieldLabel {
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.positionFieldValue {
-    color: rgba(255, 255, 255, 0.85);
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-}
-
-/* ─── Slots indicator ─── */
-.slotsIndicator {
-    display: flex;
-    gap: 0.15rem;
-}
-
-.slotDot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-}
-
-.slotDotActive { background: #4caf50; }
-.slotDotVacant { background: rgba(255, 255, 255, 0.1); }
-
-/* ─── Loss streak card ─── */
-.lossCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
+.blueprintItem {
     background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 10px 12px;
 }
 
-.lossHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.3rem;
-}
-
-.lossSymbol {
-    font-weight: 600;
-    font-size: 0.82rem;
-}
-
-.lossCount {
-    font-size: 0.85rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.lossBar {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    position: relative;
-}
-
-.lossBarFill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.4s ease;
-}
-
-.lossThreshold {
-    position: absolute;
-    top: -2px;
-    width: 1px;
-    height: 10px;
-}
-
-.lossThresholdCautious { background: #ffb74d; left: 60%; }
-.lossThresholdSuspended { background: #ef5350; left: 100%; }
-
-.lossLegend {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.6rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-/* ─── Expand icon ─── */
-.expandIcon {
-    display: inline-block;
-    transition: transform 0.2s;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.expandIconOpen { transform: rotate(90deg); }
-
-/* ─── Correlation mini heatmap ─── */
-.correlationGrid {
-    display: flex;
-    gap: 0;
-    align-items: center;
-}
-
-.correlationLabel {
-    width: 70px;
-    font-size: 0.7rem;
+.blueprintLabel {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     color: rgba(255, 255, 255, 0.45);
-    flex-shrink: 0;
+    margin-bottom: 4px;
 }
 
-.correlationRow {
+.blueprintValue {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.blueprintSub {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 3px;
+}
+
+/* ── Account overview ── */
+
+.overviewStat {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 10px 12px;
     display: flex;
-    gap: 0.15rem;
+    flex-direction: column;
+    gap: 4px;
 }
 
-.correlationCell {
-    width: 28px;
-    height: 24px;
-    border-radius: 2px;
+.overviewLabel {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.overviewValue {
+    font-size: 15px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.sessionBar {
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 0.6rem;
-    color: #fff;
+    gap: 12px;
+    margin-top: 12px;
 }
 
-.correlationHeader {
-    width: 28px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.6rem;
-    color: rgba(255, 255, 255, 0.35);
-}
+/* ── Margin critical zone (live monitor) ── */
 
-/* ─── Empty / placeholder ─── */
-.placeholder {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 2rem;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.85rem;
+.marginZone {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
     background: rgba(255, 255, 255, 0.02);
 }
 
-/* ─── Grid 2-column ─── */
-.grid2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+.marginWarn {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.06);
 }
 
-@media (max-width: 900px) {
-    .grid2 { grid-template-columns: 1fr; }
+.marginDanger {
+    border-color: rgba(239, 68, 68, 0.55);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.marginZoneLabel {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.marginZoneValue {
+    font-size: 20px;
+    font-weight: 800;
+    font-family: var(--mono, 'SF Mono', monospace);
+    margin-top: 4px;
+}
+
+.marginZoneSub {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 4px;
+}
+
+/* ── Safety card ── */
+
+.safetyCard {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.safetyContext {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.75);
+    margin: 0;
+}
+
+/* ── Concentration ── */
+
+.concList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 560px;
+}
+
+.concRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.concTrack {
+    flex: 1;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.concFill {
+    height: 100%;
+    background: #7dd3fc;
+    border-radius: 4px;
+}
+
+.concPct {
+    min-width: 70px;
+    text-align: right;
+    color: rgba(255, 255, 255, 0.75);
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.concLimit {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
 }

@@ -53,8 +53,11 @@ async fn disconnect_penalty_maxes_out_at_10() {
     let report = tracker.report(QualityWindow::OneHour, now_ms).await;
 
     assert_eq!(report.disconnect_count, 10);
-    assert!((report.score - 70.0).abs() < 0.1,
-        "expected ~70: 50×(~100%) + 30×0 + 20×(~1), got {:.6}", report.score);
+    assert!(
+        (report.score - 70.0).abs() < 0.1,
+        "expected ~70: 50×(~100%) + 30×0 + 20×(~1), got {:.6}",
+        report.score
+    );
 }
 
 #[tokio::test]
@@ -69,8 +72,11 @@ async fn reconnect_penalty_maxes_out_at_5000ms() {
     let report = tracker.report(QualityWindow::OneHour, now_ms).await;
 
     assert!(report.avg_reconnect_ms >= 5000.0);
-    assert!((report.score - 77.0).abs() < 0.1,
-        "expected ~77: 50×(~100%) + 30×0.9 + 20×0, got {:.6}", report.score);
+    assert!(
+        (report.score - 77.0).abs() < 0.1,
+        "expected ~77: 50×(~100%) + 30×0.9 + 20×0, got {:.6}",
+        report.score
+    );
 }
 
 #[tokio::test]
@@ -89,10 +95,14 @@ async fn data_loss_degrades_score_via_uptime() {
     let light = tracker_light.report(QualityWindow::OneHour, now_ms).await;
     let heavy = tracker_heavy.report(QualityWindow::OneHour, now_ms).await;
 
-    assert!(light.uptime_pct > heavy.uptime_pct,
-        "lighter loss should preserve more uptime");
-    assert!(light.score > heavy.score,
-        "more data-loss must yield a lower score");
+    assert!(
+        light.uptime_pct > heavy.uptime_pct,
+        "lighter loss should preserve more uptime"
+    );
+    assert!(
+        light.score > heavy.score,
+        "more data-loss must yield a lower score"
+    );
 }
 
 #[tokio::test]
@@ -116,11 +126,33 @@ async fn score_never_negative_and_never_exceeds_100() {
 
     tracker.record_disconnect(ws - 1).await;
 
-    for &t in &[ws, ws + 1, ws + 2, ws + 3, ws + 4, ws + 5, ws + 6, ws + 7, ws + 8, ws + 9] {
+    for &t in &[
+        ws,
+        ws + 1,
+        ws + 2,
+        ws + 3,
+        ws + 4,
+        ws + 5,
+        ws + 6,
+        ws + 7,
+        ws + 8,
+        ws + 9,
+    ] {
         tracker.record_disconnect(t).await;
     }
 
-    for &t in &[ws + 10, ws + 11, ws + 12, ws + 13, ws + 14, ws + 15, ws + 16, ws + 17, ws + 18, ws + 19] {
+    for &t in &[
+        ws + 10,
+        ws + 11,
+        ws + 12,
+        ws + 13,
+        ws + 14,
+        ws + 15,
+        ws + 16,
+        ws + 17,
+        ws + 18,
+        ws + 19,
+    ] {
         tracker.record_reconnect(t, 5000).await;
     }
 
@@ -128,8 +160,11 @@ async fn score_never_negative_and_never_exceeds_100() {
 
     let report = tracker.report(QualityWindow::OneHour, now_ms).await;
 
-    assert!((report.score - 0.0).abs() <= 0.02,
-        "worst-case expected ≈0, got {:.6}", report.score);
+    assert!(
+        (report.score - 0.0).abs() <= 0.02,
+        "worst-case expected ≈0, got {:.6}",
+        report.score
+    );
     assert!(report.score >= 0.0);
     assert!(report.score <= 100.0);
 }

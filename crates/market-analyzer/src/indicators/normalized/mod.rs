@@ -171,14 +171,22 @@ impl NormalizationEngine {
             _ => {}
         }
 
+        // AUDIT-AIU-108 (v6.10.21): the middle-band sign was inverted —
+        // `rsi 40` reported +0.35 (BULLISH_DISCOUNT) while MFI/Stochastic/
+        // WilliamsR reported negative at the same reading, feeding opposite
+        // directional votes into L3/L4 scoring on every snapshot. The RSI
+        // middle band now follows the uniform momentum convention of the
+        // other oscillators (04-02-23 "uniform RSI convention"): below the
+        // 50 line is bearish (negative), above is bullish (positive). The
+        // extreme zones stay contrarian (oversold → positive accumulation).
         let base = if rsi <= 30.0 {
             0.7 + ((30.0 - rsi) / 30.0) * 0.3
         } else if rsi >= 70.0 {
             -0.7 - ((rsi - 70.0) / 30.0) * 0.3
         } else if rsi <= 50.0 {
-            ((50.0 - rsi) / 20.0) * 0.7
+            -((50.0 - rsi) / 20.0) * 0.7
         } else {
-            -((rsi - 50.0) / 20.0) * 0.7
+            ((rsi - 50.0) / 20.0) * 0.7
         };
 
         // Potential (unconfirmed) divergence additive boost, capped at ±0.90.
@@ -311,11 +319,11 @@ fn rsi_label(norm: f64) -> &'static str {
     if norm >= 0.70 {
         "OVERSOLD_ACCUMULATION"
     } else if norm >= 0.10 {
-        "BULLISH_DISCOUNT"
+        "BULLISH_MOMENTUM"
     } else if norm > -0.10 {
         "EQUILIBRIUM"
     } else if norm > -0.70 {
-        "BEARISH_PREMIUM"
+        "BEARISH_MOMENTUM"
     } else {
         "OVERBOUGHT_DISTRIBUTION"
     }
@@ -355,8 +363,10 @@ mod meta_tests {
 
     #[test]
     fn derive_signals_boosts_confidence() {
-        let mut inputs = IndicatorInputs::default();
-        inputs.rsi = Some(15.0); // deep oversold → strong normalized + OB/OS threshold signal
+        let inputs = IndicatorInputs {
+            rsi: Some(15.0), // deep oversold → strong normalized + OB/OS threshold signal
+            ..IndicatorInputs::default()
+        };
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
         let rsi = map.get("rsi").expect("rsi present");
@@ -381,11 +391,7 @@ mod meta_tests {
         // "tracker warming up" from "no S/R detected in this regime".
         // Only fibonacci and patterns remain EventDriven with WARMING.
         let event_driven = ["fibonacci", "patterns"];
-        let divergent_keys = [
-            "fibonacci",
-            "patterns",
-            "support_resistance",
-        ];
+        let divergent_keys = ["fibonacci", "patterns", "support_resistance"];
         let divergence_keys = [
             "rsi_divergence",
             "macd_divergence",
@@ -528,7 +534,12 @@ mod meta_tests {
         // Metrics Indicators table until the first BOS / CHoCH / sweep /
         // FVG / OB is detected. The lifecycle builder (Loading state) plus
         // the UI (--/--/Warming) cover the "no event yet" case correctly.
-        for event_driven in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+        for event_driven in [
+            "smc_structure",
+            "smc_liquidity",
+            "smc_fvg",
+            "smc_order_blocks",
+        ] {
             assert!(
                 !shadow_map.contains_key(event_driven),
                 "{event_driven} must NOT be in the shadow map (event-driven — no WARMING placeholder)"
@@ -575,7 +586,12 @@ mod meta_tests {
     #[test]
     fn smc_indicators_are_tagged_event_driven() {
         use crate::indicators::registry::IndicatorDataSource;
-        for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+        for key in [
+            "smc_structure",
+            "smc_liquidity",
+            "smc_fvg",
+            "smc_order_blocks",
+        ] {
             let meta = crate::indicators::registry::get(key)
                 .unwrap_or_else(|| panic!("{key} must be in the registry"));
             assert_eq!(

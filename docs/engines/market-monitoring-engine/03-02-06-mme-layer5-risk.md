@@ -1,6 +1,6 @@
 # MME Layer 5 — Risk Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — v11: execution-liquidity baseline 10, rvol_low 1.0, rvol_high 5.0 (micro-TF RVOL is structural, not danger). See docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7
@@ -98,6 +98,7 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 - `LiquidityFlow.cascade_intensity` (per-candle real event aggregate, already 0..100).
 - `LiquidityFlow.cascade_state` (`None` / `Detected` / `Sustained` / `Exhausted`) — adds a 0..30 risk premium on top of intensity when the state is elevated.
 - `LiquidationClusterMatrix.cascade_asymmetry` — forward-looking pressure: `|asymmetry| > 0.3` adds up to 30 risk points.
+- Discrete `liquidity_signals` (AUDIT-AIU-062): each OI-price-divergence adds ≤ 15 points and each funding-flip ≤ 10 points (scaled by signal strength; capped at +25 total, score clamps at 100).
 
 Per-dimension scoring rules are documented in [Risk Matrix §4.8](../../matrices/02-11-risk-matrix.md). The overall aggregation formula is in §3 above.
 
@@ -109,4 +110,4 @@ Per-dimension scoring rules are documented in [Risk Matrix §4.8](../../matrices
 - [Risk Matrix](../../matrices/02-11-risk-matrix.md) — Output contract.
 - [LiquidityMatrix](../../matrices/02-12-liquidity-matrix.md) · [ClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md) — Cascade inputs.
 - [MME Layer 6 — Decision Support](03-02-07-mme-layer6-decision-support.md) — Consumer.
-- [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Systemic risk consumer.
+- [PME Layer 4 — Overview](../portfolio-management-engine/03-04-05-pme-layer4-overview.md) — Systemic risk consumer.

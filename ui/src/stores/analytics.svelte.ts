@@ -32,7 +32,7 @@ export class AnalyticsStore {
     statsLoading = $state(false);
 
     async fetchDashboardStats(sessionCapital: number) {
-        try { const res = await fetch(`/api/dashboard/stats?initial_capital=${sessionCapital}&period=${encodeURIComponent(this.dashboardPeriod)}&origin=${encodeURIComponent(this.dashboardOrigin)}`); if (res.ok) { this.dashboardStats = await res.json(); } } catch (_) {}
+        try { const res = await fetch(`/api/dashboard/stats?portfolio_capital_usd=${sessionCapital}&period=${encodeURIComponent(this.dashboardPeriod)}&origin=${encodeURIComponent(this.dashboardOrigin)}`); if (res.ok) { this.dashboardStats = await res.json(); } } catch (_) {}
     }
 
     async fetchTradeLedger() {

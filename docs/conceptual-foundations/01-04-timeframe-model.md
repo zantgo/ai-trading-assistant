@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -134,7 +134,7 @@ The per-TF bootstrap behavior is binary on `timeframe_secs`:
 
 | `timeframe_secs` | Historical source | Buffer at cold start | Pipeline enters |
 |-----------------:|-------------------|---------------------:|-----------------|
-| `< 60`           | None              | 0                    | `LOADING` → `LIVE` after `size × timeframe_secs` of wall-clock time (CB-05–CB-07) |
+| `< 60`           | 60 s REST state replay (PRI-03, default); none with `sub_minute_skip_historical = true` | 0 (replayed closes warm indicator STATE only — `history` fills from live candles, AUDIT-AIU-117) | `LOADING` → `LIVE` at ~`max(size/10, 50)` bars cold, or first live close warm-started (CB-05–CB-07 / PRI-05) |
 | `≥ 60`           | Paginated exchange REST + SQLite merge | exactly `size` | `LIVE` immediately on first paint (CB-08–CB-10) |
 
 Both behaviors are uniform across exchanges — Hyperliquid and Bitget implement the same `HistoricalFetchPolicy` trait and converge to the same in-memory buffer shape. Per-indicator `Loading → Live` transitions are tracked explicitly in `MarketSnapshot.indicator_lifecycle` per [03-02-15-mme-indicator-lifecycle-states.md](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md) ILS-01 … ILS-15.

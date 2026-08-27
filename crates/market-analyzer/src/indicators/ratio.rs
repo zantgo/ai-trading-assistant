@@ -107,7 +107,10 @@ mod tests {
         let series: Vec<f64> = (0..300).map(|i| 100.0 + i as f64 * 0.01).collect();
         let s = sharpe_ratio_annualized(&series, 60).expect("rising series must yield a value");
         assert!(s > 0.0, "rising series must be positive, got {s}");
-        assert!(s > 2.0, "consistent rise must clear the significance band, got {s}");
+        assert!(
+            s > 2.0,
+            "consistent rise must clear the significance band, got {s}"
+        );
     }
 
     #[test]
@@ -125,8 +128,12 @@ mod tests {
         let series: Vec<f64> = (0..301)
             .map(|i| if i % 2 == 0 { 100.0 } else { 100.5 })
             .collect();
-        let s = sharpe_ratio_annualized(&series, 60).expect("alternating series must yield a value");
-        assert!(s.abs() < 1.0, "alternating noise must be near zero, got {s}");
+        let s =
+            sharpe_ratio_annualized(&series, 60).expect("alternating series must yield a value");
+        assert!(
+            s.abs() < 1.0,
+            "alternating noise must be near zero, got {s}"
+        );
     }
 
     #[test]
@@ -143,7 +150,10 @@ mod tests {
             .collect();
         let s_60 = sharpe_ratio_annualized(&series, 60).unwrap();
         let s_300 = sharpe_ratio_annualized(&series, 300).unwrap();
-        assert!(s_60.abs() < SHARPE_MAX_ABS, "test series must stay in band: {s_60}");
+        assert!(
+            s_60.abs() < SHARPE_MAX_ABS,
+            "test series must stay in band: {s_60}"
+        );
         assert!(
             (s_60 / s_300 - (5.0_f64).sqrt()).abs() < 1e-6,
             "scale must follow sqrt(candles_per_day): {} vs {}",
@@ -158,12 +168,19 @@ mod tests {
         // pathology) must clamp at ±SHARPE_MAX_ABS instead of exploding to
         // values like −117 that read as defects on the dashboard.
         let rising: Vec<f64> = (0..300).map(|i| 100.0 + i as f64 * 0.01).collect();
-        let s_up = sharpe_ratio_annualized(&rising, 60).expect("smooth rising series yields a value");
-        assert_eq!(s_up, SHARPE_MAX_ABS, "smooth rising series must clamp at +20");
+        let s_up =
+            sharpe_ratio_annualized(&rising, 60).expect("smooth rising series yields a value");
+        assert_eq!(
+            s_up, SHARPE_MAX_ABS,
+            "smooth rising series must clamp at +20"
+        );
         let falling: Vec<f64> = (0..300).map(|i| 100.0 - i as f64 * 0.01).collect();
         let s_down =
             sharpe_ratio_annualized(&falling, 60).expect("smooth falling series yields a value");
-        assert_eq!(s_down, -SHARPE_MAX_ABS, "smooth falling series must clamp at −20");
+        assert_eq!(
+            s_down, -SHARPE_MAX_ABS,
+            "smooth falling series must clamp at −20"
+        );
     }
 
     #[test]

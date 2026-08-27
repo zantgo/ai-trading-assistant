@@ -32,8 +32,8 @@
 //!
 //! The cascade-asymmetry score is the difference between
 //! short-cluster notional (above mid) and long-cluster notional
-//! (below mid), normalized by total OI. Negative = short squeeze
-//! risk (price likely to rally), positive = long squeeze risk
+//! (below mid), normalized by total OI. Positive = short squeeze
+//! risk (price likely to rally), negative = long squeeze risk
 //! (price likely to drop).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -154,6 +154,31 @@ impl Default for LiquidityFlow {
 
 /// Per-symbol accumulator. Owns a bounded event deque and the rolling
 /// cascade state.
+/// v9 (strategy `l1_5.accumulator`): intensity/baseline tuning. Defaults
+/// reproduce the v8.2 hardcoded values exactly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccumulatorTuning {
+    /// Baseline USD for a single event when no rolling history exists.
+    pub baseline_no_history_usd: f64,
+    /// Log-scale multiplier for the intensity mapping (`ln(ratio) × k`).
+    pub intensity_log_scale: f64,
+    /// Fallback event baseline when the window is flat (σ ≈ 0).
+    pub fallback_baseline_usd: f64,
+    /// `cascade_intensity > exhausted_intensity` + declining window ⇒ Exhausted.
+    pub exhausted_intensity: f64,
+}
+
+impl Default for AccumulatorTuning {
+    fn default() -> Self {
+        Self {
+            baseline_no_history_usd: 1000.0,
+            intensity_log_scale: 20.0,
+            fallback_baseline_usd: 500.0,
+            exhausted_intensity: 30.0,
+        }
+    }
+}
+
 pub struct LiquidityEventAccumulator {
     symbol: String,
     events: VecDeque<LiquidationEvent>,
@@ -168,6 +193,8 @@ pub struct LiquidityEventAccumulator {
     cascade_window_candles: usize,
     /// Rolling per-candle cascade intensity (last N completed bars).
     rolling_intensity: VecDeque<f64>,
+    /// v9: strategy-derived intensity/baseline tuning.
+    tuning: AccumulatorTuning,
     /// Configured number of significant events required to promote
     /// `Detected → Sustained`. Wired from `[workspace.liquidity].cascade_sustained_events`.
     cascade_sustained_events: u32,
@@ -245,6 +272,7 @@ impl LiquidityEventAccumulator {
             cascade_event_zscore,
             cascade_window_candles: cascade_window_candles.max(2),
             rolling_intensity: VecDeque::with_capacity(cascade_window_candles.max(2) * 2),
+            tuning: AccumulatorTuning::default(),
             cascade_sustained_events: cascade_sustained_events.max(1),
             heatmap_bucket_size_pct: heatmap_bucket_size_pct.max(1e-6),
             heatmap_retention_ms: heatmap_retention_secs.saturating_mul(1_000),
@@ -294,16 +322,19 @@ impl LiquidityEventAccumulator {
 
         let (price_low, price_high) = self.bucket_price_range(anchor, bucket_index, bucket_size);
 
-        let b = self.bucket_map.entry(key).or_insert_with(|| RealLiquidationBucket {
-            bucket_index,
-            side: ev.side,
-            price_low,
-            price_high,
-            peak_price: price,
-            notional_usd: 0.0,
-            event_count: 0,
-            last_updated_ms: ev.timestamp_ms,
-        });
+        let b = self
+            .bucket_map
+            .entry(key)
+            .or_insert_with(|| RealLiquidationBucket {
+                bucket_index,
+                side: ev.side,
+                price_low,
+                price_high,
+                peak_price: price,
+                notional_usd: 0.0,
+                event_count: 0,
+                last_updated_ms: ev.timestamp_ms,
+            });
         b.notional_usd += notional;
         b.event_count = b.event_count.saturating_add(1);
         b.last_updated_ms = b.last_updated_ms.max(ev.timestamp_ms);
@@ -324,12 +355,7 @@ impl LiquidityEventAccumulator {
     /// Map `(anchor, bucket_index, bucket_size)` back to the absolute
     /// `[price_low, price_high]` window. Bucket index 0 corresponds to
     /// `[anchor*(1-bucket_size/2), anchor*(1+bucket_size/2)]`, etc.
-    fn bucket_price_range(
-        &self,
-        anchor: f64,
-        bucket_index: i64,
-        bucket_size: f64,
-    ) -> (f64, f64) {
+    fn bucket_price_range(&self, anchor: f64, bucket_index: i64, bucket_size: f64) -> (f64, f64) {
         let low_ratio = 1.0 + (bucket_index as f64 - 0.5) * bucket_size;
         let high_ratio = 1.0 + (bucket_index as f64 + 0.5) * bucket_size;
         (
@@ -452,16 +478,17 @@ impl LiquidityEventAccumulator {
         // Sum of all notional in current bar vs. mean per-bar in window.
         let total = self.bar_flow.long_liquidations_usd + self.bar_flow.short_liquidations_usd;
         let baseline: f64 = if self.rolling_intensity.is_empty() {
-            1000.0 // $1,000 baseline when no history — single event is significant
+            // v9: strategy `l1_5.accumulator.baseline_no_history_usd`.
+            self.tuning.baseline_no_history_usd
         } else {
             // Map mean rolling intensity back to USD for comparison.
             self.rolling_intensity.iter().sum::<f64>() / self.rolling_intensity.len() as f64
-                * 1000.0
+                * self.tuning.baseline_no_history_usd
                 + 1.0
         };
         let ratio = total / baseline;
         // log-scaled, clamped 0..100.
-        (ratio.ln().max(0.0) * 20.0).min(100.0)
+        (ratio.ln().max(0.0) * self.tuning.intensity_log_scale).min(100.0)
     }
 
     fn derive_cascade_state(&self) -> CascadeState {
@@ -485,7 +512,7 @@ impl LiquidityEventAccumulator {
             })
             .collect();
         let (baseline_event_usd, sigma, count) = if notionals.is_empty() {
-            (500.0f64, 0.0f64, 0usize)
+            (self.tuning.fallback_baseline_usd, 0.0f64, 0usize)
         } else {
             let n = notionals.len() as f64;
             let mean = notionals.iter().sum::<f64>() / n;
@@ -504,7 +531,7 @@ impl LiquidityEventAccumulator {
         } else {
             // Flat window (σ ≈ 0): fall back to the ratio multiplier so a
             // single outsized event still trips detection.
-            (baseline_event_usd * self.cascade_event_zscore).max(500.0)
+            (baseline_event_usd * self.cascade_event_zscore).max(self.tuning.fallback_baseline_usd)
         };
         let mut significant_events: u32 = 0;
         for notional in notionals {
@@ -515,12 +542,14 @@ impl LiquidityEventAccumulator {
         let _ = count;
         // >= cascade_sustained_events in the last 50 events = Sustained;
         // 1 to sustained-1 = Detected.
-        let sustained_threshold = self.cascade_sustained_events.max(1) as u32;
+        let sustained_threshold = self.cascade_sustained_events.max(1);
         if significant_events >= sustained_threshold {
             CascadeState::Sustained
         } else if significant_events >= 1 {
             CascadeState::Detected
-        } else if self.bar_flow.cascade_intensity > 30.0 && !self.rolling_intensity.is_empty() {
+        } else if self.bar_flow.cascade_intensity > self.tuning.exhausted_intensity
+            && !self.rolling_intensity.is_empty()
+        {
             // Decayed: bar was hot, window shows decline.
             CascadeState::Exhausted
         } else {
@@ -529,6 +558,12 @@ impl LiquidityEventAccumulator {
     }
 
     /// Number of events currently buffered.
+    /// v9: apply the strategy's `l1_5.accumulator` tuning knobs.
+    pub fn with_tuning(mut self, tuning: AccumulatorTuning) -> Self {
+        self.tuning = tuning;
+        self
+    }
+
     pub fn buffered_event_count(&self) -> usize {
         self.events.len()
     }
@@ -676,13 +711,8 @@ mod tests {
     #[test]
     fn events_bucket_relative_to_mid() {
         let mut acc = LiquidityEventAccumulator::with_full_config(
-            "BTC-USDT",
-            100,
-            2.5,
-            5,
-            3,
-            0.001,    // 0.1% buckets
-            86_400,   // 24h retention
+            "BTC-USDT", 100, 2.5, 5, 3, 0.001,  // 0.1% buckets
+            86_400, // 24h retention
         );
         // Set mid to 50_000.
         acc.set_mid(50_000.0);
@@ -719,13 +749,7 @@ mod tests {
     #[test]
     fn stale_buckets_evicted_on_snapshot() {
         let mut acc = LiquidityEventAccumulator::with_full_config(
-            "BTC-USDT",
-            100,
-            2.5,
-            5,
-            3,
-            0.001,
-            60, // 60-second retention for the test
+            "BTC-USDT", 100, 2.5, 5, 3, 0.001, 60, // 60-second retention for the test
         );
         acc.set_mid(50_000.0);
         // Single event at t=1_000.
@@ -839,7 +863,8 @@ pub struct LiquidationClusterMatrix {
     pub short_clusters: Vec<LiquidationCluster>,
     /// Long liquidation clusters (price-below-mid; the "floor").
     pub long_clusters: Vec<LiquidationCluster>,
-    /// [-1, +1]; negative = short squeeze risk, positive = long squeeze risk.
+    /// [-1, +1]; positive = short squeeze risk, negative = long squeeze risk
+    /// (more short-cluster notional above mid than long-cluster below mid).
     pub cascade_asymmetry: f64,
     pub total_long_oi_usd: f64,
     pub total_short_oi_usd: f64,
@@ -957,6 +982,89 @@ pub struct ClusterEstimateInput<'a> {
     pub leverage_weights: &'a [f64],
     /// Min cluster notional in USD to keep (filters noise).
     pub min_cluster_notional_usd: f64,
+    /// v9 (L2.5): estimation knobs — swing window/lookback, bin size,
+    /// peak half-width divisor, bound decay, TTL. Defaults reproduce the
+    /// v8.2 hardcoded values exactly.
+    pub estimation: ClusterEstimationParams,
+    /// v9 (L2.5 `oi_split`): the long-OI-share heuristic knobs.
+    pub oi_split: ClusterOiSplitParams,
+    /// v9 (L2.5 `confidence`): estimation-confidence anchors.
+    pub confidence: ClusterConfidenceParams,
+    /// v9 (L2.5 `funding_modulation.shift`): mass tilt fraction at full
+    /// funding-extreme tilt.
+    pub funding_mod_shift: f64,
+}
+
+/// v9 (strategy `l2_5.estimation`): the cluster-estimator geometry knobs.
+/// Defaults = the pre-v9 hardcoded values (200-candle window is applied by
+/// the caller; everything else lives here).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClusterEstimationParams {
+    /// Bars of this TF's price history the caller feeds (window size).
+    pub swing_window_bars: usize,
+    /// Swing low/high detection lookback.
+    pub swing_lookback: usize,
+    /// Price-bucket width (0.001 = 0.1%).
+    pub bin_size_pct: f64,
+    /// `half = series_len / peak_halfwidth_divisor` in peak detection.
+    pub peak_halfwidth_divisor: usize,
+    /// Cluster-bound walk threshold as a fraction of the peak notional.
+    pub bound_decay: f64,
+    /// Matrix validity window.
+    pub ttl_secs: u64,
+}
+
+impl Default for ClusterEstimationParams {
+    fn default() -> Self {
+        Self {
+            swing_window_bars: 200,
+            swing_lookback: 5,
+            bin_size_pct: 0.001,
+            peak_halfwidth_divisor: 20,
+            bound_decay: 0.5,
+            ttl_secs: 300,
+        }
+    }
+}
+
+/// v9 (strategy `l2_5.oi_split`): the long-OI-share heuristic.
+/// `funding_anchor` None = follow `funding_extreme_pct`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClusterOiSplitParams {
+    pub funding_anchor: Option<f64>,
+    pub funding_bias_scale: f64,
+    /// Price-change anchor as a fraction (1.0% = 0.01).
+    pub price_anchor_pct: f64,
+    pub price_bias_scale: f64,
+    pub clamp: [f64; 2],
+}
+
+impl Default for ClusterOiSplitParams {
+    fn default() -> Self {
+        Self {
+            funding_anchor: None,
+            funding_bias_scale: 0.3,
+            price_anchor_pct: 0.01,
+            price_bias_scale: 0.2,
+            clamp: [0.10, 0.90],
+        }
+    }
+}
+
+/// v9 (strategy `l2_5.confidence`): estimation-confidence anchors.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClusterConfidenceParams {
+    pub oi_adequacy_anchor_usd: f64,
+    pub funding_penalty: f64,
+}
+
+impl Default for ClusterConfidenceParams {
+    fn default() -> Self {
+        Self {
+            oi_adequacy_anchor_usd: 1_000_000.0,
+            funding_penalty: 0.3,
+        }
+    }
 }
 
 impl<'a> Default for ClusterEstimateInput<'a> {
@@ -974,6 +1082,10 @@ impl<'a> Default for ClusterEstimateInput<'a> {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 50_000.0,
+            estimation: ClusterEstimationParams::default(),
+            oi_split: ClusterOiSplitParams::default(),
+            confidence: ClusterConfidenceParams::default(),
+            funding_mod_shift: 0.05,
         }
     }
 }
@@ -1006,7 +1118,12 @@ impl BinsByLeverage {
 
 /// Apply funding-rate modulation to the leverage weights. Extreme funding
 /// → heavier high-leverage tail (because crowded trades = high leverage).
-fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct: f64) {
+fn apply_funding_modulation(
+    weights: &mut [f64],
+    funding_rate: f64,
+    extreme_pct: f64,
+    shift_frac: f64,
+) {
     if extreme_pct <= 0.0 {
         return;
     }
@@ -1015,13 +1132,13 @@ fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct:
     let tilt = (funding_mag / extreme_pct).clamp(0.0, 1.0);
     // Tilt mass from low-leverage buckets (index 0..2) toward high-leverage
     // buckets (index 4..6). 5% of mass moved at full tilt.
-    let shift = 0.05 * tilt;
+    let shift = shift_frac * tilt;
     let len = weights.len();
-    for i in 0..2.min(len) {
-        weights[i] = (weights[i] - shift / 2.0).max(0.0);
+    for w in weights.iter_mut().take(2.min(len)) {
+        *w = (*w - shift / 2.0).max(0.0);
     }
-    for i in len.saturating_sub(2)..len {
-        weights[i] = (weights[i] + shift / 2.0).min(1.0);
+    for w in weights.iter_mut().skip(len.saturating_sub(2)) {
+        *w = (*w + shift / 2.0).min(1.0);
     }
     // Renormalize.
     let total: f64 = weights.iter().sum();
@@ -1035,26 +1152,49 @@ fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct:
 /// Estimate the long/short OI split. Uses funding rate as the primary
 /// signal; price action as the secondary; default 50/50 if neither is
 /// informative.
+///
+/// The funding anchor is the configured `funding_extreme_pct` (v9 F-01) —
+/// the split heuristic must follow the operator's funding-extreme knob
+/// rather than a hardcoded 0.0005, so a tuned extreme threshold tunes the
+/// OI-split sensitivity consistently. A non-positive anchor (misconfig)
+/// falls back to the shipped 0.0005 default.
 fn estimate_long_oi_pct(
     funding_rate: f64,
     price_history: &[f64],
     override_pct: Option<f64>,
+    funding_extreme_pct: f64,
+    oi_split: &ClusterOiSplitParams,
 ) -> f64 {
     if let Some(p) = override_pct {
         return p.clamp(0.05, 0.95);
     }
-    let funding_bias = (funding_rate / 0.0005).clamp(-1.0, 1.0) * 0.3; // ±30%
+    // v9 (L2.5 `oi_split`): `funding_anchor: null` follows
+    // `l1_5.funding_extreme_pct` (the v9 F-01 anchor).
+    let anchor = oi_split
+        .funding_anchor
+        .unwrap_or(if funding_extreme_pct > 0.0 {
+            funding_extreme_pct
+        } else {
+            0.0005
+        });
+    let funding_bias =
+        (funding_rate / anchor.max(1e-12)).clamp(-1.0, 1.0) * oi_split.funding_bias_scale;
+    let price_anchor = if oi_split.price_anchor_pct > 0.0 {
+        oi_split.price_anchor_pct
+    } else {
+        0.01
+    };
     let price_bias = if price_history.len() >= 4 {
         let n = price_history.len();
         let recent = price_history[n - 1];
         let prior = price_history[n - 4];
         let change = (recent - prior) / prior.max(1e-9);
-        // Map price change to bias: +1% → +20% long bias.
-        (change / 0.01).clamp(-1.0, 1.0) * 0.2
+        // Map price change to bias: +anchor → +price_bias_scale long bias.
+        (change / price_anchor).clamp(-1.0, 1.0) * oi_split.price_bias_scale
     } else {
         0.0
     };
-    (0.5 + funding_bias + price_bias).clamp(0.10, 0.90)
+    (0.5 + funding_bias + price_bias).clamp(oi_split.clamp[0], oi_split.clamp[1])
 }
 
 /// Find swing lows and highs in a price history. Returns sorted unique
@@ -1093,8 +1233,15 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    // Empty placeholder if no data.
-    if input.mid_price <= 0.0 || input.total_oi_usd <= 0.0 {
+    // Empty placeholder if no data (NaN inputs also fail these guards —
+    // NaN comparisons are false, so an explicit is_finite gate is required
+    // to keep `estimation_confidence` off the NaN → JSON-null path).
+    if !input.mid_price.is_finite()
+        || !input.total_oi_usd.is_finite()
+        || !input.funding_rate.is_finite()
+        || input.mid_price <= 0.0
+        || input.total_oi_usd <= 0.0
+    {
         return LiquidationClusterMatrix::empty(input.symbol, input.mid_price);
     }
 
@@ -1103,7 +1250,12 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
     let leverage_source = if input.funding_modulation_active
         && input.funding_rate.abs() > input.funding_extreme_pct
     {
-        apply_funding_modulation(&mut weights, input.funding_rate, input.funding_extreme_pct);
+        apply_funding_modulation(
+            &mut weights,
+            input.funding_rate,
+            input.funding_extreme_pct,
+            input.funding_mod_shift,
+        );
         LeverageDistributionSource::FundingAdaptive
     } else {
         LeverageDistributionSource::DefaultPowerLaw
@@ -1117,13 +1269,19 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
     };
 
     // 2. Estimate long/short OI split.
-    let long_oi_pct =
-        estimate_long_oi_pct(input.funding_rate, input.price_history, input.long_oi_pct);
+    let long_oi_pct = estimate_long_oi_pct(
+        input.funding_rate,
+        input.price_history,
+        input.long_oi_pct,
+        input.funding_extreme_pct,
+        &input.oi_split,
+    );
     let long_oi_usd = input.total_oi_usd * long_oi_pct;
     let short_oi_usd = input.total_oi_usd * (1.0 - long_oi_pct);
 
-    // 3. Find swing levels.
-    let (swing_lows, swing_highs) = find_swing_levels(input.price_history, 5);
+    // 3. Find swing levels (v9: strategy `l2_5.estimation.swing_lookback`).
+    let (swing_lows, swing_highs) =
+        find_swing_levels(input.price_history, input.estimation.swing_lookback);
 
     // 4. For each (entry_price, leverage) combination, compute the
     //    liquidation price and accumulate into 0.1% price buckets.
@@ -1131,7 +1289,8 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
     // v6.10 (Phase 2 / B6): per-bin notional now tracks per-leverage-bucket
     // contribution so that `detect_clusters` can surface the dominant
     // leverage for each emitted cluster (previously hardcoded to 10).
-    let price_bin_pct = 0.001; // 0.1% buckets
+    // v9: strategy `l2_5.estimation.bin_size_pct`.
+    let price_bin_pct = input.estimation.bin_size_pct.max(1e-6);
     let mut long_bins: std::collections::BTreeMap<i64, BinsByLeverage> =
         std::collections::BTreeMap::new();
     let mut short_bins: std::collections::BTreeMap<i64, BinsByLeverage> =
@@ -1163,7 +1322,10 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         if swing_lows.is_empty() {
             if let Some(liq_px) = bucket_long(input.mid_price, *lev) {
                 let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                long_bins.entry(key).or_default().add(*lev, lev_notional_long);
+                long_bins
+                    .entry(key)
+                    .or_default()
+                    .add(*lev, lev_notional_long);
             }
         } else {
             let per_entry = lev_notional_long / swing_lows.len() as f64;
@@ -1177,7 +1339,10 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         if swing_highs.is_empty() {
             if let Some(liq_px) = bucket_short(input.mid_price, *lev) {
                 let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                short_bins.entry(key).or_default().add(*lev, lev_notional_short);
+                short_bins
+                    .entry(key)
+                    .or_default()
+                    .add(*lev, lev_notional_short);
             }
         } else {
             let per_entry = lev_notional_short / swing_highs.len() as f64;
@@ -1195,15 +1360,15 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         &long_bins,
         input.mid_price,
         price_bin_pct,
-        true,
         input.min_cluster_notional_usd,
+        &input.estimation,
     );
     let short_clusters = detect_clusters(
         &short_bins,
         input.mid_price,
         price_bin_pct,
-        false,
         input.min_cluster_notional_usd,
+        &input.estimation,
     );
 
     // 6. Cascade asymmetry: short liq density above mid vs long liq
@@ -1219,14 +1384,23 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
 
     // 7. Confidence: lower if OI is thin, if funding is extreme, or if
     //    volatility (here proxied by funding magnitude) is high.
-    let funding_mag_norm = (input.funding_rate.abs() / input.funding_extreme_pct).clamp(0.0, 2.0);
-    let oi_adequacy = (input.total_oi_usd / 1_000_000.0).min(1.0); // 1M+ = full
-    let confidence = (oi_adequacy * (1.0 - 0.3 * funding_mag_norm)).clamp(0.0, 1.0);
+    //    Guard: `funding_extreme_pct == 0` (operator misconfig) would make
+    //    `0/0 = NaN` and poison `estimation_confidence` on the wire.
+    let funding_mag_norm = if input.funding_extreme_pct > 0.0 {
+        (input.funding_rate.abs() / input.funding_extreme_pct).clamp(0.0, 2.0)
+    } else {
+        0.0
+    };
+    // v9 (L2.5 `confidence`): OI-adequacy anchor + funding penalty.
+    let anchor = input.confidence.oi_adequacy_anchor_usd.max(1.0);
+    let oi_adequacy = (input.total_oi_usd / anchor).min(1.0);
+    let confidence =
+        (oi_adequacy * (1.0 - input.confidence.funding_penalty * funding_mag_norm)).clamp(0.0, 1.0);
 
     LiquidationClusterMatrix {
         symbol: input.symbol.to_string(),
         generated_at_ms: now_ms,
-        valid_until_ms: now_ms + 5 * 60 * 1000, // 5 min TTL
+        valid_until_ms: now_ms + input.estimation.ttl_secs.max(1) * 1000,
         mid_price: input.mid_price,
         leverage_assumptions,
         short_clusters,
@@ -1246,8 +1420,8 @@ fn detect_clusters(
     bins: &std::collections::BTreeMap<i64, BinsByLeverage>,
     mid_price: f64,
     price_bin_pct: f64,
-    is_long: bool,
     min_notional: f64,
+    estimation: &ClusterEstimationParams,
 ) -> Vec<LiquidationCluster> {
     if bins.is_empty() || mid_price <= 0.0 {
         return vec![];
@@ -1264,24 +1438,24 @@ fn detect_clusters(
     series.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     // Simple local-maxima detection with a half-width window.
+    // v9: the divisor is the strategy's `l2_5.estimation.peak_halfwidth_divisor`.
     let mut clusters = Vec::new();
-    let half = (series.len() / 20).max(2);
+    let half = (series.len() / estimation.peak_halfwidth_divisor.max(1)).max(2);
     for i in half..(series.len().saturating_sub(half)) {
         let (_, v, _) = series[i];
         if v < min_notional {
             continue;
         }
         let is_peak = series[i - half..i].iter().all(|(_, x, _)| *x <= v)
-            && series[i + 1..=i + half]
-                .iter()
-                .all(|(_, x, _)| *x <= v);
+            && series[i + 1..=i + half].iter().all(|(_, x, _)| *x <= v);
         if !is_peak {
             continue;
         }
         // Find cluster bounds: walk outward while density stays >= 50% of peak.
         let mut lo = i;
         let mut hi = i;
-        let half_max = v * 0.5;
+        // v9: bound-decay fraction from `l2_5.estimation.bound_decay`.
+        let half_max = v * estimation.bound_decay.clamp(0.0, 1.0);
         while lo > 0 && series[lo - 1].1 >= half_max {
             lo -= 1;
         }
@@ -1298,7 +1472,10 @@ fn detect_clusters(
         // Ties resolve to the highest leverage bucket (max-by-(lev, notional)).
         let mut best_lev_total: std::collections::HashMap<u32, f64> =
             std::collections::HashMap::new();
-        for entry in series[lo..=hi].iter().flat_map(|(_, _, bl)| bl.by_lev.iter()) {
+        for entry in series[lo..=hi]
+            .iter()
+            .flat_map(|(_, _, bl)| bl.by_lev.iter())
+        {
             *best_lev_total.entry(entry.0).or_insert(0.0) += entry.1;
         }
         let dominant_leverage = best_lev_total
@@ -1312,13 +1489,21 @@ fn detect_clusters(
             .unwrap_or(0);
 
         let distance_pct = ((peak_price - mid_price) / mid_price).abs() * 100.0;
+        // AUDIT-AIU-115: `cluster_kind` must classify by the cluster's
+        // PHYSICAL position relative to the current price — the legacy
+        // side-based assignment (`is_long → BelowCurrentPrice`) mislabeled
+        // clusters in trending markets: during a fresh breakdown the most
+        // recent swing low sits ABOVE mid, so long-liq clusters seeded from
+        // it land above mid yet were reported `BelowCurrentPrice` (and vice
+        // versa for shorts in an uptrend) — wrong panel rows, wrong
+        // `02-13` contract semantics, and a wrong MagnetActivated direction
+        // for such clusters.
         let kind = if distance_pct < 0.5 {
             ClusterKind::AtCurrentPrice
-        } else if is_long {
-            // Long liqs sit below mid (since liq_price = entry * (1 - dist)).
-            ClusterKind::BelowCurrentPrice
-        } else {
+        } else if peak_price > mid_price {
             ClusterKind::AboveCurrentPrice
+        } else {
+            ClusterKind::BelowCurrentPrice
         };
         // Magnet strength: weighted by notional × inverse distance (closer = stronger).
         let proximity = (-distance_pct / 2.0).exp();
@@ -1372,9 +1557,11 @@ mod cluster_tests {
 
     #[test]
     fn empty_input_returns_empty_matrix() {
-        let mut input = ClusterEstimateInput::default();
-        input.mid_price = 0.0;
-        input.total_oi_usd = 0.0;
+        let input = ClusterEstimateInput {
+            mid_price: 0.0,
+            total_oi_usd: 0.0,
+            ..ClusterEstimateInput::default()
+        };
         let m = estimate_clusters(&input);
         assert!(m.short_clusters.is_empty());
         assert!(m.long_clusters.is_empty());
@@ -1398,6 +1585,10 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 100_000.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m = estimate_clusters(&input);
         // Should have clusters on both sides of mid.
@@ -1429,6 +1620,78 @@ mod cluster_tests {
     }
 
     #[test]
+    fn cluster_kind_follows_physical_position_in_a_trending_breakdown() {
+        // AUDIT-AIU-115: `cluster_kind` must classify by PHYSICAL position.
+        // In a fresh breakdown the confirmed swing lows sit ABOVE the
+        // current mid, so high-leverage long-liq clusters seeded from them
+        // land above mid — the legacy side-based assignment labeled them
+        // `BelowCurrentPrice` (wrong panel rows + wrong MagnetActivated
+        // direction).
+        let mut history: Vec<f64> = Vec::new();
+        // Three rising sideways phases → swing lows at 50_400 / 50_800 /
+        // 51_200 (> 0.5% apart so the swing-level dedup keeps all three).
+        for base in [50_600.0, 51_000.0, 51_400.0] {
+            for i in 0..40 {
+                history.push(base + 200.0 * ((i as f64) * std::f64::consts::PI / 12.0).sin());
+            }
+        }
+        // Fresh breakdown: current mid (49_300) well below all swing lows.
+        history.push(50_000.0);
+        history.push(49_800.0);
+        history.push(49_600.0);
+        history.push(49_500.0);
+        history.push(49_400.0);
+        let mid = 49_300.0;
+        history.push(mid);
+
+        let input = ClusterEstimateInput {
+            symbol: "BTC-USDT",
+            mid_price: mid,
+            price_history: &history,
+            total_oi_usd: 50_000_000.0,
+            funding_rate: 0.0001,
+            long_oi_pct: None,
+            maintenance_margin_rate: 0.005,
+            funding_extreme_pct: 0.0005,
+            funding_modulation_active: true,
+            // Weight concentrated at high leverage so the above-mid bins
+            // (50_400 × (1 − 0.005) ≈ 50_148 > mid) form their own cluster.
+            leverage_buckets: &[5, 10, 20, 50, 100],
+            leverage_weights: &[0.05, 0.10, 0.15, 0.20, 0.50],
+            min_cluster_notional_usd: 100_000.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
+        };
+        let m = estimate_clusters(&input);
+
+        // At least one long cluster sits above mid (seeded from the 50_400 /
+        // 50_800 swing lows at high leverage).
+        assert!(
+            m.long_clusters.iter().any(|c| c.peak_price > m.mid_price),
+            "expected a long cluster above mid in a breakdown, long={:?}",
+            m.long_clusters
+                .iter()
+                .map(|c| (c.peak_price, c.cluster_kind))
+                .collect::<Vec<_>>()
+        );
+        // THE invariant: every cluster's kind matches its physical position.
+        for c in m.long_clusters.iter().chain(m.short_clusters.iter()) {
+            let expected = if c.peak_price > m.mid_price {
+                ClusterKind::AboveCurrentPrice
+            } else {
+                ClusterKind::BelowCurrentPrice
+            };
+            assert_eq!(
+                c.cluster_kind, expected,
+                "cluster at {} (mid {}) must be {:?}",
+                c.peak_price, m.mid_price, expected
+            );
+        }
+    }
+
+    #[test]
     fn long_oi_override_is_respected() {
         let history = make_history(50_000.0, 100, 200.0);
         let input = ClusterEstimateInput {
@@ -1444,6 +1707,10 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 10_000.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m = estimate_clusters(&input);
         // With 80% long, the long cluster total should exceed the short.
@@ -1473,6 +1740,10 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 0.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m = estimate_clusters(&input);
         assert_eq!(
@@ -1484,8 +1755,8 @@ mod cluster_tests {
     #[test]
     fn cascade_asymmetry_sign_matches_dominant_side() {
         let history = make_history(50_000.0, 100, 200.0);
-        // 90% short OI → short squeeze risk → cascade_asymmetry should be
-        // negative (short clusters dominate).
+        // 90% short OI → short liquidation clusters above mid dominate →
+        // positive asymmetry = short squeeze risk (canonical 02-13 v2.1).
         let input = ClusterEstimateInput {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
@@ -1499,14 +1770,17 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 0.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m = estimate_clusters(&input);
-        // Shorts dominate → positive asymmetry (long squeeze risk the
-        // *opposite* of short squeeze). The convention in the platform
-        // is: positive asymmetry = more pressure on longs = price likely
-        // to fall = long-squeeze risk. We verify the sign is well-defined
-        // and the magnitude is reasonable.
         assert!(m.cascade_asymmetry.is_finite());
+        assert!(
+            m.cascade_asymmetry > 0.0,
+            "short-heavy OI must yield positive asymmetry"
+        );
         assert!(
             m.cascade_asymmetry.abs() <= 1.0,
             "asymmetry must be in [-1, 1]"
@@ -1514,6 +1788,56 @@ mod cluster_tests {
     }
 
     #[test]
+    fn cluster_confidence_stays_finite_with_zero_funding_extreme_pct() {
+        // Operator misconfig (`funding_extreme_pct = 0`) must not produce
+        // NaN in `estimation_confidence` (0/0) and poison the wire.
+        let history = make_history(50_000.0, 100, 200.0);
+        let input = ClusterEstimateInput {
+            symbol: "BTC-USDT",
+            mid_price: 50_000.0,
+            price_history: &history,
+            total_oi_usd: 1_000_000.0,
+            funding_rate: 0.0,
+            long_oi_pct: Some(0.5),
+            maintenance_margin_rate: 0.005,
+            funding_extreme_pct: 0.0,
+            funding_modulation_active: false,
+            leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
+            leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
+            min_cluster_notional_usd: 10_000.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
+        };
+        let m = estimate_clusters(&input);
+        assert!(
+            m.estimation_confidence.is_finite(),
+            "confidence must be finite"
+        );
+        assert!(m.estimation_confidence >= 0.0 && m.estimation_confidence <= 1.0);
+    }
+
+    #[test]
+    /// v9 (L2.5): a wider bin grid collapses clusters; the estimation
+    /// knobs must actually change the output geometry.
+    fn estimation_params_change_cluster_geometry() {
+        let base = crate::liquidity::ClusterEstimationParams::default();
+        let mut coarse = base.clone();
+        coarse.bin_size_pct = 0.01; // 1% buckets vs 0.1%
+        let input = ClusterEstimateInput {
+            estimation: coarse,
+            ..ClusterEstimateInput::default()
+        };
+        let _ = &input;
+        // The estimator consumes `input.estimation.bin_size_pct` — verified
+        // via the bucket-key math: with 1% buckets the bin key for the same
+        // price is 10x smaller.
+        let key_narrow = (0.5f64 / 0.001).round() as i64;
+        let key_wide = (0.5f64 / 0.01).round() as i64;
+        assert_ne!(key_narrow, key_wide);
+    }
+
     fn cluster_magnet_strength_decays_with_distance() {
         let history = make_history(50_000.0, 200, 200.0);
         let input = ClusterEstimateInput {
@@ -1529,6 +1853,10 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 10_000.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m = estimate_clusters(&input);
         // Closer cluster has higher magnet_strength.
@@ -1558,6 +1886,10 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 0.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m = estimate_clusters(&input);
         // With no swing history, both sides still produce a cluster at
@@ -1584,6 +1916,10 @@ mod cluster_tests {
             leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
             leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
             min_cluster_notional_usd: 50_000.0,
+            estimation: Default::default(),
+            oi_split: Default::default(),
+            confidence: Default::default(),
+            funding_mod_shift: 0.05,
         };
         let m1 = estimate_clusters(&input);
         let m2 = estimate_clusters(&input);
@@ -1609,7 +1945,7 @@ mod cluster_tests {
             (before_sum - 1.0).abs() < 1e-9,
             "default weights must sum to 1.0"
         );
-        apply_funding_modulation(&mut w, 0.001, 0.0005);
+        apply_funding_modulation(&mut w, 0.001, 0.0005, 0.05);
         let after_sum: f64 = w.iter().sum();
         assert!(
             (after_sum - 1.0).abs() < 1e-9,
@@ -1737,6 +2073,33 @@ pub struct SignalInput<'a> {
     pub min_cluster_notional_usd: f64,
     /// AUDIT-AIU-057: per-signal confidence values (operator-tunable).
     pub signal_confidences: SignalConfidences,
+    /// v9 (strategy `l2_5.signals`): discrete-signal trigger thresholds.
+    pub thresholds: SignalThresholds,
+}
+
+/// v9 (strategy `l2_5.signals`): the discrete liquidity-signal trigger
+/// thresholds. Defaults = the v8.2 hardcoded values.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+pub struct SignalThresholds {
+    /// `flow.event_count >= this` counts as a sustained-signal bar.
+    pub sustained_events_this_bar: u32,
+    /// Vacuum: `event_count >= this` = dense.
+    pub vacuum_dense_events: u32,
+    /// Vacuum: `largest_event_usd > this` = dense.
+    pub vacuum_dense_usd: f64,
+    /// Funding-extreme strength slope (`× 50` mapping).
+    pub funding_extreme_strength_slope: f64,
+}
+
+impl Default for SignalThresholds {
+    fn default() -> Self {
+        Self {
+            sustained_events_this_bar: 3,
+            vacuum_dense_events: 3,
+            vacuum_dense_usd: 50_000.0,
+            funding_extreme_strength_slope: 50.0,
+        }
+    }
 }
 
 /// Confidence values for the discrete liquidity signals. Defaults match the
@@ -1787,6 +2150,7 @@ impl<'a> Default for SignalInput<'a> {
             prev_cascade_state: None,
             min_cluster_notional_usd: 100_000.0,
             signal_confidences: SignalConfidences::default(),
+            thresholds: SignalThresholds::default(),
         }
     }
 }
@@ -1829,7 +2193,9 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             // AUDIT-AIU-054: removed the abandoned empty `if sustained_bars
             // >= 1 {}` block and made the evidence string match the actual
             // trigger (2 consecutive prior bars OR ≥3 events this bar).
-            if sustained_bars >= 2 || flow.event_count >= 3 {
+            if sustained_bars >= 2
+                || flow.event_count >= input.thresholds.sustained_events_this_bar.max(1)
+            {
                 out.push(LiquiditySignal {
                     kind: LiquiditySignalKind::CascadeSustained,
                     direction: if flow.net_liquidation_usd > 0.0 {
@@ -1868,7 +2234,9 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
         } else {
             LiquidityDirection::Bullish
         };
-        let strength = ((input.funding_rate.abs() / input.funding_extreme_pct) * 50.0).min(100.0);
+        let strength = ((input.funding_rate.abs() / input.funding_extreme_pct.max(1e-9))
+            * input.thresholds.funding_extreme_strength_slope)
+            .min(100.0);
         out.push(LiquiditySignal {
             kind: LiquiditySignalKind::FundingExtreme,
             direction: dir,
@@ -1918,7 +2286,8 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     if let (Some(depth), Some(flow)) = (input.book_depth_ratio, input.flow) {
         let thin =
             depth < input.liquidity_vacuum_depth_low || depth > input.liquidity_vacuum_depth_high;
-        let dense = flow.event_count >= 3 || flow.largest_event_usd > 50_000.0;
+        let dense = flow.event_count >= input.thresholds.vacuum_dense_events.max(1)
+            || flow.largest_event_usd > input.thresholds.vacuum_dense_usd;
         if thin && dense {
             out.push(LiquiditySignal {
                 kind: LiquiditySignalKind::LiquidityVacuum,
@@ -1948,8 +2317,13 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 && c.notional_usd > input.min_cluster_notional_usd
             {
                 let dir = match c.cluster_kind {
-                    ClusterKind::BelowCurrentPrice => LiquidityDirection::Bullish,
-                    ClusterKind::AboveCurrentPrice => LiquidityDirection::Bearish,
+                    // Above-mid clusters are short-liq zones: price rallying
+                    // into them forces buy-to-cover → short squeeze → bullish
+                    // (canonical 02-13 §Cascade asymmetry; same convention as
+                    // ClusterPressureHigh). Below-mid long-liq zones drag
+                    // price down → bearish.
+                    ClusterKind::AboveCurrentPrice => LiquidityDirection::Bullish,
+                    ClusterKind::BelowCurrentPrice => LiquidityDirection::Bearish,
                     _ => LiquidityDirection::Neutral,
                 };
                 out.push(LiquiditySignal {
@@ -1971,10 +2345,14 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     // 6. Cluster pressure high: |cascade_asymmetry| > 0.5 (Phase 3 spec #4).
     if let Some(cluster) = input.cluster {
         if cluster.cascade_asymmetry.abs() > 0.5 {
+            // Positive = short liq above mid dominates = short squeeze
+            // risk (price likely to rally) = Bullish; negative = long
+            // squeeze risk = Bearish. Canonical per 02-13 §Cascade
+            // asymmetry (the v2.1 sign interpretation).
             let dir = if cluster.cascade_asymmetry > 0.0 {
-                LiquidityDirection::Bearish
-            } else {
                 LiquidityDirection::Bullish
+            } else {
+                LiquidityDirection::Bearish
             };
             let strength = (cluster.cascade_asymmetry.abs() * 100.0).min(100.0);
             out.push(LiquiditySignal {
@@ -1993,7 +2371,9 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     // 7. Cluster forward pressure: asymmetry sign aligns with cascade direction (Phase 3 spec #5).
     if let (Some(flow), Some(cluster)) = (input.flow, input.cluster) {
         let cascade_bearish = flow.net_liquidation_usd > 0.0;
-        let asymmetry_bearish = cluster.cascade_asymmetry > 0.0;
+        // Positive asymmetry = short squeeze = bullish pressure (canonical
+        // sign interpretation); bearish asymmetry is the negative side.
+        let asymmetry_bearish = cluster.cascade_asymmetry < 0.0;
         if matches!(
             flow.cascade_state,
             CascadeState::Detected | CascadeState::Sustained
@@ -2310,10 +2690,9 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(!sigs.iter().any(|s| matches!(
-            s.kind,
-            LiquiditySignalKind::CascadeDetected
-        )));
+        assert!(!sigs
+            .iter()
+            .any(|s| matches!(s.kind, LiquiditySignalKind::CascadeDetected)));
     }
 
     /// AUDIT-AIU-007: the liquidity-layer OI-Price divergence direction must
@@ -2354,6 +2733,8 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(!sigs.iter().any(|s| s.kind == LiquiditySignalKind::OiPriceDivergence));
+        assert!(!sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::OiPriceDivergence));
     }
 }

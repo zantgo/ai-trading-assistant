@@ -39,13 +39,12 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
         bias: 'Bullish' as AnalysisMatrix['bias'],
         confidence: 0.6,
         state_confidence: 0.6,
-        market_regime: 'TRENDING_BULL' as AnalysisMatrix['market_regime'],
+        market_regime: 'TrendingBull' as AnalysisMatrix['market_regime'],
         trend_assessment: 'Healthy' as AnalysisMatrix['trend_assessment'],
         momentum_assessment: 'Stable' as AnalysisMatrix['momentum_assessment'],
         structure_assessment: 'Healthy' as AnalysisMatrix['structure_assessment'],
         volatility_assessment: 'Normal' as AnalysisMatrix['volatility_assessment'],
         volume_assessment: 'Normal' as AnalysisMatrix['volume_assessment'],
-        opportunity_analysis: 'TrendContinuation',
         market_quality: 'Good' as AnalysisMatrix['market_quality'],
         market_quality_score: 70,
         market_phase: 'Markup' as AnalysisMatrix['market_phase'],
@@ -61,7 +60,6 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
     entry.decisionContext = {
         score: 75,
         bias: 'Bullish',
-        confidence: 0.85,
         score_confidence: 0.85,
         entry_danger: { score: 20, level: 'Low', state: 'Stable', confidence: 80, evidence: [] },
         expected_reward_risk_ratio: 1.8,
@@ -106,7 +104,7 @@ function makeOpportunity(): OpportunityMatrix {
         preconditions_met: 3,
         preconditions_total: 3,
         notes: 'Trend + bias + momentum',
-        direction_family: 'TrendRiding',
+        direction_family: 'TREND_RIDING',
         long_entry_zone: { low: 63000, high: 63200 },
         long_target_zone: { low: 66000, high: 66500 },
         long_invalidation_level: 62400,
@@ -115,7 +113,7 @@ function makeOpportunity(): OpportunityMatrix {
         short_target_zone: null,
         short_invalidation_level: null,
         short_expected_rr_internal: null,
-        trade_viability: 'Actionable',
+        trade_viability: 'ACTIONABLE',
     };
     const bo: OpportunityProfile = {
         opportunity_type: 'Breakout',
@@ -123,7 +121,7 @@ function makeOpportunity(): OpportunityMatrix {
         preconditions_met: 2,
         preconditions_total: 2,
         notes: 'Vol + structure',
-        direction_family: 'TrendRiding',
+        direction_family: 'TREND_RIDING',
         long_entry_zone: { low: 63400, high: 63600 },
         long_target_zone: { low: 65000, high: 65500 },
         long_invalidation_level: 62800,
@@ -132,7 +130,7 @@ function makeOpportunity(): OpportunityMatrix {
         short_target_zone: null,
         short_invalidation_level: null,
         short_expected_rr_internal: null,
-        trade_viability: 'Actionable',
+        trade_viability: 'ACTIONABLE',
     };
     const pb: OpportunityProfile = {
         opportunity_type: 'Pullback',
@@ -140,7 +138,7 @@ function makeOpportunity(): OpportunityMatrix {
         preconditions_met: 2,
         preconditions_total: 2,
         notes: 'Trend weakening',
-        direction_family: 'TrendRiding',
+        direction_family: 'TREND_RIDING',
         long_entry_zone: { low: 62700, high: 62900 },
         long_target_zone: { low: 64500, high: 65000 },
         long_invalidation_level: 62200,
@@ -149,7 +147,7 @@ function makeOpportunity(): OpportunityMatrix {
         short_target_zone: null,
         short_invalidation_level: null,
         short_expected_rr_internal: null,
-        trade_viability: 'Actionable',
+        trade_viability: 'ACTIONABLE',
     };
     return {
         symbol: 'BTC-USDT',
@@ -218,7 +216,7 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
                 preconditions_met: 3,
                 preconditions_total: 3,
                 notes: 'Single bullish setup',
-                direction_family: 'TrendRiding',
+                direction_family: 'TREND_RIDING',
                 long_entry_zone: { low: 63000, high: 63200 },
                 long_target_zone: { low: 65000, high: 65500 },
                 long_invalidation_level: 62400,
@@ -227,7 +225,7 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'Actionable',
+                trade_viability: 'ACTIONABLE',
             },
         ];
         opp.long_entry_zone = { low: 63000, high: 63200 };
@@ -371,13 +369,11 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         entry.analysis = {
             ...entry.analysis!,
             bias: 'Bullish',
-            market_regime: 'TRENDING_BULL',
-            opportunity_analysis: 'TrendContinuation',
-        } as unknown as AnalysisMatrix;
+            market_regime: 'TrendingBull',
+            } as unknown as AnalysisMatrix;
         entry.decisionContext = {
             score: 75,
             bias: 'Bullish',
-            confidence: 0.85,
             score_confidence: 0.85,
             entry_danger: { score: 20, level: 'Low', state: 'Stable', confidence: 80, evidence: [] },
             expected_reward_risk_ratio: 1.8,
@@ -443,7 +439,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
                 preconditions_met: 3,
                 preconditions_total: 5,
                 notes: 'volume drying up',
-                direction_family: 'TrendRiding',
+                direction_family: 'TREND_RIDING',
                 long_entry_zone: { low: 63100, high: 63200 },
                 long_target_zone: { low: 66000, high: 66500 },
                 long_invalidation_level: 62400,
@@ -452,7 +448,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'Actionable',
+                trade_viability: 'ACTIONABLE',
             },
             {
                 opportunity_type: 'TrendContinuation',
@@ -460,7 +456,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
                 preconditions_met: 2,
                 preconditions_total: 5,
                 notes: '',
-                direction_family: 'TrendRiding',
+                direction_family: 'TREND_RIDING',
                 long_entry_zone: { low: 63000, high: 63200 },
                 long_target_zone: { low: 66000, high: 66500 },
                 long_invalidation_level: 62400,
@@ -469,7 +465,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'Actionable',
+                trade_viability: 'ACTIONABLE',
             },
         ];
         opp.confluent_entry_levels = [
@@ -510,7 +506,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
                 preconditions_met: 0,
                 preconditions_total: 1,
                 notes: '',
-                direction_family: 'Neutral',
+                direction_family: 'NEUTRAL',
                 long_entry_zone: null,
                 long_target_zone: null,
                 long_invalidation_level: null,
@@ -519,7 +515,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'NoClear',
+                trade_viability: 'NO_CLEAR',
             },
         ];
         opp.entry_zone = { low: 64000, high: 64000 };
@@ -535,7 +531,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
 
         const app = useAppStore();
         const entry = app.instancesMap['BTC-USDT'];
-        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'RANGE' };
+        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'Range' };
         entry.advisory = { ...entry.advisory!, directional_guidance: 'Neutral' };
         entry.decisionContext = {
             ...entry.decisionContext!,
@@ -570,7 +566,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
                 preconditions_met: 0,
                 preconditions_total: 1,
                 notes: '',
-                direction_family: 'Neutral',
+                direction_family: 'NEUTRAL',
                 long_entry_zone: null,
                 long_target_zone: null,
                 long_invalidation_level: null,
@@ -579,7 +575,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'NoClear',
+                trade_viability: 'NO_CLEAR',
             },
         ];
         opp.entry_zone = { low: 64000, high: 64000 };
@@ -595,7 +591,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
 
         const app = useAppStore();
         const entry = app.instancesMap['BTC-USDT'];
-        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'RANGE' };
+        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'Range' };
         entry.advisory = { ...entry.advisory!, directional_guidance: 'Neutral' };
         entry.decisionContext = {
             ...entry.decisionContext!,
@@ -673,7 +669,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
             preconditions_met: 3,
             preconditions_total: 3,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63000, high: 63200 },
             long_target_zone: { low: 66000, high: 66500 },
             long_invalidation_level: 62400,
@@ -682,7 +678,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
             short_target_zone: null,
             short_invalidation_level: null,
             short_expected_rr_internal: null,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
         });
         opp.profiles = [
             mk('TrendContinuation', 85),
@@ -707,6 +703,61 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
         expect(screen.getByText('TOP · ACTIONABLE')).toBeTruthy();
         // BO + PB render plain ACTIONABLE badges (exact text match).
         expect(screen.getAllByText('ACTIONABLE').length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('marks TOP · ACTIONABLE on the right card when tiers mix', () => {
+        // Audit regression (M7): `rankIdx` previously captured the
+        // pre-sort (score-only) index while `firstActionableIdx` came from
+        // the viability-tier-sorted array — with mixed tiers (a Qualifying
+        // profile outscoring an Actionable one) the top Actionable card
+        // lost its `TOP · ACTIONABLE` badge entirely, or a wrong card
+        // inherited it. The badge must follow the display order.
+        const opp = makeOpportunity() as any;
+        opp.profiles = [
+            {
+                opportunity_type: 'Breakout',
+                score: 72,
+                preconditions_met: 2,
+                preconditions_total: 3,
+                notes: 'Higher-scored but only Qualifying',
+                direction_family: 'TREND_RIDING',
+                long_entry_zone: { low: 63000, high: 63200 },
+                long_target_zone: { low: 65000, high: 65500 },
+                long_invalidation_level: 62400,
+                long_expected_rr_internal: 1.5,
+                short_entry_zone: null,
+                short_target_zone: null,
+                short_invalidation_level: null,
+                short_expected_rr_internal: null,
+                trade_viability: 'QUALIFYING',
+            },
+            {
+                opportunity_type: 'TrendContinuation',
+                score: 55,
+                preconditions_met: 3,
+                preconditions_total: 3,
+                notes: 'Lower-scored but Actionable — must be TOP',
+                direction_family: 'TREND_RIDING',
+                long_entry_zone: { low: 63200, high: 63400 },
+                long_target_zone: { low: 65500, high: 66000 },
+                long_invalidation_level: 62600,
+                long_expected_rr_internal: 1.8,
+                short_entry_zone: null,
+                short_target_zone: null,
+                short_invalidation_level: null,
+                short_expected_rr_internal: null,
+                trade_viability: 'ACTIONABLE',
+            },
+        ];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        // Exactly one TOP badge, attached to the Actionable card.
+        expect(screen.getAllByText('TOP · ACTIONABLE')).toHaveLength(1);
+        const topBadge = screen.getByText('TOP · ACTIONABLE');
+        const topCard = topBadge.closest('[class*="setupCard"]');
+        expect(topCard?.textContent).toContain('Trend Continuation');
+        expect(topCard?.textContent).not.toContain('Breakout');
     });
 
     it('keeps the actionable badge under a HOLD verdict (verdict gate removed)', () => {
@@ -790,7 +841,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
                 preconditions_met: 2,
                 preconditions_total: 2,
                 notes: '',
-                direction_family: 'TrendRiding',
+                direction_family: 'TREND_RIDING',
                 long_entry_zone: { low: 63000, high: 63200 },
                 // Target BELOW the entry zone → inverted geometry.
                 long_target_zone: { low: 62000, high: 62500 },
@@ -800,7 +851,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'Actionable',
+                trade_viability: 'ACTIONABLE',
             },
         ];
         opp.long_expected_rr_internal = 0;
@@ -820,7 +871,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
                 preconditions_met: 2,
                 preconditions_total: 3,
                 notes: '',
-                direction_family: 'Neutral',
+                direction_family: 'NEUTRAL',
                 long_entry_zone: null,
                 long_target_zone: null,
                 long_invalidation_level: null,
@@ -829,7 +880,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
-                trade_viability: 'DirectionalNeutral',
+                trade_viability: 'DIRECTIONAL_NEUTRAL',
             },
         ];
         opp.primary_opportunity = 'MeanReversion';
@@ -863,7 +914,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
                 preconditions_met: 2,
                 preconditions_total: 2,
                 notes: 'Single bearish setup',
-                direction_family: 'TrendRiding',
+                direction_family: 'TREND_RIDING',
                 long_entry_zone: null,
                 long_target_zone: null,
                 long_invalidation_level: null,
@@ -872,7 +923,7 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
                 short_target_zone: { low: 63000, high: 63500 },
                 short_invalidation_level: 66000,
                 short_expected_rr_internal: 2.0,
-                trade_viability: 'Actionable',
+                trade_viability: 'ACTIONABLE',
             },
         ];
         opp.long_entry_zone = null;
@@ -905,19 +956,20 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
 });
 
 describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layout', () => {
-    it('moves the environment badges into the header chip rail (Timeframes + Confidence)', () => {
+    it('moves the environment badges into the header chip rail (Confidence + Timeframes)', () => {
         seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // The L4 header now carries the full top cluster: the bracket
-        // chips (Score / Reward-to-Risk Ratio / Horizon) plus the two
-        // environment pills that used to live at the bottom.
+        // chips (Score / Horizon) plus the two environment pills that
+        // used to live at the bottom (v7.3: grouped Score / Confidence /
+        // Horizon / Timeframes, no R:R chip).
         expect(screen.getByText('Timeframes:')).toBeTruthy();
-        expect(screen.getByText('4/4')).toBeTruthy();
+        expect(screen.getByText('4 TF')).toBeTruthy();
         expect(screen.getByText('Confidence:')).toBeTruthy();
         expect(screen.getByText('60%')).toBeTruthy();
         expect(screen.getByText('Score:')).toBeTruthy();
-        expect(screen.getByText('Reward-to-Risk Ratio:')).toBeTruthy();
         expect(screen.getByText('Horizon:')).toBeTruthy();
+        expect(screen.queryByText('Reward-to-Risk Ratio:')).toBeNull();
         // The bottom Environment section and the standalone Horizon zone
         // card are erased.
         expect(screen.queryByText('Environment')).toBeNull();
@@ -933,9 +985,9 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // reward 3000 / risk 700 → 4.29 as a bare R-multiple (no `1:`).
         expect(screen.getAllByText('4.29R').length).toBeGreaterThanOrEqual(1);
-        // The header bracket R:R (top profile wire 2.5) stays on its own
-        // chip — the two surfaces never merge.
-        expect(screen.getByText('1:2.50')).toBeTruthy();
+        // v7.3: the header R:R chip is gone — the R:R story lives in the
+        // setup cards and the Expected R:R section only.
+        expect(screen.queryByText('1:2.50')).toBeNull();
     });
 
     it('shows BOTH LONG and SHORT badges with their own R:R when both sides exist', () => {
@@ -974,14 +1026,20 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         opp.confluent_invalidation_levels = [{ price: 62800, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        expect(screen.getByText('10R+')).toBeTruthy();
+        // v7.3: the fixture's SHORT bracket zones (65000-65200 entry,
+        // 62000-62400 target, 66000 invalidation) now surface a
+        // bracket-geometry SHORT row: reward 2900 / risk 900 → 3.22R.
+        expect(screen.getAllByText('10R+').length).toBe(1);
         const fills = Array.from(document.querySelectorAll('[class*="rrBarFill"]')) as HTMLElement[];
-        expect(fills.length).toBe(1);
-        expect(fills[0].style.width).toBe('100%');
+        expect(fills.length).toBe(2);
+        const widths = fills.map((f) => f.style.width);
+        expect(widths).toContain('100%');
+        expect(widths).toContain('32.2%');
         // v7.0: the whole scale is R-multiplier notation — the far-right
-        // anchor reads 10R, never the mixed-unit "10x".
-        expect(screen.getByText('1R')).toBeTruthy();
-        expect(screen.getByText('10R')).toBeTruthy();
+        // anchor reads 10R, never the mixed-unit "10x". (Two R:R cards
+        // now render the scale ticks, hence getAllByText.)
+        expect(screen.getAllByText('1R').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('10R').length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText('10x')).toBeNull();
     });
 
@@ -1012,6 +1070,25 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         expect(screen.queryByText('risk = distance to market — no confluent invalidation levels')).toBeNull();
     });
 
+    it('v7.3: an incomplete side renders the bracket-geometry basis tooltip', () => {
+        const opp = makeOpportunity() as any;
+        // LONG confluent-complete; SHORT carries NO confluent levels but
+        // its bracket zones are valid (65000-65200 / 62000-62400 / 66000)
+        // → the SHORT row is synthesized from bracket geometry.
+        opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_target_levels = [{ price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_invalidation_levels = [{ price: 62400, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // SHORT: entry mid 65100, target mid 62200, invalidation 66000 →
+        // reward 2900 / risk 900 → 3.22R, basis flagged on the tooltip.
+        expect(screen.getAllByText('3.22R').length).toBeGreaterThanOrEqual(1);
+        expect(
+            screen.getByTitle('risk = bracket invalidation — confluent set incomplete on this side'),
+        ).toBeTruthy();
+        expect(screen.queryByText('risk = bracket invalidation — confluent set incomplete on this side')).toBeNull();
+    });
+
     it('renders the direction-aware invalidation thesis inside each directional setup card', () => {
         const opp = makeOpportunity();
         // A CounterTrend profile under a bullish bias resolves SHORT — its
@@ -1022,7 +1099,7 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
             preconditions_met: 2,
             preconditions_total: 2,
             notes: 'Rip faded',
-            direction_family: 'CounterTrend',
+            direction_family: 'COUNTER_TREND',
             long_entry_zone: null,
             long_target_zone: null,
             long_invalidation_level: null,
@@ -1031,7 +1108,7 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
             short_target_zone: { low: 62000, high: 62500 },
             short_invalidation_level: 64400,
             short_expected_rr_internal: 6.2,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
         });
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
@@ -1056,8 +1133,10 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         expect(idx('Trade Setups')).toBeGreaterThan(-1);
         expect(idx('Confluent Levels')).toBeGreaterThan(idx('Trade Setups'));
         expect(idx('Expected Reward-to-Risk Ratio')).toBeGreaterThan(idx('Confluent Levels'));
-        expect(idx('Expected Reward-to-Risk Ratio')).toBeLessThan(idx('Market Position'));
-        expect(idx('Market Position')).toBeLessThan(idx('Evaluated Setups'));
+        expect(idx('Evaluated Setups')).toBeGreaterThan(idx('Expected Reward-to-Risk Ratio'));
+        // v7.4: the L3-leak Market Position section was removed — the L4
+        // panel now ends with Evaluated Setups.
+        expect(idx('Market Position')).toBe(-1);
     });
 
     it('dynamically ranks Evaluated Setups by score desc regardless of wire order', () => {
@@ -1068,7 +1147,7 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
             preconditions_met: met,
             preconditions_total: total,
             notes: '',
-            direction_family: 'TrendRiding',
+            direction_family: 'TREND_RIDING',
             long_entry_zone: { low: 63000, high: 63200 },
             long_target_zone: { low: 66000, high: 66500 },
             long_invalidation_level: 62400,
@@ -1077,7 +1156,7 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
             short_target_zone: null,
             short_invalidation_level: null,
             short_expected_rr_internal: null,
-            trade_viability: 'Actionable',
+            trade_viability: 'ACTIONABLE',
         });
         // Wire order is deliberately NOT sorted: the panel must rank them.
         opp.profiles = [
@@ -1098,12 +1177,12 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
     });
 });
 
-describe('OpportunitiesPanel — v7.0 OPPORTUNITY SUMMARY head card', () => {
+describe('OpportunitiesPanel — v7.0 SUMMARY head card', () => {
     it('renders the generated prose in the summary card above the conviction bars', () => {
         const opp = makeOpportunity() as any;
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        const card = screen.getByLabelText('OPPORTUNITY SUMMARY');
+        const card = screen.getByLabelText('SUMMARY');
         expect(card).toBeTruthy();
         expect(card.textContent).toContain('strong-conviction');
         expect(card.textContent).toContain('trend-continuation phase');
@@ -1114,7 +1193,7 @@ describe('OpportunitiesPanel — v7.0 OPPORTUNITY SUMMARY head card', () => {
     it('renders the awaiting fallback prose when the opportunity is absent', () => {
         seedSnapshot('BTC-USDT', null as any, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        const card = screen.getByLabelText('OPPORTUNITY SUMMARY');
+        const card = screen.getByLabelText('SUMMARY');
         expect(card.textContent).toContain('Awaiting opportunity data');
     });
 });

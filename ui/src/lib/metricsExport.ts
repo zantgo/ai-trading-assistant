@@ -144,6 +144,8 @@ interface ExportSignal {
     label: string;
     strength: number;
     age_bars: number | undefined;
+    /** v9: WEAK / MODERATE / STRONG / EXTREME per the strategy's `l1.signals.strength_buckets`. */
+    strength_label: string | undefined;
 }
 
 interface OpportunityExport {
@@ -290,7 +292,6 @@ interface AnalysisExport {
     structure_assessment: string;
     volatility_assessment: string;
     volume_assessment: string;
-    opportunity_analysis: string;
     market_quality: string;
     market_quality_score: number;
     /** Wyckoff-style market-cycle phase ("MARKUP" / "MARKDOWN" / …) —
@@ -418,6 +419,7 @@ function formatRaw(meta: IndicatorMeta, indicators: Record<string, IndicatorDto>
     if (v == null) return null;
     switch (valueFormat(meta)) {
         case 'percent1':  return Number(v.toFixed(1));
+        case 'percent4':  return Number((v * 100).toFixed(4));
         case 'price':     {
             const p = Math.abs(markPrice);
             const decls = p >= 10000 ? 1 : p >= 1000 ? 2 : p >= 100 ? 3 : p >= 10 ? 4 : p >= 1 ? 6 : 8;
@@ -477,6 +479,7 @@ function extractIndicatorsForExport(
             label: s.label,
             strength: s.strength,
             age_bars: s.age_bars,
+            strength_label: s.strength_label,
         }));
         // Phase 8: count unique signal labels (not raw signal objects).
         // This matches the UI's SIGNALS badge count in the FacetTabs.
@@ -849,7 +852,6 @@ function exportAnalysis(a: AnalysisMatrix | null): AnalysisExport | null {
         structure_assessment: a.structure_assessment,
         volatility_assessment: a.volatility_assessment,
         volume_assessment: a.volume_assessment,
-        opportunity_analysis: a.opportunity_analysis,
         market_quality: a.market_quality,
         market_quality_score: a.market_quality_score,
         // Wyckoff-style market-cycle phase — rendered on the Analysis page

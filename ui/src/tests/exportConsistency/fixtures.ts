@@ -222,14 +222,14 @@ export function makeMicroLifecycle(): Record<string, IndicatorLifecycleStatus> {
 
 export function makeContext(): MarketContext {
   return {
-    regime: 'TRENDING_BULL',
+    regime: 'TRENDING',
     overall_score: 0.62,
-    overall_label: 'STRONG_BULLISH',
-    trend: { score: 0.7, confidence: 0.8, label: 'BULLISH' },
-    momentum: { score: 0.5, confidence: 0.7, label: 'BULLISH' },
+    overall_label: 'STRONG_BULL',
+    trend: { score: 0.7, confidence: 0.8, label: 'STRONG_BULL' },
+    momentum: { score: 0.5, confidence: 0.7, label: 'STRONG_BULL' },
     volatility: { score: -0.2, confidence: 0.6, label: 'EXPANDING' },
-    volume: { score: 0.3, confidence: 0.65, label: 'STRONG' },
-    liquidity: { score: 0.4, confidence: 0.6, label: 'HEALTHY' },
+    volume: { score: 0.3, confidence: 0.65, label: 'HIGH' },
+    liquidity: { score: 0.4, confidence: 0.6, label: 'GOOD' },
   };
 }
 
@@ -324,8 +324,8 @@ export function makeAlignment(): AlignmentMatrix {
     mtf_overall_score: 30.5,
     mtf_overall_label: 'WEAK_BULL_MTF',
     timeframe_alignments: [
-      { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING_BULL', active_signals: 5, price: MARK_PRICE },
-      { timeframe: 'FAST', timeframe_secs: 180, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING_BULL', active_signals: 3, price: MARK_PRICE },
+      { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: MARK_PRICE },
+      { timeframe: 'FAST', timeframe_secs: 180, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING', active_signals: 3, price: MARK_PRICE },
       { timeframe: 'SLOW', timeframe_secs: 300, trend_score: 0.15, momentum_score: 0.1, overall_score: 0.3, regime: 'RANGE', active_signals: 1, price: MARK_PRICE },
       { timeframe: 'MACRO', timeframe_secs: 900, trend_score: -0.1, momentum_score: -0.05, overall_score: -0.2, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
     ],
@@ -340,13 +340,12 @@ export function makeAnalysis(): AnalysisMatrix {
     bias: 'Bullish',
     confidence: 0.72,
     state_confidence: 0.72,
-    market_regime: 'TRENDING_BULL',
+    market_regime: 'TrendingBull',
     trend_assessment: 'Healthy',
     momentum_assessment: 'Increasing',
     structure_assessment: 'Strong',
     volatility_assessment: 'Normal',
     volume_assessment: 'Strong',
-    opportunity_analysis: 'TrendContinuation',
     market_quality: 'Good',
     market_quality_score: 72,
     // v6.12: per-card dimension scores — the exact 0-100 inputs the
@@ -359,12 +358,12 @@ export function makeAnalysis(): AnalysisMatrix {
     // v6.10.21: exact L3 regime inputs the rationale quotes.
     representative_bbwp: 83.3,
     representative_adx: 33.0,
-    market_phase: 'MARKUP',
+    market_phase: 'Markup',
     market_interpretation: 'Price is making higher highs and higher lows on strong volume. Momentum is increasing and structure remains intact.',
     rationale: 'The market is in a healthy uptrend with broad participation across timeframes.',
     supporting_signals: [
-      'MICRO (bullish): rsi_14 score +62, TRENDING_BULL regime, 3 signals',
-      'FAST (bullish): macd_12_26_9 score +45, TRENDING_BULL regime, 2 signals',
+      'MICRO (bullish): rsi_14 score +62, TRENDING regime, 3 signals',
+      'FAST (bullish): macd_12_26_9 score +45, TRENDING regime, 2 signals',
     ],
     contradicting_signals: [
       'MACRO (bearish): obv score -20, RANGE regime, 1 signals',
@@ -397,7 +396,7 @@ export function makeOpportunity(): OpportunityMatrix {
     preconditions_met: 3,
     preconditions_total: 3,
     notes: 'Trend + bias + momentum aligned',
-    direction_family: 'TrendRiding',
+    direction_family: 'TREND_RIDING',
     long_entry_zone: { low: 63200, high: 63400 },
     long_target_zone: { low: 66000, high: 66500 },
     long_invalidation_level: 62800,
@@ -408,7 +407,7 @@ export function makeOpportunity(): OpportunityMatrix {
     short_invalidation_level: null,
     short_expected_rr_internal: null,
     short_geometry_consistent: false,
-    trade_viability: 'Actionable',
+    trade_viability: 'ACTIONABLE',
     display_score: 78,
   };
   const mr: OpportunityProfile = {
@@ -417,7 +416,7 @@ export function makeOpportunity(): OpportunityMatrix {
     preconditions_met: 2,
     preconditions_total: 3,
     notes: 'Reversion candidate',
-    direction_family: 'Neutral',
+    direction_family: 'NEUTRAL',
     long_entry_zone: null,
     long_target_zone: null,
     long_invalidation_level: null,
@@ -426,7 +425,7 @@ export function makeOpportunity(): OpportunityMatrix {
     short_target_zone: null,
     short_invalidation_level: null,
     short_expected_rr_internal: null,
-    trade_viability: 'DirectionalNeutral',
+    trade_viability: 'DIRECTIONAL_NEUTRAL',
     display_score: 28,
   };
   return {
@@ -462,7 +461,7 @@ export function makeOpportunity(): OpportunityMatrix {
       { price: 66500, confluence_count: 1, sources: ['PIVOT_POINTS'], strength: 55 },
     ],
     confluent_invalidation_levels: [],
-    direction_family: 'TrendRiding',
+    direction_family: 'TREND_RIDING',
     long_geometry_consistent: true,
     short_geometry_consistent: false,
   } as unknown as OpportunityMatrix;

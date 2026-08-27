@@ -114,7 +114,7 @@ function makeTf() {
             context: {
                 trend: { score: 0.5, confidence: 0.7, label: 'BULL' },
                 momentum: { score: 0.4, confidence: 0.6, label: 'NEUTRAL' },
-                regime: 'TRENDING_BULL',
+                regime: 'TRENDING',
                 overall_score: 50,
                 overall_label: 'BULL',
             } as Record<string, unknown>,
@@ -181,16 +181,15 @@ function makeTf() {
             bias: 'Bullish',
             confidence: 0.8,
             state_confidence: 0.8,
-            market_regime: 'TRENDING_BULL',
+            market_regime: 'TRENDING',
             trend_assessment: 'Strong',
             momentum_assessment: 'Stable',
             structure_assessment: 'Strong',
             volatility_assessment: 'Normal',
             volume_assessment: 'Strong',
-            opportunity_analysis: 'TrendContinuation',
             market_quality: 'Excellent',
             market_quality_score: 90,
-            market_phase: 'MARKUP',
+            market_phase: 'Markup',
             market_interpretation: 'Trending up',
             rationale: 'Strong trend',
             supporting_signals: ['rsi', 'macd'],
@@ -853,7 +852,7 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
             decisionContext: null,
         });
         const obj = JSON.parse(json);
-        expect(obj.analysis.market_phase).toBe('MARKUP');
+        expect(obj.analysis.market_phase).toBe('Markup');
         expect(obj.analysis.market_interpretation).toBe('Trending up');
         expect(obj.analysis.rationale).toBe('Strong trend');
     });

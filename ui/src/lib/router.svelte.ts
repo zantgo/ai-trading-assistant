@@ -1,5 +1,5 @@
 
-type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
+type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'backtesting' | 'exchange_settings';
 
 interface RouteParams {
     engine: EngineKey;

@@ -19,6 +19,7 @@ pub struct TradeJournalRecord {
     pub t_roi_pct: f64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_trade_journal(
     pool: &SqlitePool,
     trade_id: i64,

@@ -33,13 +33,13 @@ describe('ClockMonitorPanel', () => {
     it('renders_loading_state_initially', () => {
         vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
         render(ClockMonitorPanel);
-        expect(screen.getByText('Loading...')).toBeTruthy();
+        expect(screen.getByText('Loading…')).toBeTruthy();
     });
 
     it('renders_metrics_after_fetch', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse(report)));
         render(ClockMonitorPanel);
-        expect(await screen.findByText('Within Threshold')).toBeTruthy();
+        expect(await screen.findByText('WITHIN THRESHOLD')).toBeTruthy();
         expect(screen.getByText('15µs')).toBeTruthy();
         expect(screen.getByText('50µs')).toBeTruthy();
         expect(screen.getByText('8.30µs')).toBeTruthy();
@@ -99,10 +99,8 @@ describe('ClockMonitorPanel', () => {
         expect(screen.getByText('time.cloudflare.com')).toBeTruthy();
         expect(screen.getByText('time.google.com')).toBeTruthy();
 
-        // The server list must render 4 items. jsdom cannot compute
-        // `overflow-wrap` from a stylesheet, so we only assert the DOM
-        // was built — the CSS fix is verified by manual smoke.
-        const items = document.querySelectorAll('[class*="serverItem"]');
+        // The server list must render 4 items (the shared mono list).
+        const items = document.querySelectorAll('[class*="monoList"] span');
         expect(items.length).toBe(4);
     });
 });

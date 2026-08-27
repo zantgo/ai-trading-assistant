@@ -76,7 +76,11 @@ fn bitget_v2_ticker_payload_extracts_holding_amount_as_oi() {
     let parsed: BitgetTickerData =
         serde_json::from_value(payload).expect("ticker payload should parse");
     let evs = ticker_to_derivatives_events("BTC-USDT", &parsed, None);
-    assert_eq!(evs.len(), 3, "expected MarkPrice + OpenInterest + FundingRate");
+    assert_eq!(
+        evs.len(),
+        3,
+        "expected MarkPrice + OpenInterest + FundingRate"
+    );
     // OI: 1234.5 contracts * $65_000 = $80_242_500 USD notional.
     let NormalizedEvent::OpenInterest(oi) = &evs[1] else {
         panic!("expected OpenInterest at index 1");
@@ -241,8 +245,7 @@ async fn bitget_mixed_fill_payload_emits_only_liquidations() {
 fn bitget_v2_oi_extraction_uses_ticker_to_derivatives_events() {
     use std::fs;
     let src = fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/adapters/bitget.rs"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/bitget.rs"),
     )
     .expect("bitget.rs must be readable");
     // The ticker arm must call the V2 helper that extracts OI/funding

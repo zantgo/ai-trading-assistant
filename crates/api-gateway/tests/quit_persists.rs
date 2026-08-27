@@ -35,18 +35,15 @@
 //! (added below) is the targeted regression lock for this class of bug.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use api_gateway::AppState;
-use config_models::{
-    CandleBufferConfig, InstanceEntry, PlatformConfig, WorkspaceConfig,
-};
+use config_models::{CandleBufferConfig, InstanceEntry, PlatformConfig, WorkspaceConfig};
 use core_domain::liquidity::ClusterStatusSnapshot;
 use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{NormalizedEvent, SymbolMapper};
-use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -83,7 +80,9 @@ fn unique_config_path() -> PathBuf {
     let mut p = std::env::temp_dir();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
-    p.push(format!("quant_trading_platform_quit_persists_{pid}_{n}.toml"));
+    p.push(format!(
+        "quant_trading_platform_quit_persists_{pid}_{n}.toml"
+    ));
     p
 }
 
@@ -94,12 +93,18 @@ fn unique_config_path() -> PathBuf {
 /// `config_models::load_platform()` + `load_workspace()`.
 #[derive(serde::Serialize)]
 struct TestOnDiskConfig {
-    #[serde(default)] hyperliquid: config_models::HyperliquidConfig,
-    #[serde(default)] bitget: config_models::BitgetConfig,
-    #[serde(default)] clock_monitor: Option<config_models::ClockMonitorTomlConfig>,
-    #[serde(default)] quality: Option<config_models::QualityConfig>,
-    #[serde(default)] reconnect: config_models::ReconnectConfig,
-    #[serde(default)] candle_buffer: CandleBufferConfig,
+    #[serde(default)]
+    hyperliquid: config_models::HyperliquidConfig,
+    #[serde(default)]
+    bitget: config_models::BitgetConfig,
+    #[serde(default)]
+    clock_monitor: Option<config_models::ClockMonitorTomlConfig>,
+    #[serde(default)]
+    quality: Option<config_models::QualityConfig>,
+    #[serde(default)]
+    reconnect: config_models::ReconnectConfig,
+    #[serde(default)]
+    candle_buffer: CandleBufferConfig,
     workspace: WorkspaceConfig,
 }
 
@@ -108,7 +113,6 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         id: id.to_string(),
         symbol: pair.to_string(),
         quote: "USDT".to_string(),
-        initial_capital_usd: 1000.0,
         status: config_models::InstanceStatus::Running,
         micro_term: config_models::TimeframeConfig::new(60, Default::default()),
         fast_term: config_models::TimeframeConfig::new(180, Default::default()),
@@ -116,8 +120,10 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         macro_term: None,
         automation: Default::default(),
         operational_mode: Default::default(),
+        mode: config_models::ExecutionMode::Paper,
+        strategy: None,
+        allocation_pct: None,
         weight_overrides: None,
-        position_scaling: None,
         activation: None,
         custom_pipelines: std::collections::HashMap::new(),
     }
@@ -175,7 +181,8 @@ fn build_stub_instance(
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
         cluster_status: Arc::new(RwLock::new(ClusterStatusSnapshot::pending(
-            "TEST-USD", &slot.as_str(),
+            "TEST-USD",
+            &slot.as_str(),
         ))),
         pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -197,8 +204,8 @@ fn build_stub_instance(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
     let micro_buf = TimeframeBuffers {
@@ -254,7 +261,9 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
     let workspace_state = WorkspaceState::new(workspace);
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
     let (recharge_tx, _) = broadcast::channel::<api_gateway::RechargeNotice>(8);
-    let snapshot_export_runtime = Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default()));
+    let snapshot_export_runtime = Arc::new(RwLock::new(
+        core_domain::snapshot_export::SnapshotExportRuntime::default(),
+    ));
     let snapshot_export_manual_tick = Arc::new(tokio::sync::Notify::new());
     let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(8);
 
@@ -273,10 +282,16 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
         ws_url: String::new(),
         bitget_ws_url: String::new(),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx,
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }
 
@@ -309,27 +324,37 @@ async fn quit_session_persists_empty_workspace_to_disk() {
     // live `WorkspaceState.instances` map populated (which is what
     // `/api/instances` actually reads).
     let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-    state.workspace.insert(
-        HL_PAIR.to_string(),
-        build_stub_instance(
-            pool.clone(),
-            state.workspace.clone(),
-            "inst_btc",
-            "BTC",
-            "USDC",
-        ),
-    ).await;
-    state.workspace.insert(
-        BG_PAIR.to_string(),
-        build_stub_instance(
-            pool.clone(),
-            state.workspace.clone(),
-            "inst_eth",
-            "ETH",
-            "USDC",
-        ),
-    ).await;
-    assert_eq!(state.workspace.len().await, 2, "fixture must seed 2 live instances");
+    state
+        .workspace
+        .insert(
+            HL_PAIR.to_string(),
+            build_stub_instance(
+                pool.clone(),
+                state.workspace.clone(),
+                "inst_btc",
+                "BTC",
+                "USDC",
+            ),
+        )
+        .await;
+    state
+        .workspace
+        .insert(
+            BG_PAIR.to_string(),
+            build_stub_instance(
+                pool.clone(),
+                state.workspace.clone(),
+                "inst_eth",
+                "ETH",
+                "USDC",
+            ),
+        )
+        .await;
+    assert_eq!(
+        state.workspace.len().await,
+        2,
+        "fixture must seed 2 live instances"
+    );
 
     // Sanity: the in-memory config starts with both entries.
     let initial = state.workspace.config().await;
@@ -428,17 +453,18 @@ async fn quit_session_clears_live_workspace_map() {
     let state = build_state_with_config(cfg_path.clone()).await;
 
     let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-    state.workspace.insert(
-        HL_PAIR.to_string(),
-        build_stub_instance(
-            pool,
-            state.workspace.clone(),
-            "inst_btc",
-            "BTC",
-            "USDC",
-        ),
-    ).await;
-    assert_eq!(state.workspace.len().await, 1, "fixture must seed 1 live instance");
+    state
+        .workspace
+        .insert(
+            HL_PAIR.to_string(),
+            build_stub_instance(pool, state.workspace.clone(), "inst_btc", "BTC", "USDC"),
+        )
+        .await;
+    assert_eq!(
+        state.workspace.len().await,
+        1,
+        "fixture must seed 1 live instance"
+    );
 
     state
         .init_session(Currency::USDC, ExchangeChoice::Hyperliquid)
@@ -490,12 +516,21 @@ async fn quit_session_then_init_session_does_not_respawn() {
 
     std::env::set_var("MARKET_MONITOR_CONFIG", &cfg_path);
     let state = build_state_with_config(cfg_path.clone()).await;
-    state.init_session(Currency::USDC, ExchangeChoice::Hyperliquid).await.expect("init 1");
+    state
+        .init_session(Currency::USDC, ExchangeChoice::Hyperliquid)
+        .await
+        .expect("init 1");
     state.quit_session().await.expect("quit");
-    state.init_session(Currency::USDC, ExchangeChoice::Hyperliquid).await.expect("init 2");
+    state
+        .init_session(Currency::USDC, ExchangeChoice::Hyperliquid)
+        .await
+        .expect("init 2");
 
     let cfg = state.workspace.config().await;
-    assert!(cfg.instances.is_empty(), "fresh session must not auto-respawn anything");
+    assert!(
+        cfg.instances.is_empty(),
+        "fresh session must not auto-respawn anything"
+    );
 
     // The on-disk version matches.
     let reloaded = config_models::load_workspace().expect("reload");

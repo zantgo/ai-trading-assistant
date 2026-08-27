@@ -94,13 +94,13 @@ describe('TEST-UI: State Reactive Effects', () => {
         // Set values on BTC micro-term
         app.instancesMap['BTC-USDT'].microTerm.priceText = '65000.00';
         app.instancesMap['BTC-USDT'].microTerm.indicators = {
-            rsi: { raw_value: 62.5, normalized: -0.3, state_label: 'BEARISH_PREMIUM' },
+            rsi: { raw_value: 62.5, normalized: 0.44, state_label: 'BULLISH_MOMENTUM' },
         };
 
         // Set values on ETH small-term
         app.instancesMap['ETH-USDT'].fastTerm.priceText = '3200.00';
         app.instancesMap['ETH-USDT'].fastTerm.indicators = {
-            rsi: { raw_value: 45.0, normalized: 0.1, state_label: 'BULLISH_DISCOUNT' },
+            rsi: { raw_value: 45.0, normalized: -0.18, state_label: 'BEARISH_MOMENTUM' },
         };
 
         // BTC micro-term unchanged

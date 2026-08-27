@@ -1,8 +1,8 @@
 # Indicator Documentation Index
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
-> **52** indicators across 8 functional groups. Registry-verified count: 52 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry. The registry describes capability and never changes with runtime config.
+> **52** indicators across 8 functional groups. Registry-verified count: 52 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). The per-indicator `Signals` columns mirror the registry `signal_types` manifest; where the runtime signal deriver (`crates/market-analyzer/src/indicators/normalized/signals.rs`) differs today, the spec file's Signals table carries an explicit annotation (registry-declared-but-pending, or runtime-derived-but-not-yet-declared — see `bbwp`, `squeeze`, `aroon`, `stochastic`, `mfi`, `macd`).
 >
 > **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/market-analyzer/src/indicators/registry.rs` and updated on every registry change.
 >
@@ -32,12 +32,12 @@
 | # | Filename | Key | Display Name | Class | Dir | Div | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|-----|---------|----------|
 | 11 | `04-02-11-rsi.md` | `rsi` | RSI | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×5 | [04-02-11-rsi.md](04-02-11-rsi.md) |
-| 12 | `04-02-12-stochastic.md` | `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, Divergence, Threshold×4 | [04-02-12-stochastic.md](04-02-12-stochastic.md) |
+| 12 | `04-02-12-stochastic.md` | `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, Divergence, Threshold×4, ZeroLineCross | [04-02-12-stochastic.md](04-02-12-stochastic.md) |
 | 13 | `04-02-13-chandemo.md` | `chandemo` | Chande MO | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×4 | [04-02-13-chandemo.md](04-02-13-chandemo.md) |
 | 14 | `04-02-14-williams-r.md` | `williams_r` | Williams %R | Leading | Y | — | Threshold×2, ZeroLineCross | [04-02-14-williams-r.md](04-02-14-williams-r.md) |
 | 15 | `04-02-15-awesome-oscillator.md` | `awesome_oscillator` | AO | Leading | Y | — | ZeroLineCross×2, Threshold×2 | [04-02-15-awesome-oscillator.md](04-02-15-awesome-oscillator.md) |
 | 16 | `04-02-16-cci.md` | `cci` | CCI | Leading | Y | — | Threshold×4, ZeroLineCross | [04-02-16-cci.md](04-02-16-cci.md) |
-| 17 | `04-02-17-macd.md` | `macd` | MACD | Lagging | Y | Y | Crossover×2, ZeroLineCross, Divergence, Threshold | [04-02-17-macd.md](04-02-17-macd.md) |
+| 17 | `04-02-17-macd.md` | `macd` | MACD | Lagging | Y | Y | Crossover×2, ZeroLineCross, Divergence, TrendFlip | [04-02-17-macd.md](04-02-17-macd.md) |
 
 ---
 
@@ -47,10 +47,10 @@
 |---|---|-----|-------------|-------|-----|-----|---------|----------|
 | 18 | `04-02-18-volume.md` | `volume` | Volume | Hybrid | N (Gate) | — | VolumeClimax | [04-02-18-volume.md](04-02-18-volume.md) |
 | 19 | `04-02-19-rvol.md` | `rvol` | RVOL | Hybrid | N (Gate) | — | VolumeClimax | [04-02-19-rvol.md](04-02-19-rvol.md) |
-| 20 | `04-02-20-volume-profile.md` | `volume_profile` | Volume Profile | Hybrid | Y | — | Breakout×2, LevelTest×2 | [04-02-20-volume-profile.md](04-02-20-volume-profile.md) |
-| 21 | `04-02-21-obv.md` | `obv` | OBV | Lagging | Y | Y | TrendFlip×2, Divergence×2, Threshold×3 | [04-02-21-obv.md](04-02-21-obv.md) |
-| 22 | `04-02-22-cmf.md` | `cmf` | Chaikin MF | Hybrid | Y | Y | ZeroLineCross×2, Divergence×2, Threshold×4 | [04-02-22-cmf.md](04-02-22-cmf.md) |
-| 23 | `04-02-23-mfi.md` | `mfi` | Money Flow Idx | Hybrid | Y | Y | Threshold×4, Divergence×2 | [04-02-23-mfi.md](04-02-23-mfi.md) |
+| 20 | `04-02-20-volume-profile.md` | `volume_profile` | Volume Profile | Hybrid | Y | — | Breakout×2, LevelTest×2, TrendFlip×2 | [04-02-20-volume-profile.md](04-02-20-volume-profile.md) |
+| 21 | `04-02-21-obv.md` | `obv` | OBV | Lagging | Y | Y | TrendFlip×2, Divergence×2 | [04-02-21-obv.md](04-02-21-obv.md) |
+| 22 | `04-02-22-cmf.md` | `cmf` | Chaikin MF | Hybrid | Y | Y | ZeroLineCross×2, Divergence×2 | [04-02-22-cmf.md](04-02-22-cmf.md) |
+| 23 | `04-02-23-mfi.md` | `mfi` | Money Flow Idx | Hybrid | Y | Y | Threshold×4, Divergence×2, ZeroLineCross | [04-02-23-mfi.md](04-02-23-mfi.md) |
 | 24 | `04-02-24-force-index.md` | `force_index` | Force Idx | Hybrid | Y | — | ZeroLineCross, Threshold | [04-02-24-force-index.md](04-02-24-force-index.md) |
 
 ---
@@ -61,8 +61,8 @@
 |---|---|-----|-------------|-------|-----|-----|---------|----------|
 | 25 | `04-02-25-atr.md` | `atr` | ATR | Lagging | N (Gate) | — | Threshold, CompressionRelease | [04-02-25-atr.md](04-02-25-atr.md) |
 | 26 | `04-02-26-bollinger.md` | `bollinger` | Bollinger | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest×3 | [04-02-26-bollinger.md](04-02-26-bollinger.md) |
-| 27 | `04-02-27-bbwp.md` | `bbwp` | BBWP | Leading | N (Gate) | — | CompressionRelease, Threshold | [04-02-27-bbwp.md](04-02-27-bbwp.md) |
-| 28 | `04-02-28-squeeze.md` | `squeeze` | TTM Squeeze | Hybrid | Y | Y | CompressionRelease×3, Divergence, Threshold×3 | [04-02-28-squeeze.md](04-02-28-squeeze.md) |
+| 27 | `04-02-27-bbwp.md` | `bbwp` | BBWP | Leading | N (Gate) | — | CompressionRelease | [04-02-27-bbwp.md](04-02-27-bbwp.md) |
+| 28 | `04-02-28-squeeze.md` | `squeeze` | TTM Squeeze | Hybrid | Y | Y | CompressionRelease×3, Divergence | [04-02-28-squeeze.md](04-02-28-squeeze.md) |
 | 29 | `04-02-29-hv.md` | `hv` | Hist. Volatility | Lagging | N (Gate) | — | Threshold | [04-02-29-hv.md](04-02-29-hv.md) |
 | 30 | `04-02-30-stddev-channel.md` | `stddev_channel` | StdDev Chnl | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest | [04-02-30-stddev-channel.md](04-02-30-stddev-channel.md) |
 
@@ -84,9 +84,9 @@
 
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
 |---|---------|-----|-------------|-------|-----|---------|----------|
-| 36 | `04-02-36-aroon.md` | `aroon` | Aroon | Hybrid | Y | TrendFlip×2, Threshold×2 | [04-02-36-aroon.md](04-02-36-aroon.md) |
+| 36 | `04-02-36-aroon.md` | `aroon` | Aroon | Hybrid | Y | Crossover, TrendFlip×2, Threshold×2 | [04-02-36-aroon.md](04-02-36-aroon.md) |
 | 37 | `04-02-37-choppiness.md` | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease | [04-02-37-choppiness.md](04-02-37-choppiness.md) |
-| 38 | `04-02-38-linreg-slope.md` | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 | [04-02-38-linreg-slope.md](04-02-38-linreg-slope.md) |
+| 38 | `04-02-38-linreg-slope.md` | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross | [04-02-38-linreg-slope.md](04-02-38-linreg-slope.md) |
 | 39 | `04-02-39-zscore.md` | `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross | [04-02-39-zscore.md](04-02-39-zscore.md) |
 | 52 | `04-02-52-price-trend-sharpe.md` | `price_trend_sharpe` | Price Trend Sharpe | Lagging | Y | — (data-only) | [04-02-52-price-trend-sharpe.md](04-02-52-price-trend-sharpe.md) |
 
@@ -97,7 +97,7 @@
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|---------|----------|
 | 40 | `04-02-40-smc-structure.md` | `smc_structure` | SMC Structure | Leading | Y | Breakout, TrendFlip | [04-02-40-smc-structure.md](04-02-40-smc-structure.md) |
-| 41 | `04-02-41-smc-liquidity.md` | `smc_liquidity` | SMC Liquidity | Leading | Y | PatternForming×2 | [04-02-41-smc-liquidity.md](04-02-41-smc-liquidity.md) |
+| 41 | `04-02-41-smc-liquidity.md` | `smc_liquidity` | SMC Liquidity | Leading | Y | PatternForming×2, Threshold×2 | [04-02-41-smc-liquidity.md](04-02-41-smc-liquidity.md) |
 | 42 | `04-02-42-smc-fvg.md` | `smc_fvg` | SMC Fair Value Gap | Leading | Y | LevelTest | [04-02-42-smc-fvg.md](04-02-42-smc-fvg.md) |
 | 43 | `04-02-43-smc-order-blocks.md` | `smc_order_blocks` | SMC Order Blocks | Leading | Y | LevelTest×2, TrendFlip×2 | [04-02-43-smc-order-blocks.md](04-02-43-smc-order-blocks.md) |
 

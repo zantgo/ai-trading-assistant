@@ -26,6 +26,48 @@
     margin-top: 0;
 }
 
+/* ── Section collapse caret (per title — hides the whole section) ── */
+
+.caretBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.caretBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
+}
+
+.chevron {
+    display: inline-flex;
+    font-size: 8px;
+    line-height: 1;
+    transform: rotate(0deg);
+    transform-origin: center;
+    transition: transform 0.15s ease;
+}
+
+.rotated {
+    transform: rotate(90deg);
+}
+
 .headingTitle {
     margin: 0;
     font-size: 11px;
@@ -114,19 +156,14 @@
     box-shadow: 0 0 8px rgba(248, 113, 113, 0.35);
 }
 
-/* ── Divergence / agreement direction badges ── */
-
-.divTotalBadge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 9px;
-    font-weight: 800;
-    padding: 2px 7px;
-    border-radius: 3px;
-    letter-spacing: 0.05em;
-    white-space: nowrap;
+/* Neutral (MIXED) dominant category lights up in neutral white. */
+.dirBadgeNeutral.dirBadgeLit {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.22);
 }
+
+/* ── Indicator-grid agreement cells (per-row BULL / BEAR / MIXED) ── */
 
 .agBull    { color: #4ade80; background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.4); }
 .agBear    { color: #f87171; background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.4); }

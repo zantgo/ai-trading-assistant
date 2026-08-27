@@ -97,7 +97,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const points = pairsFromHistory(h, 'bbwp');
             if (points.length > 0) {

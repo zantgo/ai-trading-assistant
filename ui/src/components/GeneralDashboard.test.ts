@@ -3,7 +3,7 @@
 // GeneralDashboard — Market Overview operator dashboard.
 //
 // These tests cover the three hero states (TRADE / WAIT / STAND ASIDE),
-// the 4-up card row, the 9-column Asset Rankings table, and the
+// the 4-up card row, the 15-column Asset Rankings table, and the
 // Risk Distribution card's wire-side behaviour (reading from
 // OverviewMatrix.risk_distribution when available, falling back to local
 // aggregation when not).
@@ -58,7 +58,6 @@ function makeDecisionContext(overrides: Partial<DecisionContext> = {}): Decision
     return {
         score: 50,
         bias: 'Bullish',
-        confidence: 0.7,
         score_confidence: 0.8,
         entry_danger: makeDanger(31),
         expected_reward_risk_ratio: 2.5,
@@ -81,7 +80,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
                 preconditions_met: 3,
                 preconditions_total: 4,
                 notes: '',
-                direction_family: 'TrendRiding',
+                direction_family: 'TREND_RIDING',
                 long_entry_zone: { low: 60000, high: 62000 },
                 long_target_zone: { low: 65000, high: 68000 },
                 long_invalidation_level: 59000,
@@ -90,7 +89,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
                 short_invalidation_level: null,
                 long_expected_rr_internal: 2.5,
                 short_expected_rr_internal: null,
-                trade_viability: 'Actionable',
+                trade_viability: 'ACTIONABLE',
             },
         ],
         forecast_confidence: 0,
@@ -121,16 +120,15 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         bias: 'Bullish',
         confidence: 0.7,
         state_confidence: 0.7,
-        market_regime: 'ACCUMULATION',
+        market_regime: 'Accumulation',
         trend_assessment: 'Developing',
         momentum_assessment: 'Increasing',
         structure_assessment: 'Healthy',
         volatility_assessment: 'Normal',
         volume_assessment: 'Normal',
-        opportunity_analysis: 'TrendContinuation',
         market_quality: 'Good',
         market_quality_score: 70,
-        market_phase: 'MARKUP',
+        market_phase: 'Markup',
         market_interpretation: '',
         rationale: '',
         supporting_signals: [],
@@ -231,7 +229,7 @@ describe('GeneralDashboard — hero states', () => {
                     preconditions_met: 3,
                     preconditions_total: 4,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: null,
                     long_target_zone: null,
                     long_invalidation_level: null,
@@ -240,7 +238,7 @@ describe('GeneralDashboard — hero states', () => {
                     short_invalidation_level: null,
                     long_expected_rr_internal: 2.5,
                     short_expected_rr_internal: null,
-                    trade_viability: 'Actionable',
+                    trade_viability: 'ACTIONABLE',
                 }],
             }),
         });
@@ -259,7 +257,7 @@ describe('GeneralDashboard — hero states', () => {
                     preconditions_met: 2,
                     preconditions_total: 4,
                     notes: '',
-                    direction_family: 'Neutral',
+                    direction_family: 'NEUTRAL',
                     long_entry_zone: null,
                     long_target_zone: null,
                     long_invalidation_level: null,
@@ -268,7 +266,7 @@ describe('GeneralDashboard — hero states', () => {
                     short_invalidation_level: null,
                     long_expected_rr_internal: null,
                     short_expected_rr_internal: null,
-                    trade_viability: 'DirectionalNeutral',
+                    trade_viability: 'DIRECTIONAL_NEUTRAL',
                 }],
             }),
         });
@@ -287,7 +285,7 @@ describe('GeneralDashboard — hero states', () => {
 });
 
 describe('GeneralDashboard — asset rankings table', () => {
-    it('renders 11 columns (Symbol, Price, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score, MTF Label, Risk, Updated)', () => {
+    it('renders 15 columns (Symbol, Price, Entry, Take Profit, Stop Loss, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score, MTF Label, Risk, Updated) — Image 1 fidelity', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
         // Verify each column header is present (use getAllByText for
@@ -295,9 +293,13 @@ describe('GeneralDashboard — asset rankings table', () => {
         // appears in the Trade Opportunities card AND the table).
         expect(screen.getAllByText('Symbol').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Price').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Entry').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Take Profit').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Stop Loss').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Bias').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Signal').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
+        // R:R header renders as "R:R" (colon without slash)
         expect(screen.getAllByText('R:R').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
@@ -305,6 +307,50 @@ describe('GeneralDashboard — asset rankings table', () => {
         expect(screen.getAllByText('MTF Label').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Risk').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Updated').length).toBeGreaterThan(0);
+    });
+
+    it('renders the top-setup entry / target / stop levels', () => {
+        seedPair('BTC');
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        // The seeded profile carries long zones 60,000–62,000 /
+        // 65,000–68,000 / 59,000 → the ENTRY / TARGET / STOP cells render
+        // them (local warmup fallback through `topSetupSummary`).
+        expect(screen.getAllByText('60,000–62,000').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('65,000–68,000').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('59,000').length).toBeGreaterThan(0);
+    });
+
+    it('renders the server-computed setup levels from overview_rows', () => {
+        seedPair('BTC');
+        const app = useAppStore();
+        app.overviewMatrix = {
+            overview_rows: [
+                {
+                    symbol: 'BTC-USDT',
+                    price: 63505,
+                    bias: 'Bullish',
+                    signal: 'BUY',
+                    direction: 'LONG',
+                    rr: 2.5,
+                    score: 61,
+                    confidence: 75,
+                    mtf_score: 42,
+                    mtf_label: 'WEAK_BULL_MTF',
+                    risk: 45,
+                    entry_low: 63200,
+                    entry_high: 63400,
+                    target_low: 66000,
+                    target_high: 66500,
+                    invalidation: 62800,
+                    updated_ts: 1_700_000_000,
+                    active: true,
+                },
+            ],
+        } as OverviewMatrix;
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        expect(screen.getAllByText('63,200–63,400').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('66,000–66,500').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('62,800').length).toBeGreaterThan(0);
     });
 
     it('renders one row per pair', () => {
@@ -359,8 +405,8 @@ describe('GeneralDashboard — risk distribution', () => {
     it('uses OverviewMatrix.risk_distribution when present (L7 source)', () => {
         const app = useAppStore();
         app.overviewMatrix = {
-            global_market_bias: 'Bullish',
-            market_breadth: 'Positive',
+            global_market_bias: 'BULLISH',
+            market_breadth: 'POSITIVE',
             low_coverage: false,
             breadth_pct: 50,
             regime_distribution: {},
@@ -372,8 +418,8 @@ describe('GeneralDashboard — risk distribution', () => {
                 risk_environment: 'LOW_RISK',
             },
             asset_ranking: [],
-            market_synchronization: 'Synchronized',
-            market_health: 'Healthy',
+            market_synchronization: 'SYNCHRONIZED',
+            market_health: 'HEALTHY',
             global_summary: '',
             instance_count: 1,
             active_symbols: ['BTC-USDT'],
@@ -399,7 +445,7 @@ describe('GeneralDashboard — header KPI strip', () => {
         render(GeneralDashboard, { props: { wssMap: {} } });
         expect(screen.getByText('VALID TRADES')).toBeTruthy();
         expect(screen.getByText('BEST OPPORTUNITY')).toBeTruthy();
-        expect(screen.getByText('AVG R:R')).toBeTruthy();
+        expect(screen.getByText('RISK TO REWARD RATIO')).toBeTruthy();
         expect(screen.getByText('MARKET BIAS')).toBeTruthy();
         expect(screen.getByText('AVG RISK')).toBeTruthy();
         expect(screen.getByText('COVERAGE')).toBeTruthy();
@@ -461,7 +507,7 @@ describe('GeneralDashboard — trade opportunities card', () => {
         expect(screen.getAllByText('TRADE OPPORTUNITIES').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Best Pair').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Best R:R').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Best Risk/Reward').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
     });
 });
@@ -477,14 +523,14 @@ describe('GeneralDashboard — market alignment card', () => {
     it('renders populated distribution + consensus + agreement when overview has alignment data', () => {
         const app = useAppStore();
         app.overviewMatrix = {
-            global_market_bias: 'Bullish',
-            market_breadth: 'Positive',
+            global_market_bias: 'BULLISH',
+            market_breadth: 'POSITIVE',
             regime_distribution: {},
             opportunity_distribution: {},
             risk_distribution: { low_pct: 50, moderate_pct: 40, high_pct: 10, risk_environment: 'LOW_RISK' },
             asset_ranking: [],
-            market_synchronization: 'Synchronized',
-            market_health: 'Healthy',
+            market_synchronization: 'SYNCHRONIZED',
+            market_health: 'HEALTHY',
             global_summary: '',
             instance_count: 4,
             active_symbols: [],

@@ -71,8 +71,8 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
         preconditions_met: 2,
         preconditions_total: 2,
         notes: 'Pullback',
-        direction_family: 'Neutral',
-        trade_viability: 'DirectionalNeutral',
+        direction_family: 'NEUTRAL',
+        trade_viability: 'DIRECTIONAL_NEUTRAL',
         long_expected_rr_internal: 0,
         short_expected_rr_internal: 0,
       } as never,
@@ -139,8 +139,8 @@ describe('buildOverviewTabExport — FIX-O1 signal/validity gate', () => {
           preconditions_met: 2,
           preconditions_total: 2,
           notes: 'Breakout',
-          direction_family: 'TrendRiding',
-          trade_viability: 'Actionable',
+          direction_family: 'TREND_RIDING',
+          trade_viability: 'ACTIONABLE',
           long_expected_rr_internal: 2.54,
         } as never],
       }),
@@ -187,5 +187,133 @@ describe('buildOverviewTabExport — risk rows (FIX-O3)', () => {
     }));
     expect(p.asset_rankings.rows[0].risk).toBe(43);
     expect(p.asset_rankings.rows[0].risk_display).toBe('43');
+  });
+});
+
+describe('buildOverviewTabExport — asset rankings top-setup columns', () => {
+  it('row carries the top-setup entry / target / stop levels', () => {
+    const inst = makeInstance({
+      analysis: makeAnalysis('Bullish'),
+      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
+      opportunity: makeOpportunity({
+        profiles: [{
+          opportunity_type: 'Pullback',
+          score: 60,
+          preconditions_met: 2,
+          preconditions_total: 2,
+          notes: 'Pullback',
+          direction_family: 'TREND_RIDING',
+          trade_viability: 'ACTIONABLE',
+          long_entry_zone: { low: 60000, high: 62000 },
+          long_target_zone: { low: 65000, high: 68000 },
+          long_invalidation_level: 59000,
+          long_expected_rr_internal: 2.5,
+        } as never],
+      }),
+    });
+    const p = JSON.parse(buildOverviewTabExport({
+      overviewMatrix: null,
+      instances: [inst],
+      headerSpec,
+      nowMs: 1786752300000,
+    }));
+    const row = p.asset_rankings.rows[0];
+    expect(row.entry_low).toBe(60000);
+    expect(row.entry_display).toBe('60,000–62,000');
+    expect(row.target_low).toBe(65000);
+    expect(row.target_display).toBe('65,000–68,000');
+    expect(row.stop_level).toBe(59000);
+    expect(row.stop_display).toBe('59,000');
+  });
+
+  it('row setup columns render "—" when no bracket exists', () => {
+    const inst = makeInstance(); // NEUTRAL profile, no zones
+    const p = JSON.parse(buildOverviewTabExport({
+      overviewMatrix: null,
+      instances: [inst],
+      headerSpec,
+      nowMs: 1786752300000,
+    }));
+    const row = p.asset_rankings.rows[0];
+    expect(row.entry_low).toBe(0);
+    expect(row.entry_display).toBe('—');
+    expect(row.target_display).toBe('—');
+    expect(row.stop_display).toBe('—');
+  });
+});
+
+describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
+  it('demotes the KPI bias token + suffix under low coverage (parity with header)', () => {
+    const inst = {
+      symbol: 'BTC-USDC',
+      instanceId: 'inst_btc',
+      microTerm: tf,
+      advisory: makeAdvisory({ directional_guidance: 'Long', confidence_assessment: 78 }),
+      analysis: makeAnalysis('StrongBullish'),
+      risk: makeRisk(20),
+      opportunity: {
+        profiles: [{ score: 82 }],
+        opportunity_score: 82,
+        long_expected_rr_internal: 2.5,
+        short_expected_rr_internal: 0,
+      } as unknown as OpportunityMatrix,
+      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
+    } as unknown as InstanceState;
+
+    const p = JSON.parse(buildOverviewTabExport({
+      overviewMatrix: {
+        global_market_bias: 'STRONG_BULLISH',
+        market_health: 'HEALTHY',
+        market_synchronization: 'SYNCHRONIZED',
+        instance_count: 1,
+        low_coverage: true,
+        breadth_pct: 100,
+        asset_ranking: [],
+        regime_distribution: {},
+        risk_distribution: { low_pct: 0, moderate_pct: 0, high_pct: 0, risk_environment: 'LOW_RISK' },
+        active_symbols: ['BTC-USDC'],
+      } as unknown as import('../../types').OverviewMatrix,
+      instances: [inst],
+      headerSpec,
+      nowMs: 1786752300000,
+    }));
+
+    expect(p.kpis.market_bias.value).toBe('BULLISH');
+    expect(p.kpis.market_bias.sub).toContain('(1 pair)');
+    // The raw wire value stays intact for data consumers.
+    expect(p.overview_matrix.global_market_bias).toBe('STRONG_BULLISH');
+  });
+
+  it('keeps the STRONG token when coverage is sufficient', () => {
+    const inst = {
+      symbol: 'BTC-USDC',
+      instanceId: 'inst_btc',
+      microTerm: tf,
+      advisory: makeAdvisory({ directional_guidance: 'Long', confidence_assessment: 78 }),
+      analysis: makeAnalysis('StrongBullish'),
+      risk: makeRisk(20),
+      opportunity: { profiles: [{ score: 82 }], opportunity_score: 82 } as unknown as OpportunityMatrix,
+      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
+    } as unknown as InstanceState;
+
+    const p = JSON.parse(buildOverviewTabExport({
+      overviewMatrix: {
+        global_market_bias: 'STRONG_BULLISH',
+        market_health: 'HEALTHY',
+        market_synchronization: 'SYNCHRONIZED',
+        instance_count: 5,
+        low_coverage: false,
+        breadth_pct: 100,
+        asset_ranking: [],
+        regime_distribution: {},
+        risk_distribution: { low_pct: 0, moderate_pct: 0, high_pct: 0, risk_environment: 'LOW_RISK' },
+        active_symbols: ['BTC-USDC'],
+      } as unknown as import('../../types').OverviewMatrix,
+      instances: [inst],
+      headerSpec,
+      nowMs: 1786752300000,
+    }));
+
+    expect(p.kpis.market_bias.value).toBe('STRONG_BULLISH');
   });
 });

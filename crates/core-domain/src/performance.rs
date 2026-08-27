@@ -34,7 +34,10 @@ pub struct TradeAnalyticsRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyAnalyticsRow {
-    pub policy_id: String,
+    pub setup_type: String,
+    /// Significance bar (0.05 = 5%). `is_significant` requires both the
+    /// t-test p-value and the Monte Carlo p-value below this threshold.
+    pub alpha: f64,
     pub total_trades: u32,
     pub win_count: u32,
     pub loss_count: u32,
@@ -81,13 +84,55 @@ pub struct RiskAnalyticsRow {
     pub downside_deviation: f64,
     pub value_at_risk_95: f64,
     pub expected_shortfall_95: f64,
+    /// v10.1: Sharpe computed over **log** daily returns (time-additive,
+    /// unbiased for skewed/volatile equity curves). `None` when the curve
+    /// is too short or flat.
+    #[serde(default)]
+    pub sharpe_ratio_log: Option<f64>,
+    /// v10.2 institutional: CAGR % annualized, Sterling/Burke (return/DD), Omega, Gain/Pain, Tail
+    #[serde(default)]
+    pub cagr_pct: Option<f64>,
+    #[serde(default)]
+    pub annualized_volatility_pct: Option<f64>,
+    #[serde(default)]
+    pub sterling_ratio: Option<f64>,
+    #[serde(default)]
+    pub burke_ratio: Option<f64>,
+    #[serde(default)]
+    pub omega_ratio: Option<f64>,
+    #[serde(default)]
+    pub gain_to_pain_ratio: Option<f64>,
+    #[serde(default)]
+    pub tail_ratio: Option<f64>,
+}
+
+// ─── v10.1 Direction Symmetry Verdict ────────────────────────────────
+
+/// Welch two-sample t-test comparing LONG vs SHORT per-trade returns.
+/// H0: the two directions' returns are statistically equal.
+/// Primary statistic = `roi_pct` (size-normalized); USD expectancy is
+/// reported as context. Only produced with ≥10 trades per side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectionSymmetryVerdict {
+    pub long_count: u32,
+    pub short_count: u32,
+    pub long_expectancy_usd: f64,
+    pub short_expectancy_usd: f64,
+    pub long_win_rate: f64,
+    pub short_win_rate: f64,
+    pub t_statistic: f64,
+    pub degrees_of_freedom: f64,
+    pub p_value: f64,
+    pub significant: bool,
+    /// SYMMETRIC | LONG_BETTER | SHORT_BETTER (significant only).
+    pub verdict: String,
 }
 
 // ─── L4: Performance Matrix (Regime Compatibility) ──────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMatrixRow {
-    pub policy_id: String,
+    pub setup_type: String,
     pub regime: String,
     pub trade_count: u32,
     pub win_rate: f64,
@@ -253,7 +298,7 @@ pub struct MonthlySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMatrixSummary {
-    pub policy_id: String,
+    pub setup_type: String,
     pub total_trades: u32,
     pub overall_profit_factor: Option<f64>,
     pub overall_expectancy: f64,

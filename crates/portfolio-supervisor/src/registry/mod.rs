@@ -5,11 +5,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use config_models::{Stance, TimeframeConfig};
 use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
+use config_models::TimeframeConfig;
 use core_domain::normalized::Exchange;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -18,10 +18,17 @@ pub struct InstanceSummary {
     pub pair: String,
     pub status: String,
     pub symbol: String,
-    pub initial_capital: f64,
+    pub portfolio_capital: f64,
     pub current_equity: f64,
     pub consecutive_losses: u32,
     pub safety_state: String,
+    /// Per-instance execution mode (observe | paper | live). Set at launch
+    /// from the session default and fixed for the instance's lifetime —
+    /// there is no runtime mode toggle.
+    pub mode: config_models::ExecutionMode,
+    /// v10.1: the instance lifecycle state (RUNNING | PAUSED | STOPPING |
+    /// STOPPED) — TAE activation is the lifecycle.
+    pub lifecycle: String,
 }
 
 /// Add a new instance to the state, starting all pipeline tasks.
@@ -45,20 +52,9 @@ pub async fn add_instance(
     // Resolve the active exchange and its settlement/quote currency from the
     // session. The quote is forced to the session currency so that frontend and
     // backend pair keys / native symbols always agree.
-    let exchange_choice = state
-        .session
-        .exchange
-        .read()
-        .await
-        .clone()
-        .unwrap_or(ExchangeChoice::Hyperliquid);
-    let quote = state
-        .session
-        .base_currency
-        .read()
-        .await
-        .clone()
-        .unwrap_or(Currency::USDC);
+    let exchange_choice =
+        (*state.session.exchange.read().await).unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = (*state.session.base_currency.read().await).unwrap_or(Currency::USDC);
 
     if !exchange_choice.supports_currency(&quote) {
         return Err(format!(
@@ -93,11 +89,16 @@ pub async fn add_instance(
                 let pt = exchange_choice
                     .bitget_product_type(&quote)
                     .unwrap_or("USDT-FUTURES");
-                network_adapters::adapters::bitget_rest::symbol_exists(&raw_symbol, pt, &bitget_ticker_url)
-                    .await
+                network_adapters::adapters::bitget_rest::symbol_exists(
+                    &raw_symbol,
+                    pt,
+                    &bitget_ticker_url,
+                )
+                .await
             }
             ExchangeChoice::Hyperliquid => {
-                network_adapters::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url).await
+                network_adapters::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url)
+                    .await
             }
         };
         match availability {
@@ -145,21 +146,28 @@ pub async fn add_instance(
         .cloned();
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
-    let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    let micro_cfg = pair_cfg.as_ref().map(|p| p.micro_term.clone())
+    let micro_cfg = pair_cfg
+        .as_ref()
+        .map(|p| p.micro_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let fast_cfg = pair_cfg.as_ref().map(|p| p.fast_term.clone())
+    let fast_cfg = pair_cfg
+        .as_ref()
+        .map(|p| p.fast_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(180, default_indicators.clone()));
-    let slow_cfg = pair_cfg.as_ref().and_then(|p| p.slow_term.clone())
+    let slow_cfg = pair_cfg
+        .as_ref()
+        .and_then(|p| p.slow_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
                 config_guard.slow_timeframe.duration_seconds,
                 default_indicators.clone(),
             )
         });
-    let macro_cfg = pair_cfg.as_ref().and_then(|p| p.macro_term.clone())
+    let macro_cfg = pair_cfg
+        .as_ref()
+        .and_then(|p| p.macro_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
                 config_guard.macro_timeframe.duration_seconds,
@@ -176,12 +184,55 @@ pub async fn add_instance(
         .map(|p| p.operational_mode.clone())
         .unwrap_or_default();
     let weight_overrides = pair_cfg.as_ref().and_then(|p| p.weight_overrides.clone());
-    let position_scaling = pair_cfg.as_ref().and_then(|p| p.position_scaling.clone());
     let liquidity_config_first = config_guard.liquidity.clone();
     let heatmap_config_first = config_guard.heatmap.clone();
+    let api_failover_first = config_guard.api_failover;
+    // CA-01…CA-15: global `[activation]` + per-instance union + version.
+    let activation_first = config_guard.activation.clone();
+    let activation_instance_first = pair_cfg.as_ref().and_then(|p| p.activation.clone());
+    let config_version_first = config_guard.config_version;
+    // v9: instances launch bound to the default strategy; an explicit
+    // per-instance binding overrides it.
+    let bound_name = pair_cfg
+        .as_ref()
+        .and_then(|p| p.strategy.clone())
+        .unwrap_or_else(|| "default".to_string());
+    let strategy_first = config_guard
+        .resolve_strategy(&bound_name)
+        .unwrap_or_else(|e| {
+            eprintln!("strategy resolution failed ({e}); using built-in default");
+            config_models::StrategyConfig::default()
+        });
+    // v9: the PME safety envelope comes from the bound strategy's `pme.safety`.
+    let safety_config = strategy_first
+        .pme
+        .safety
+        .to_safety_config(config_guard.safety.systemic_risk_threshold);
+    // v9: the order-book surface follows the strategy's `l1.order_book`.
+    let ob_config_first = strategy_first.l1.order_book.to_order_book_config();
     drop(config_guard);
 
     let cancel = CancellationToken::new();
+
+    // v7.1+: per-instance execution mode (observe | paper | live). Drives
+    // both the runtime TAE gate (`Instance::execution_mode`) and the
+    // persisted `InstanceEntry.mode`.
+    //
+    // v7.3 fix: a boot-restored instance (one that already has a persisted
+    // `InstanceEntry` in config.toml) MUST keep its declared mode — the
+    // previous implementation always re-derived the mode from the session
+    // default, which is `None` at cold boot, so an `observe` instance
+    // silently booted as `paper`. The session default only applies to
+    // genuinely new instances (no existing entry).
+    let execution_mode = if let Some(existing) = pair_cfg.as_ref() {
+        existing.mode
+    } else {
+        match state.session.session_mode().await.as_deref() {
+            Some("live") => config_models::ExecutionMode::Live,
+            Some("observe") => config_models::ExecutionMode::Observe,
+            _ => config_models::ExecutionMode::Paper,
+        }
+    };
 
     let micro_secs = micro_cfg.candles.duration_seconds;
     let fast_secs = fast_cfg.candles.duration_seconds;
@@ -202,9 +253,9 @@ pub async fn add_instance(
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         internal_symbol: normalized.clone(),
-        quote: quote.clone(),
+        quote,
         rest_url,
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         pool: state.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
@@ -229,9 +280,9 @@ pub async fn add_instance(
         base: base.clone(),
         internal_symbol: normalized.clone(),
         custom_pipelines: std::collections::HashMap::new(),
-        quote: quote.clone(),
+        quote,
         pair_key: pair_key.clone(),
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -242,9 +293,14 @@ pub async fn add_instance(
         cancel: cancel.clone(),
         operational_mode: operational_mode.clone(),
         weight_overrides: weight_overrides.clone(),
-        position_scaling: position_scaling.clone(),
         liquidity_config: liquidity_config_first,
         heatmap_config: heatmap_config_first,
+        api_failover: api_failover_first,
+        activation: activation_first,
+        activation_instance: activation_instance_first,
+        config_version: config_version_first,
+        ob_config: ob_config_first,
+        strategy: strategy_first,
         buffer_size,
         stale_threshold_secs,
     };
@@ -252,6 +308,8 @@ pub async fn add_instance(
     let artifacts =
         pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
             .await;
+    artifacts.instance.set_execution_mode(execution_mode).await;
+    artifacts.instance.boot_lifecycle(execution_mode).await;
 
     // Populates buffers directly if warmed states are present
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -296,24 +354,34 @@ pub async fn add_instance(
     // implementation only updated the live map, which broke save→recharge
     // cycles because the in-memory WorkspaceConfig snapshot stayed empty
     // until the daemon was restarted and the TOML was reloaded.
-    state.workspace.insert(pair_key.clone(), Arc::clone(&artifacts.instance)).await;
+    state
+        .workspace
+        .insert(pair_key.clone(), Arc::clone(&artifacts.instance))
+        .await;
 
+    // v9 (F-07): ONE portfolio-wide capital dial — the shared ledger
+    // seeds from `[workspace] portfolio_capital_usd` (the session default
+    // may override it for new sessions).
+    let portfolio_capital = state.workspace.config().await.portfolio_capital_usd;
+    let base_capital;
     {
         let mut config = state.workspace.config().await;
-        if let Some(slot) = config
-            .instances
-            .iter_mut()
-            .find(|i| i.symbol == pair_key)
-        {
+        if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == pair_key) {
             // Re-adding an existing pair (rare). Refresh the UUID in case the
             // disk copy is stale and accept the live configs in memory.
             slot.id = artifacts.instance.id.clone();
+            base_capital = portfolio_capital;
         } else {
+            let capital = state
+                .session
+                .session_capital()
+                .await
+                .unwrap_or(portfolio_capital);
+            base_capital = capital;
             let entry = config_models::InstanceEntry {
                 id: artifacts.instance.id.clone(),
                 symbol: pair_key.clone(),
                 quote: quote.as_str().to_string(),
-                initial_capital_usd: 1000.0,
                 status: config_models::InstanceStatus::Running,
                 micro_term: micro_cfg.clone(),
                 fast_term: fast_cfg.clone(),
@@ -321,11 +389,13 @@ pub async fn add_instance(
                 macro_term: Some(macro_cfg.clone()),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
+                mode: execution_mode,
+                strategy: None,
+                allocation_pct: None,
                 weight_overrides: weight_overrides.clone(),
-                position_scaling: position_scaling.clone(),
                 activation: None,
                 custom_pipelines: std::collections::HashMap::new(),
-                };
+            };
             config.instances.push(entry);
         }
         if let Err(e) = config_models::save_workspace(&config) {
@@ -333,6 +403,14 @@ pub async fn add_instance(
         }
         state.workspace.set_config(config).await;
     }
+
+    // Seed the live trading/safety state with the same capital the
+    // persisted InstanceEntry carries (config-declared for boot-restored
+    // instances, session default for new ones). Without this,
+    // trading.portfolio_capital / safety.portfolio_capital /
+    // starting_session_equity stay 0, so /portfolio and /safety report
+    // portfolio_capital 0 and daily_pnl = full equity instead of 0.
+    artifacts.instance.set_portfolio_capital(base_capital).await;
 
     sync_exchange_status_active_pairs(state).await;
 
@@ -346,13 +424,18 @@ pub async fn add_instance(
 
 /// Pause an instance (no new trades, keep open positions for TP/SL).
 pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instance = state.workspace.list().await
+    let instance = state
+        .workspace
+        .list()
+        .await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     {
         let mut lifecycle = instance.lifecycle.write().await;
-        lifecycle.pause("operator", Some("Manual pause".into())).await?;
+        lifecycle
+            .pause("operator", Some("Manual pause".into()))
+            .await?;
     }
     let mut config_state = instance.config_state.write().await;
     config_state.status = InstanceStatus::Paused;
@@ -366,13 +449,18 @@ pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Resul
 
 /// Start an instance (from STOPPED or lifecycle PAUSED).
 pub async fn start_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instance = state.workspace.list().await
+    let instance = state
+        .workspace
+        .list()
+        .await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     {
         let mut lifecycle = instance.lifecycle.write().await;
-        lifecycle.start("operator", Some("Manual start".into())).await?;
+        lifecycle
+            .start("operator", Some("Manual start".into()))
+            .await?;
     }
     let mut config_state = instance.config_state.write().await;
     config_state.status = InstanceStatus::Running;
@@ -386,13 +474,18 @@ pub async fn start_instance(state: &RegistryContext, instance_id: &str) -> Resul
 
 /// Stop an instance (close all positions immediately, transition STOPPING -> STOPPED).
 pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instance = state.workspace.list().await
+    let instance = state
+        .workspace
+        .list()
+        .await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     {
         let mut lifecycle = instance.lifecycle.write().await;
-        lifecycle.stop("operator", Some("Manual stop".into())).await?;
+        lifecycle
+            .stop("operator", Some("Manual stop".into()))
+            .await?;
     }
     instance.cancel.cancel();
 
@@ -502,9 +595,7 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
     // 4. Drop from the workspace config + persist to TOML.
     {
         let mut config = state.workspace.config().await;
-        config
-            .instances
-            .retain(|i| i.symbol != pair_key);
+        config.instances.retain(|i| i.symbol != pair_key);
         if let Err(e) = config_models::save_workspace(&config) {
             eprintln!("⚠️  Failed to persist workspace after delete: {}", e);
         }
@@ -569,31 +660,48 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .ok_or_else(|| format!("No saved config for pair {}", pair_key))?;
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
-    let safety_config = config_guard.safety.clone();
+    // v9: the PME safety envelope comes from the bound strategy's `pme.safety`.
+    let safety_config = {
+        let bound_name = pair_cfg
+            .strategy
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+        let st = config_guard
+            .resolve_strategy(&bound_name)
+            .unwrap_or_else(|_| config_models::StrategyConfig::default());
+        st.pme
+            .safety
+            .to_safety_config(config_guard.safety.systemic_risk_threshold)
+    };
     let intervals_config = config_guard.intervals.clone();
-    let exchange_choice = state
-        .session
-        .exchange
-        .read()
-        .await
-        .clone()
-        .unwrap_or(ExchangeChoice::Hyperliquid);
-    let quote = state
-        .session
-        .base_currency
-        .read()
-        .await
-        .clone()
-        .unwrap_or(Currency::USDC);
+    let exchange_choice =
+        (*state.session.exchange.read().await).unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = (*state.session.base_currency.read().await).unwrap_or(Currency::USDC);
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
         _ => state.platform.read().await.hyperliquid.rest_url(),
     };
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
-    let position_scaling = pair_cfg.position_scaling.clone();
     let liquidity_config_recharge = config_guard.liquidity.clone();
     let heatmap_config_recharge = config_guard.heatmap.clone();
+    let api_failover_recharge = config_guard.api_failover;
+    // CA-01…CA-15: global `[activation]` + per-instance union + version.
+    let activation_recharge = config_guard.activation.clone();
+    let activation_instance_recharge = pair_cfg.activation.clone();
+    let config_version_recharge = config_guard.config_version;
+    // v9 (F-04): recharge the wired order-book knobs + strategy.
+    let ob_config_recharge = config_guard.order_book.clone();
+    let bound_name = pair_cfg
+        .strategy
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+    let strategy_recharge = config_guard
+        .resolve_strategy(&bound_name)
+        .unwrap_or_else(|e| {
+            eprintln!("strategy resolution failed ({e}); using built-in default");
+            config_models::StrategyConfig::default()
+        });
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
@@ -624,9 +732,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         internal_symbol: pair_key.to_string(),
-        quote: quote.clone(),
+        quote,
         rest_url,
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         pool: state.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
@@ -652,9 +760,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         base: base.clone(),
         internal_symbol: pair_key.to_string(),
         custom_pipelines: std::collections::HashMap::new(),
-        quote: quote.clone(),
+        quote,
         pair_key: pair_key.to_string(),
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -665,9 +773,14 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         cancel: cancel.clone(),
         operational_mode,
         weight_overrides,
-        position_scaling,
         liquidity_config: liquidity_config_recharge,
         heatmap_config: heatmap_config_recharge,
+        api_failover: api_failover_recharge,
+        activation: activation_recharge,
+        activation_instance: activation_instance_recharge,
+        config_version: config_version_recharge,
+        ob_config: ob_config_recharge,
+        strategy: strategy_recharge,
         buffer_size,
         stale_threshold_secs,
     };
@@ -675,6 +788,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let artifacts =
         pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
             .await;
+    artifacts.instance.set_execution_mode(pair_cfg.mode).await;
+    artifacts.instance.boot_lifecycle(pair_cfg.mode).await;
 
     // Populate buffers from warmed states
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -713,14 +828,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .await;
     }
 
-    let symbol = old_instance.active_pair.symbol.clone();
-    let mut stances = std::collections::HashMap::new();
-    stances.insert(symbol, Stance::Active);
-
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
         pair: old_instance.pair.clone(),
-        exchange: old_instance.exchange.clone(),
+        exchange: old_instance.exchange,
         cancel: cancel.clone(),
         trading: {
             let old_trading = old_instance.trading.read().await;
@@ -739,12 +850,15 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         fast: artifacts.fast,
         slow: artifacts.slow,
         r#macro: artifacts.r#macro,
-        lifecycle: RwLock::new(LifecycleManager::new(None)),
-        stances: RwLock::new(stances),
+        lifecycle: RwLock::new(LifecycleManager::new_for_mode(None, Some(pair_cfg.mode))),
+        execution_mode: tokio::sync::RwLock::new(pair_cfg.mode),
     });
 
     // Swap in state map
-    state.workspace.insert(pair_key.to_string(), Arc::clone(&new_instance)).await;
+    state
+        .workspace
+        .insert(pair_key.to_string(), Arc::clone(&new_instance))
+        .await;
 
     sync_exchange_status_active_pairs(state).await;
 
@@ -770,16 +884,12 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             pair: inst.pair_key(),
             status: inst.config_state.read().await.status.as_str().to_string(),
             symbol: inst.symbol(),
-            initial_capital: inst.trading.read().await.initial_capital,
+            portfolio_capital: inst.trading.read().await.portfolio_capital,
             current_equity: inst.trading.read().await.current_equity,
-            consecutive_losses: inst
-                .safety
-                .consecutive_losses
-                .read()
-                .await
-                .values()
-                .sum(),
+            consecutive_losses: inst.safety.consecutive_losses.read().await.values().sum(),
             safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
+            mode: inst.execution_mode().await,
+            lifecycle: inst.lifecycle.read().await.state.as_str().to_string(),
         });
     }
     summaries
@@ -831,7 +941,8 @@ pub async fn reload_timeframe(
 
     println!(
         "🔄 Reload TF requested: instance={} slot={} (delegating to full recharge for now)",
-        instance_id, slot_enum.as_str()
+        instance_id,
+        slot_enum.as_str()
     );
 
     // Reset only the slot's pipeline_state so the next emitted snapshot

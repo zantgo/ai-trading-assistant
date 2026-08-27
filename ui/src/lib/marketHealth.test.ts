@@ -205,23 +205,23 @@ describe('computeMarketHealth', () => {
 
     it('uses overview matrix for overall/sync when available', () => {
         const overview: OverviewMatrix = {
-            global_market_bias: 'Bullish',
-            market_breadth: 'Positive',
+            global_market_bias: 'BULLISH',
+            market_breadth: 'POSITIVE',
             low_coverage: false,
             breadth_pct: 50,
             regime_distribution: {},
             opportunity_distribution: {},
             risk_distribution: { low_pct: 60, moderate_pct: 30, high_pct: 10, risk_environment: 'LOW_RISK' },
             asset_ranking: [],
-            market_synchronization: 'Synchronized',
-            market_health: 'Healthy',
+            market_synchronization: 'SYNCHRONIZED',
+            market_health: 'HEALTHY',
             global_summary: '',
             instance_count: 1,
             active_symbols: ['BTC-USDT'],
         } as OverviewMatrix;
         const result = computeMarketHealth([makeInstance(true)], overview);
-        expect(result.overall).toBe('Healthy');
-        expect(result.sync).toBe('Synchronized');
+        expect(result.overall).toBe('HEALTHY');
+        expect(result.sync).toBe('SYNCHRONIZED');
     });
 
     it('reports activeInstanceCount = contributing instances', () => {

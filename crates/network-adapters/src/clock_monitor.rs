@@ -55,7 +55,10 @@ impl Default for ClockMonitorConfig {
         Self {
             ntp_servers: vec!["pool.ntp.org".to_string(), "time.aws.com".to_string()],
             poll_interval: Duration::from_secs(30),
-            threshold: Duration::from_micros(50),
+            // 10 ms matches config.toml / config-models default_clock_monitor_threshold_micros.
+            // The prior 50µs bare default was never used in production (TOML overrides it)
+            // but made unit tests 200× stricter than deployed.
+            threshold: Duration::from_micros(10_000),
             breach_action: BreachAction::Warn,
             warn_on_breach: true,
             jitter_window_size: 20,
@@ -163,7 +166,21 @@ impl ClockMonitor {
                     eprintln!("{}", msg);
                 }
                 if matches!(self.config.breach_action, BreachAction::Panic) {
-                    panic!("{}", msg);
+                    // K2 (production audit): `panic!` inside the monitor task was
+                    // discarded by `join_all`, killing only the monitor. The
+                    // operator explicitly chose `breach_action=panic` as a
+                    // hard-stop — terminate the process so trading stops. Flush
+                    // stderr first so the breach message is not lost in the WAL
+                    // tail; the daemon's graceful shutdown path (SIGTERM) already
+                    // drains the telemetry queue, but a hard-stop is by definition
+                    // immediate.
+                    eprintln!("{}", msg);
+                    eprintln!("ClockMonitor: breach_action=panic — terminating process");
+                    // Best-effort flush before exit (not async, so no drain).
+                    use std::io::Write as _;
+                    let _ = std::io::stderr().flush();
+                    let _ = std::io::stdout().flush();
+                    std::process::exit(1);
                 }
             }
             DriftVerdict::NetworkError {
@@ -182,10 +199,7 @@ impl ClockMonitor {
     /// Compute the rolling RMS jitter (standard deviation) from the last
     /// `jitter_window_size` samples, in microseconds.
     pub fn rms_jitter_us(&self) -> Option<f64> {
-        let samples = self
-            .samples
-            .lock()
-            .expect("ClockMonitor samples lock poisoned");
+        let samples = self.samples.lock().unwrap_or_else(|e| e.into_inner());
         if samples.len() < 2 {
             return None;
         }
@@ -200,18 +214,12 @@ impl ClockMonitor {
     }
 
     pub fn current_offset_us(&self) -> Option<i64> {
-        let samples = self
-            .samples
-            .lock()
-            .expect("ClockMonitor samples lock poisoned");
+        let samples = self.samples.lock().unwrap_or_else(|e| e.into_inner());
         samples.last().map(|s| s.offset_us)
     }
 
     pub fn sample_count(&self) -> usize {
-        self.samples
-            .lock()
-            .expect("ClockMonitor samples lock poisoned")
-            .len()
+        self.samples.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     pub fn breach_count(&self) -> u32 {
@@ -222,10 +230,7 @@ impl ClockMonitor {
     /// and downstream consumers (e.g. a health endpoint) can record externally
     /// produced samples if they ever need to.
     pub fn record_sample(&self, sample: ClockSample) {
-        let mut samples = self
-            .samples
-            .lock()
-            .expect("ClockMonitor samples lock poisoned");
+        let mut samples = self.samples.lock().unwrap_or_else(|e| e.into_inner());
         samples.push(sample);
         let max_size = self.config.jitter_window_size.max(1);
         if samples.len() > max_size {

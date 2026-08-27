@@ -21,6 +21,8 @@
     // it's been removed.
     import type { LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, TimeframeTelemetry } from '../types';
     import { formatTimeframeLabel } from '../lib/telemetry';
+    import { cascadeAsymmetryLabel, cascadeAsymmetryIsBullish, cascadeAsymmetryIsBearish } from '../lib/liquidityPanel';
+    import { isClusterStale } from '../lib/liquidationHeatmap';
     import styles from './LiquidityPanel.module.css';
 
     interface Props {
@@ -152,9 +154,13 @@
         <div class={styles.section}>
             <h3 class={styles.h3}>Estimated Liquidation Heatmap</h3>
             {#if !cluster}
-                <div class={styles.placeholder}>Cluster matrix refreshes every 5 minutes. Awaiting first computation…</div>
+                <div class={styles.placeholder}>Cluster matrix refreshes at each candle cadence. Awaiting first computation…</div>
             {:else}
-                <div class={styles.subSection}>
+                {#if isClusterStale(cluster)}
+                    <div class={styles.staleBadge} title="The OI feed has been down past the matrix TTL — bands are anchored to an outdated mid.">
+                        ⚠ STALE — OI feed down
+                    </div>
+                {/if}                <div class={styles.subSection}>
                     <div class={styles.subLabel}>Assumptions</div>
                     <div class={styles.assumptionRow}>
                         <span>Source:</span>
@@ -168,27 +174,26 @@
                     </div>
                 </div>
 
-                <div class={styles.subSection}>
+                    <div class={styles.subSection}>
                     <div class={styles.subLabel}>Cascade Asymmetry</div>
                     <div class={styles.assumptionRow}>
                         <span>Sign:</span>
-                        <code class={styles.code + ' ' + (cluster.cascade_asymmetry < 0 ? styles.bullish : cluster.cascade_asymmetry > 0 ? styles.bearish : '')}>
+                        <code class={styles.code + ' ' + (cascadeAsymmetryIsBearish(cluster.cascade_asymmetry) ? styles.bearish : cascadeAsymmetryIsBullish(cluster.cascade_asymmetry) ? styles.bullish : '')}>
                             {cluster.cascade_asymmetry.toFixed(3)}
                         </code>
                         <span>Direction:</span>
                         <code class={styles.code}>
-                            {cluster.cascade_asymmetry < -0.3 ? 'SHORT_SQUEEZE_RISK' :
-                             cluster.cascade_asymmetry > 0.3 ? 'LONG_SQUEEZE_RISK' : 'NEUTRAL'}
+                            {cascadeAsymmetryLabel(cluster.cascade_asymmetry) ?? 'NEUTRAL'}
                         </code>
                     </div>
                 </div>
 
                 <div class={styles.subSection}>
-                    <div class={styles.subLabel}>Short Clusters (above mid)</div>
+                    <div class={styles.subLabel}>Short-Side Clusters</div>
                     {#if cluster.short_clusters.length === 0}
                         <div class={styles.placeholder}>No short-side clusters above noise threshold.</div>
                     {:else}
-                        {#each cluster.short_clusters as c}
+                        {#each cluster.short_clusters as c (c.peak_price)}
                             <div class={styles.clusterRow}>
                                 <span class={styles.clusterPrice}>{fmtPrice(c.peak_price)}</span>
                                 <span class={styles.clusterRange}>
@@ -196,7 +201,7 @@
                                 </span>
                                 <span class={styles.clusterNotional}>{fmtUsd(c.notional_usd)}</span>
                                 <span class={styles.clusterDistance}>{fmtPct(c.distance_from_mid_pct)}</span>
-                                <span class="{styles.clusterKind} {styles.kindAbove}">{c.cluster_kind}</span>
+                                <span class="{styles.clusterKind} {c.cluster_kind === 'ABOVE_CURRENT_PRICE' ? styles.kindAbove : ''}">{c.cluster_kind}</span>
                                 <span class={styles.clusterMagnet} style="width: {c.magnet_strength.toFixed(0)}px">
                                     {c.magnet_strength.toFixed(0)}
                                 </span>
@@ -206,11 +211,11 @@
                 </div>
 
                 <div class={styles.subSection}>
-                    <div class={styles.subLabel}>Long Clusters (below mid)</div>
+                    <div class={styles.subLabel}>Long-Side Clusters</div>
                     {#if cluster.long_clusters.length === 0}
                         <div class={styles.placeholder}>No long-side clusters above noise threshold.</div>
                     {:else}
-                        {#each cluster.long_clusters as c}
+                        {#each cluster.long_clusters as c (c.peak_price)}
                             <div class={styles.clusterRow}>
                                 <span class={styles.clusterPrice}>{fmtPrice(c.peak_price)}</span>
                                 <span class={styles.clusterRange}>
@@ -218,7 +223,7 @@
                                 </span>
                                 <span class={styles.clusterNotional}>{fmtUsd(c.notional_usd)}</span>
                                 <span class={styles.clusterDistance}>{fmtPct(c.distance_from_mid_pct)}</span>
-                                <span class="{styles.clusterKind} {styles.kindBelow}">{c.cluster_kind}</span>
+                                <span class="{styles.clusterKind} {c.cluster_kind === 'BELOW_CURRENT_PRICE' ? styles.kindBelow : ''}">{c.cluster_kind}</span>
                                 <span class={styles.clusterMagnet} style="width: {c.magnet_strength.toFixed(0)}px">
                                     {c.magnet_strength.toFixed(0)}
                                 </span>
@@ -286,7 +291,7 @@
                         {/if}
                     </div>
                 {:else}
-                    {#each signals as sig}
+                    {#each signals as sig (sig.kind + sig.direction + sig.evidence.join('|'))}
                         <div class={styles.signalRow + ' ' +
                                     (sig.direction === 'BULLISH' ? styles.signalBullish :
                                      sig.direction === 'BEARISH' ? styles.signalBearish : styles.signalNeutral)}>

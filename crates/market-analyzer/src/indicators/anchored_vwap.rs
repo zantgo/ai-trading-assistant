@@ -25,6 +25,12 @@ pub struct AvwapOutput {
     pub vwap_swing: Option<Decimal>,
 }
 
+impl Default for AnchoredVwap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnchoredVwap {
     pub fn new() -> Self {
         Self {

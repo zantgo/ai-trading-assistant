@@ -10,13 +10,30 @@
     // Subtext shows the actionable count, the best opportunity symbol
     // + score, and the highest confidence in the actionable set.
     import { useAppStore } from '../../state.svelte';
-    import { computeHeroState, pickBestOpportunity, collectActiveSetups } from '../../lib/tradeAggregates';
-    import { formatRR } from '../../lib/dashboardColors';
+    import { computeHeroState, pickBestOpportunity, collectActiveSetups, type HeroState } from '../../lib/tradeAggregates';
+    import { formatRewardRatio } from '../../lib/dashboardColors';
     import styles from './RecommendationHero.module.css';
 
     const app = useAppStore();
 
+    // v7.2 parity: the server-computed hero (`OverviewMatrix.hero`, produced
+    // by the L7 aggregation task) is the primary source — the CLI terminal
+    // monitor renders the same object. The local TS derivation stays as the
+    // warmup fallback while the L7 payload is absent.
     const states = $derived.by(() => {
+        const serverHero = app.overviewMatrix?.hero;
+        if (serverHero) {
+            return {
+                hero: serverHero.verdict as HeroState,
+                totalCount: serverHero.candidate_count,
+                actionableCount: serverHero.actionable_count,
+                bestSymbol: serverHero.best_symbol ?? null,
+                bestScore: serverHero.best_score ?? 0,
+                bestDir: serverHero.best_direction ?? null,
+                bestConfidence: serverHero.best_confidence ?? 0,
+                bestRr: serverHero.best_rr ?? 0,
+            };
+        }
         const instances = Object.values(app.instancesMap);
         const hero = computeHeroState(instances);
         const setups = collectActiveSetups(instances);
@@ -52,8 +69,8 @@
         if (s.hero === 'TRADE') {
             const symbol = s.bestSymbol ?? '—';
             const dir = s.bestDir === 'LONG' ? 'LONG' : s.bestDir === 'SHORT' ? 'SHORT' : '—';
-            const rr = formatRR(s.bestRr);
-            return `${s.actionableCount} actionable setup${s.actionableCount === 1 ? '' : 's'} · best ${symbol} ${dir} · R:R ${rr} · confidence ${s.bestConfidence.toFixed(0)}%`;
+            const rr = formatRewardRatio(s.bestRr);
+            return `${s.actionableCount} actionable setup${s.actionableCount === 1 ? '' : 's'} · best ${symbol} ${dir} · risk-reward ${rr} · confidence ${s.bestConfidence.toFixed(0)}%`;
         }
         if (s.hero === 'WAIT') {
             return `${s.totalCount} candidate setup${s.totalCount === 1 ? '' : 's'} forming — no READY trade yet.`;

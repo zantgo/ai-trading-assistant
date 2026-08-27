@@ -196,11 +196,14 @@
     }
 
     function cascadeAsymmetryText(asym: number | undefined): string {
+        // v2026-08: display-band parity with LiquidityPanel / metricsTab —
+        // ±0.3 dead-band (the L4/L5 threshold documented in 03-02-11) and
+        // the canonical SHORT_SQUEEZE_RISK / LONG_SQUEEZE_RISK labels.
         if (asym == null || !isFinite(asym)) return '\u2014';
         const pct = (asym * 100).toFixed(1);
-        if (asym > 0) return `\u2191${pct}% (short squeeze)`;
-        if (asym < 0) return `\u2193${pct}% (long cascade)`;
-        return `0.0% (balanced)`;
+        if (asym > 0.3) return `\u2191${pct}% (SHORT_SQUEEZE_RISK)`;
+        if (asym < -0.3) return `\u2193${pct}% (LONG_SQUEEZE_RISK)`;
+        return `0.0% (NEUTRAL)`;
     }
 
     /** v6.10.21: volatility-to-spread band tint mirroring the L5 scoring
@@ -235,7 +238,7 @@
          risk progress bar. Always-gray premium card — the level-tinted
          background is gone; the segmented weight strip and its caption
          are erased (weights live on the dimension cards). -->
-    <SummaryCard label="RISK SUMMARY">
+    <SummaryCard label="SUMMARY">
         <div class={styles.interpretation}>
             {#if risk}
                 {#if dimCounts.extreme > 0 || dimCounts.high > 0}
@@ -260,11 +263,12 @@
     <!-- v6.10.19d (C): the hero is a RISK PROGRESS BAR (the ring is
          gone). Confidence moved into the L5 header as a chip between
          Score and Dimensions. The bar carries the "lower is safer"
-         tooltip. No caption text below the hero. -->
+         tooltip. No caption text below the hero. The nested "Risk"
+         label was removed (v7.3) — the section title above owns it. -->
+    <div class={styles.sectionTitle}>Overall Risk</div>
     <section class={styles.hero}>
         <div class={styles.heroRiskRow}
              title="Overall risk \u2014 lower is safer">
-            <span class={styles.heroRiskLabel}>Risk</span>
             <div class={styles.heroRiskBar}>
                 <div class="{styles.heroRiskFill} {risk ? levelClass(risk.overall_risk.level) : ''}"
                      style="width: {risk ? Math.min(risk.overall_risk.score, 100).toFixed(1) : '0'}%"></div>
@@ -282,6 +286,7 @@
     </section>
 
     <!-- ── Summary tiles ── -->
+    <div class={styles.sectionTitle}>Severity Distribution</div>
     <section class={styles.summary} aria-label="Dimension severity distribution">
         {#each LEVELS as l}
             {@const lk = l.toLowerCase().replace(/_/g, '')}

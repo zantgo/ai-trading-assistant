@@ -126,7 +126,9 @@ export function computeOpportunityBars(
     // SETUP with score 0) and capped by the setup score when the score
     // exceeds the floor — the remaining uncertainty stays visible as a
     // Hold buffer.
-    const wDir = Math.exp(activeRR * 3);
+    // The wire R:R is unbounded; cap the exponent input so a pathological
+    // ratio (≥ ~237) cannot overflow exp() to Infinity → NaN bars.
+    const wDir = Math.exp(Math.min(activeRR, 200) * 3);
     const wHold = Math.exp(0.25);
     const rawConviction = (wDir / (wDir + wHold)) * 100;
     const conviction = Math.min(rawConviction, Math.max(score, MIN_ACTIVE_FLOOR));

@@ -2,9 +2,7 @@ import type {
     DecisionProfile, DecisionScore, RiskProfile, RiskCalculation,
     FeeTableRow, CommissionProjection, ExchangeAccount,
     DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    ScaleInPortion, TakeProfitTarget, UserTrade,
-    SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
-    OpenOrder, SlotState, PositionSlot, EquitySnapshot,
+    OpenOrder, SlotState,
     OverviewMatrix,
 } from './types';
 
@@ -12,6 +10,7 @@ declare module './state.svelte' {
     interface AppStore {
         sessionActive: boolean; sessionMode: string; sessionCurrency: string;
         sessionExchange: string; sessionCapital: number; sessionInstanceCount: number;
+        sessionId: number | null;
         sessionLoading: boolean; sessionChecked: boolean;
         sessionError: string | null;
 
@@ -37,40 +36,24 @@ declare module './state.svelte' {
         exchangeMaxAccounts: number;
         exchangeFormDraft: { exchange: string; account_name: string; api_key: string; api_secret: string; passphrase: string; referred_uid: string; is_active: boolean };
 
-        paperCashBalance: number; paperInitialUSD: number; paperAllocationPct: number;
-        paperAutoExecute: boolean; activePaperPosition: Record<string, unknown> | null;
-        paperUnrealizedPnl: number; paperUnrealizedRoi: number;
-        paperTotalAccountValue: number; paperMarginUsed: number; paperMaxTrades: number;
-        paperActiveTrades: number; paperAvailableTrades: number;
-        paperHistory: Record<string, unknown>[]; paperLoading: boolean;
-        paperScaleInPortions: ScaleInPortion[]; paperTakeProfitTargets: TakeProfitTarget[];
-        paperAvgEntryPrice: number; paperInvalidationLevel: number;
-        paperFilledPortions: number; paperMaxRiskPct: number; paperLeverage: number;
-        paperAutoExecuteIntervals: number; paperLookbackTrades: number;
-        paperPositionPct: number; paperFreeBalancePct: number; paperDirection: 'LONG' | 'SHORT' | '';
         openOrders: OpenOrder[];
         activePlan: Record<string, unknown> | null;
         activeConsoleOpen: boolean;
         activeConsoleTab: 'positions' | 'orders' | 'history' | 'plan';
-        activeSlots: SlotState[]; positionSlots: PositionSlot[];
-        equitySnapshots: EquitySnapshot[];
-        paperInitialAllocatedMargin: number;
-        paperRealizedPnlAccumulator: number;
+        activeSlots: SlotState[];
         paperBreakEvenTrailEnabled: boolean;
 
         apiKeyConfigured: boolean; rulesContent: string;
-        globalCandlesConfig: { duration_seconds: number; analysis_limit: number };
+        globalCandlesConfig: { duration_seconds: number };
         globalIndicatorsConfig: Record<string, number>;
         indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
+        workspaceSlowTimeframeSecs: number; workspaceMacroTimeframeSecs: number;
 
-        dashboardStats: DashboardStats | null; dashboardActiveFilter: string;
+        dashboardStats: DashboardStats | null;
         dashboardPeriod: string; dashboardOrigin: string;
         tradeLedgerRecords: TradeLedgerRecord[]; tradeJournalRecords: TradeJournalRecord[];
-        journalLookbackDepth: number; systemHeartbeat: SystemHeartbeat | null;
-        recentDecisions: DecisionMemoryRow[]; completedTrades: CompletedTradesRow[];
-        userTrades: UserTrade[];
 
         overviewMatrix: OverviewMatrix | null;
         fetchOverview(): Promise<void>;
@@ -78,7 +61,12 @@ declare module './state.svelte' {
         stopOverviewPolling(): void;
 
         fetchSessionStatus(): Promise<void>;
-        initSession(currency: string, exchange: string): Promise<{ success: boolean; error?: string }>;
+        initSession(
+            currency: string,
+            exchange: string,
+            mode?: 'observe' | 'paper' | 'live',
+            capital?: number,
+        ): Promise<{ success: boolean; error?: string }>;
         quitSession(): Promise<any>;
         fetchDecisionProfiles(): Promise<void>;
         createDecisionProfile(name: string, longT: number, shortT: number): Promise<void>;

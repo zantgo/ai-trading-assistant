@@ -7,7 +7,7 @@
 .signalLeanBull { background: rgba(34, 197, 94, 0.12); color: #22c55e; border-color: rgba(34, 197, 94, 0.30); }
 .signalLeanBear { background: rgba(239, 68, 68, 0.12); color: #ef4444; border-color: rgba(239, 68, 68, 0.30); }
 .signalLeanSplit { background: rgba(148, 163, 184, 0.08); color: #94a3b8; border-color: rgba(148, 163, 184, 0.30); }
-.signalLeanHeroLabel { font-size: 9px; font-weight: 600; letter-spacing: 0.12em; color: #64748b; text-transform: uppercase; margin-top: 8px; margin-bottom: 6px; }
+.signalLeanHeroLabel { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; text-transform: uppercase; margin-top: 8px; margin-bottom: 6px; }
 .signalLeanHero { padding: 10px 14px; border-radius: 8px; border: 1px solid transparent; display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .signalLeanHeroCall { font-size: 14px; font-weight: 800; letter-spacing: 0.03em; }
 .signalLeanHeroMeta { font-size: 11px; font-weight: 600; opacity: 0.75; }
@@ -55,16 +55,25 @@
 .qualityWeak { background: rgba(239,68,68,0.10); color: #f87171; }
 .qualityPoor { background: rgba(239,68,68,0.18); color: #ef4444; }
 /* v7.0: ANALYSIS SUMMARY — the unified Interpretation & Rationale card
-   moved into the head-badge zone (SummaryCard chrome). The old card
-   wrapper (interpretCard) is gone; the prose + 5-column grid render
-   directly inside the always-gray summary body. */
-.interpretText { font-size: 12.5px; color: #cbd5e1; line-height: 1.6; }
-.interpretDivider { border-top: 1px solid rgba(148, 163, 184, 0.18); margin: 2px 0 10px 0; }
+   moved into the head-badge zone (SummaryCard chrome). v7.3: the prose
+   and the 5-column quantitative grid split into two stacked cards
+   (ANALYSIS SUMMARY + KEY METRICS), each with its own external section
+   title. Prose typography is the unified SummaryCard body language
+   (12px slate, high-contrast strong). */
 .rationaleGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .rationaleCell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .rationaleLabel { font-size: 8px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
 .rationaleValue { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; color: #e2e8f0; white-space: nowrap; }
 .rationaleSub { font-size: 9px; color: #64748b; }
+.rationaleFootnote {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.35);
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}
 @media (max-width: 720px) {
     .rationaleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -80,8 +89,9 @@
 .placeholder { font-size: 11px; color: #64748b; padding: 4px 6px; font-style: italic; }
 .noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; margin-bottom: 12px; }
 
-/* ── Interpretation keyword emphasis ── */
-.interpretText :global(em), .interpretText :global(strong) { color: #e2e8f0; font-style: normal; font-weight: 700; }
+/* ── Interpretation keyword emphasis (strong is the unified SummaryCard
+   high-contrast span; em keeps its normal-style treatment) ── */
+.interpretText :global(em) { color: #e2e8f0; font-style: normal; }
 
 /* ── MarketPhase styles ── */
 .phaseValue { font-size: 13px; font-weight: 700; }
@@ -133,97 +143,14 @@
     text-anchor: middle;
 }
 
-/* ── Timeframe Squares Grid ── */
-.timeframeGrid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-    margin-top: 8px;
-}
-.tfSquare {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    transition: border-color 0.2s, background 0.2s;
-}
-.tfSquare:hover {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.1);
-}
-.tfHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
-    padding-bottom: 4px;
-}
-.tfName {
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    color: #94a3b8;
-}
-.tfGauge {
-    width: 20px;
-    height: 20px;
-    position: relative;
-}
-.tfGaugeSvg {
-    width: 100%;
-    height: 100%;
-}
-.tfGaugeTrack {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.04);
-    stroke-width: 3;
-}
-.tfGaugeProgress {
-    fill: none;
-    stroke-width: 3;
-    stroke-linecap: round;
-}
-.tfGridBody {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.tfStatRow {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 10px;
-    font-family: var(--mono);
-}
-.tfStatLabel {
-    color: rgba(255, 255, 255, 0.45);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-size: 8px;
-}
-.tfStatValue {
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-.tfRegimeBadge {
-    font-size: 8px;
-    font-weight: 800;
-    padding: 1px 4px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-family: var(--sans);
-}
+/* ── Signals Squares Grid ── */
+/* Regime tint classes — used by the Signals grid squares' regime value
+   (tfRegimeCls) and previously by the Per-Timeframe Alignment section
+   (removed v7.4 — the gauge grid moved to the Alignment tab). */
 .tfRegimeBull { background: rgba(34, 197, 94, 0.12); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.25); }
 .tfRegimeBear { background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); }
 .tfRegimeVol  { background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.25); }
 .tfRegimeNeutral { background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.65); border: 1px solid rgba(255, 255, 255, 0.1); }
-
-/* ── Signals Squares Grid ── */
 .sigSquare {
     display: flex;
     flex-direction: column;

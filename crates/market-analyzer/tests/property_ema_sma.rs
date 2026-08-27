@@ -25,7 +25,7 @@ proptest! {
     #[test]
     fn ema_monotonicity_on_trend(prices in proptest::collection::vec(1.0f64..1000.0, 10..100)) {
         let mut increasing: Vec<f64> = prices.clone();
-        increasing.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        increasing.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         increasing.dedup();
         if increasing.len() < 10 { return Ok(()); }
 

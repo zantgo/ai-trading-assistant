@@ -1,8 +1,8 @@
 <script lang="ts">
     import { emaStackState, vwapBias, iSub, iRaw, getPriceFormat } from '../lib/telemetry';
     import type { IndicatorMap, LiquidationClusterMatrix, VolumeProfileSnapshot } from '../types';
-    import { onMount, onDestroy } from 'svelte';
-    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
+    import { onMount, onDestroy, untrack } from 'svelte';
+    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
@@ -15,7 +15,10 @@
         fillTimeGaps,
         buildPaintCandles,
         purgeCacheForKey,
+        getResolvedHistory,
+        lastHistoricalTime,
         type CandleOHLCV,
+        type IndicatorFlatHistory,
     } from '../lib/indicatorHistory';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
     import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
@@ -24,8 +27,9 @@
     import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { vwapPickKey } from '../lib/vwapAnchor';
     import { createSmcMarkers, type SmcMarkerController } from '../lib/smcMarkers';
+    import { smcAgeLabel } from '../lib/priceChartHelpers';
+    import { buildTradeMarkers } from '../lib/tradeMarkerHelper';
     import styles from './PriceChart.module.css';
-
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
 
@@ -74,6 +78,8 @@
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
     let smcMarkers: SmcMarkerController | null = null;
+    let tradeMarkerSeries: ISeriesApi<'Line'> | null = null;
+    let tradeMarkersApi: any = null;
     // Newly-added price-overlay series (toggle-controlled).
     let keltnerUpperSeries: ISeriesApi<'Line'> | null = null;
     let keltnerMiddleSeries: ISeriesApi<'Line'> | null = null;
@@ -160,6 +166,9 @@
         psarSeries = chart.addSeries(LineSeries, { color: '#ffab40', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
+        // Trade markers — dedicated invisible series so we don't overwrite SMC markers on candleSeries (lightweight-charts supports one marker collection per series).
+        tradeMarkerSeries = chart.addSeries(LineSeries, { color: 'transparent', lineWidth: 1, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
+
         // SMC markers (selective: confidence ≥ 0.7 only). Attach to the
         // candle series so the markers follow candle time/price alignment.
         smcMarkers = createSmcMarkers(candleSeries);
@@ -202,41 +211,334 @@
         _chartReady = true;
     });
 
+    /// Seed every price-overlay series (EMA, Bollinger, Supertrend,
+    /// Donchian, Ichimoku, VWAP, Keltner, StdDev, PSAR) from a unified
+    /// history payload. Shared by the cold bootstrap and the warm-cache
+    /// remount path so overlay lines keep their full historical tail on
+    /// every TF tab switch — the main-branch parity behavior.
+    function seedOverlaysFromHistory(hist: IndicatorFlatHistory, cap: number): void {
+        const recent = <T extends { time: Time; value: number }>(arr: T[]) => arr.slice(-cap);
+        const [
+            emaFast, emaMed, emaSlow, emaLong,
+            bbUp, bbMid, bbLo,
+            supertrendPts,
+            donchUp, donchMid, donchLo,
+            ichiTenkan, ichiKijun, ichiSA, ichiSB,
+            avwapW, avwapM, avwapS,
+            kelUp, kelMid, kelLo,
+            stdUp, stdMid, stdLo,
+            psarPts,
+        ] = alignedSeriesFromHistory(hist, [
+            ['ema_stack', 'fast'],
+            ['ema_stack', 'medium'],
+            ['ema_stack', 'slow'],
+            ['ema_stack', 'long'],
+            ['bollinger', 'upper'],
+            ['bollinger', 'middle'],
+            ['bollinger', 'lower'],
+            ['supertrend'],
+            ['donchian', 'upper'],
+            ['donchian', 'middle'],
+            ['donchian', 'lower'],
+            ['ichimoku', 'tenkan'],
+            ['ichimoku', 'kijun'],
+            ['ichimoku', 'senkou_a'],
+            ['ichimoku', 'senkou_b'],
+            ['anchored_vwap', 'weekly'],
+            ['anchored_vwap', 'monthly'],
+            ['anchored_vwap', 'swing'],
+            ['keltner', 'upper'],
+            ['keltner', 'middle'],
+            ['keltner', 'lower'],
+            ['stddev_channel', 'upper'],
+            ['stddev_channel', 'center'],
+            ['stddev_channel', 'lower'],
+            ['psar', 'sar'],
+        ]);
+
+        if (emaFast.length > 0) ema10Series.setData(recent(emaFast));
+        if (emaMed.length > 0) ema50Series.setData(recent(emaMed));
+        if (emaSlow.length > 0) ema100Series.setData(recent(emaSlow));
+        if (emaLong.length > 0) ema200Series.setData(recent(emaLong));
+        if (bbUp.length > 0) bbUpperSeries.setData(recent(bbUp));
+        if (bbMid.length > 0) bbMiddleSeries.setData(recent(bbMid));
+        if (bbLo.length > 0) bbLowerSeries.setData(recent(bbLo));
+
+        // VWAP: daily for < 1 h, weekly for 1 h ≤ tf < 12 h, monthly for ≥ 12 h.
+        const vwapSeed = vwapPickKey(timeframe);
+        const vwapHist =
+            vwapSeed.iSubKey === 'weekly' ? avwapW :
+            vwapSeed.iSubKey === 'monthly' ? avwapM :
+            pairsFromHistory(hist, 'vwap');
+        if (vwapHist.length > 0) vwapSeries.setData(recent(vwapHist));
+
+        // Anchored VWAP — picked from whichever weekly/monthly/swing array the API returned.
+        if (anchoredVwapSeries) {
+            const avwapAvail = avwapW.length > 0 ? avwapW
+                : avwapM.length > 0 ? avwapM
+                : avwapS;
+            if (avwapAvail.length > 0) anchoredVwapSeries.setData(recent(avwapAvail));
+        }
+        if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(recent(supertrendPts));
+        if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(recent(donchUp));
+        if (donchMid.length > 0 && donchianMiddleSeries) donchianMiddleSeries.setData(recent(donchMid));
+        if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(recent(donchLo));
+        if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(recent(ichiTenkan));
+        if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(recent(ichiKijun));
+        if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(recent(ichiSA));
+        if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(recent(ichiSB));
+        if (kelUp.length > 0 && keltnerUpperSeries) keltnerUpperSeries.setData(recent(kelUp));
+        if (kelMid.length > 0 && keltnerMiddleSeries) keltnerMiddleSeries.setData(recent(kelMid));
+        if (kelLo.length > 0 && keltnerLowerSeries) keltnerLowerSeries.setData(recent(kelLo));
+        if (stdUp.length > 0 && stddevUpperSeries) stddevUpperSeries.setData(recent(stdUp));
+        if (stdMid.length > 0 && stddevMiddleSeries) stddevMiddleSeries.setData(recent(stdMid));
+        if (stdLo.length > 0 && stddevLowerSeries) stddevLowerSeries.setData(recent(stdLo));
+        if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts.filter(p => p.value > 0)));
+    }
+
+    /// Stable logical range anchored to the last candle so gap-fill
+    /// Doji candles render at consistent barSpacing instead of being
+    /// compressed by fitContent(). `setVisibleRange` (NOT
+    /// `setVisibleLogicalRange`) is used because lightweight-charts@5.x's
+    /// `setVisibleLogicalRange` requires bar indices (0..dataLength-1),
+    /// not epoch timestamps. Shared by the cold bootstrap and the warm
+    /// remount path (main-branch parity: every mount re-anchored to the
+    /// most recent seed window).
+    function anchorViewportToLast(lastTimeSec: number): void {
+        if (!chart || !Number.isFinite(lastTimeSec) || lastTimeSec <= 0) return;
+        const seedWindowCandles = timeframe <= 5 ? 300 : 600;
+        const visibleSecs = timeframe <= 30 ? seedWindowCandles * timeframe : 3600;
+        chart.timeScale().setVisibleRange({
+            from: (lastTimeSec - visibleSecs) as Time,
+            to: (lastTimeSec + Math.floor(visibleSecs * 0.1)) as Time,
+        });
+    }
+
     $effect(() => {
-    // Historical bootstrap. Re-runs whenever `pairKey` or `timeframe`
-    // changes (per Svelte 5 `$effect` semantics), so a slow daemon
-    // start or a fast `pairKey` swap both recover automatically once
-    // the data shows up — unlike the legacy `onMount` IIFE which
-    // would race-condition and never re-fire.
-    if (!timeframe) return;
+    // Historical bootstrap. Re-runs whenever `pairKey`, `slot` or `timeframe` changes.
+    // Senior Svelte 5: reads tf/timeframe/slot, but WRITES _bootstrapComplete/_lastHistoryTime
+    // must be untracked to avoid effect_update_depth_exceeded (every WS tick mutates tf).
+    void slot;
+    void timeframe;
+    const curTf = tf;
+    const curSec = curTf?.barDurationSec;
+    if (curSec == null) return;
+    // Reset per-slot bootstrap state in untrack — avoids loop where write retriggers effect that reads tf
+    untrack(() => {
+        _bootstrapComplete = false;
+        _lastHistoryTime = -Infinity;
+    });
+    if (!curSec) return;
+
+    // Sub-minute (<60) is live-only per PRI-08 / main branch last commit — no historical fetch.
+    // Bypass eliminates H1 _bootstrapComplete window and H5 forced-fetch overwrite that froze 1s charts.
+    if (curSec < 60) {
+        // All writes untracked — coalescer reads _bootstrapComplete but this effect must not be re-triggered by that write
+        untrack(() => {
+            let liveCached = getCachedCandles(pairKey, curSec, slot);
+            if ((!liveCached || liveCached.length === 0) && curTf?.liveCandleCache && curTf.liveCandleCache.length > 0) {
+                liveCached = curTf.liveCandleCache as unknown as typeof liveCached;
+            }
+            if (liveCached && liveCached.length > 0 && candleSeries) {
+                const step = curTf?.barDurationSec || curSec;
+                const filled = fillTimeGaps(liveCached, step);
+                const cap = seedCountFor(curSec);
+                const recent = filled.slice(-Math.min(filled.length, cap));
+                candleSeries.setData(recent);
+                priceLineSeries.setData(recent.map((c) => ({ time: c.time, value: c.close })));
+                candleSeries.applyOptions({ priceFormat: getPriceFormat(liveCached[liveCached.length - 1]?.close) });
+                const liveLast = Number(liveCached[liveCached.length - 1].time);
+                _lastHistoryTime = liveLast;
+                chart.timeScale().setVisibleRange({
+                    from: (Math.max(Number(recent[0]?.time ?? 0) - curSec, 0)) as Time,
+                    to: (Number(recent[recent.length - 1]?.time ?? curSec) + curSec) as Time,
+                });
+            } else {
+                _lastHistoryTime = -Infinity;
+            }
+            const liveHist = getResolvedHistory(pairKey, curSec, slot);
+            if (liveHist && liveHist.times.length > 0) {
+                seedOverlaysFromHistory(liveHist, Math.min(liveHist.times.length, seedCountFor(curSec)));
+                const last = lastHistoricalTime(liveHist);
+                if (last != null && last > _lastHistoryTime) _lastHistoryTime = last;
+                if (_lastHistoryTime !== -Infinity) anchorViewportToLast(_lastHistoryTime);
+            }
+            _bootstrapComplete = true;
+        });
+        return () => {};
+    }
 
     // Immediate cache hit: paint from the persistent candle cache
     // before the async history fetch completes so the chart never
     // flashes white on timeframe-switch or back/forward navigation.
-    const cached = getCachedCandles(pairKey, timeframe);
+    // Slot-aware: 1s on micro and 1s on fast are distinct caches.
+    // P0 fix: also check AppStore liveCandleCache fallback (survives
+    // module-cache purge across WS reconnect races and cold-start where
+    // initial history was empty).
+    // Use curSec/curTf to avoid fallback leakage; writes to _lastHistoryTime untracked
+    let cached = getCachedCandles(pairKey, curSec, slot);
+    if ((!cached || cached.length === 0) && curTf?.liveCandleCache && curTf.liveCandleCache.length > 0) {
+        cached = curTf.liveCandleCache as unknown as typeof cached;
+    }
+    let hasWarmCache = false;
+    let cachedLastTime = 0;
     if (cached && cached.length > 0 && candleSeries) {
-        const cachedStep = tf?.barDurationSec || 60;
+        hasWarmCache = true;
+        const cachedStep = curTf?.barDurationSec || 60;
         const filledCache = fillTimeGaps(cached, cachedStep);
-        const visibleCap = Math.min(filledCache.length, seedCountFor(timeframe));
+        const visibleCap = Math.min(filledCache.length, seedCountFor(curSec));
         const recentCache = filledCache.slice(-visibleCap);
         candleSeries.setData(recentCache);
         priceLineSeries.setData(
             recentCache.map((c) => ({ time: c.time, value: c.close }))
         );
-        _lastHistoryTime = Number(cached[cached.length - 1].time);
+        candleSeries.applyOptions({
+            priceFormat: getPriceFormat(cached[cached.length - 1]?.close),
+        });
+        cachedLastTime = Number(cached[cached.length - 1].time);
+        untrack(() => { _lastHistoryTime = cachedLastTime; });
         chart.timeScale().setVisibleRange({
-            from: (Math.max(Number(recentCache[0]?.time ?? 0) - timeframe, 0)) as Time,
-            to: (Number(recentCache[recentCache.length - 1]?.time ?? timeframe) + timeframe) as Time,
+            from: (Math.max(Number(recentCache[0]?.time ?? 0) - curSec, 0)) as Time,
+            to: (Number(recentCache[recentCache.length - 1]?.time ?? curSec) + curSec) as Time,
         });
     }
 
      let cancelled = false;
-     purgeCacheForKey(pairKey, timeframe);
-     (async () => {
-         try {
-             const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
-            if (cancelled || !hist) { _bootstrapComplete = true; return; }
-            const step = tf?.barDurationSec || 60;
+     // Warm cache = preserve live candles, no history refetch needed.
+     // The cache stays valid until a WS reconnect (websocket.svelte.ts
+     // purges both history + candle caches) or a timeframe config change
+     // (TimeframeSettings.svelte clears both caches). No `purgeCacheForKey`
+     // here — the previous no-op purge plus immediate refetch is what
+     // caused the 1s erasure (stale history overwrote live candles).
+     //
+     // MAIN-PARITY restore: the warm candle paint alone is not enough.
+     // The main branch re-seeded every overlay indicator series (EMAs,
+     // Bollinger, Supertrend, Donchian, Ichimoku, VWAP, Keltner, StdDev,
+     // PSAR) from `/api/history` on EVERY mount — that is why the
+     // historical overlay lines kept drawing perfectly across TF tab
+     // switches. We now re-seed them from the live-mutated history cache
+     // (`historyData`, kept current by `ingestLiveSnapshot` on every
+     // completed WS candle) without any network refetch, so the develop
+     // improvements (slot-aware caches, live ingestion, reconnect purge)
+     // are kept while the overlay behavior matches the main branch again.
+       if (hasWarmCache) {
+          const warmHist = getResolvedHistory(pairKey, curSec, slot);
+          // For >=60s, tiny warm cache must not be treated as warm; for curSec>=60 we already are here
+          const warmEnough = warmHist ? warmHist.times.length >= 50 : false;
+          if (warmHist && warmHist.times.length > 0 && warmEnough) {
+               seedOverlaysFromHistory(warmHist, Math.min(warmHist.times.length, seedCountFor(curSec)));
+               historyCluster = warmHist.clusters?.[slot] as LiquidationClusterMatrix | null;
+               historyVolumeProfile = warmHist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
+               untrack(() => {
+                   const warmLast = lastHistoricalTime(warmHist);
+                   if (warmLast != null && warmLast > _lastHistoryTime) _lastHistoryTime = warmLast;
+                   anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
+                   _bootstrapComplete = true;
+               });
+               return () => { cancelled = true; };
+           } else if (warmHist && warmHist.times.length > 0 && !warmEnough) {
+               // Tiny warm cache for >=60s — paint it immediately and trigger background fetch
+               seedOverlaysFromHistory(warmHist, Math.min(warmHist.times.length, seedCountFor(curSec)));
+               untrack(() => {
+                   const warmLast = lastHistoricalTime(warmHist);
+                   if (warmLast != null && warmLast > _lastHistoryTime) _lastHistoryTime = warmLast;
+                   anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
+                   _bootstrapComplete = true;
+               });
+               // Background fetch historic 500 — will be merged with live tail
+               // Force bypass of polluted live-only cache for >=60 (fresh boot 4→500).
+               fetchIndicatorHistoryOnce(pairKey, curSec, slot, true)
+                  .then((hist) => {
+                      if (cancelled || !hist || hist.times.length === 0) return;
+                      // Only update if server has substantially more history
+                      // than the tiny live cache (avoid overwriting live 1
+                      // with server 1 when bootstrap still failed).
+                      if (hist.times.length <= warmHist.times.length) return;
+                      const step = tf?.barDurationSec || 60;
+                      const seenTimes = new Set<number>();
+                      const historicalCandles: CandleOHLCV[] = [];
+                      for (let i = 0; i < hist.candleTimes.length; i++) {
+                          const t = hist.candleTimes[i]; const o = hist.candles.open[i];
+                          const h = hist.candles.high[i]; const l = hist.candles.low[i]; const c = hist.candles.close[i];
+                          if (t == null || o == null) continue; if (seenTimes.has(t)) continue; seenTimes.add(t);
+                          historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c, reconstructed: hist.candleReconstructed?.[i] });
+                      }
+                      historicalCandles.sort((a,b)=>Number(a.time)-Number(b.time));
+                      const hasServerGapFill = historicalCandles.some(c=>!!c.reconstructed);
+                      const paintCandles = hasServerGapFill ? historicalCandles : buildPaintCandles(historicalCandles, step);
+                      setCachedCandles(pairKey, timeframe, paintCandles, slot);
+                      const visibleCap = Math.min(paintCandles.length, seedCountFor(timeframe));
+                      const recentCandles = paintCandles.slice(-visibleCap);
+                      if (recentCandles.length>0 && candleSeries && priceLineSeries) {
+                          candleSeries.setData(recentCandles);
+                          priceLineSeries.setData(recentCandles.map(c=>({time:c.time, value:c.close})));
+                          _lastHistoryTime = Number(recentCandles[recentCandles.length-1].time);
+                          anchorViewportToLast(_lastHistoryTime);
+                          seedOverlaysFromHistory(hist, visibleCap);
+                      }
+                  })
+                  .catch(() => {});
+              return () => { cancelled = true; };
+           } else {
+              // Candle cache warm but no resolved indicator history yet
+              // (pure `appendLiveCandle` accumulation). Fetch in background
+              fetchIndicatorHistoryOnce(pairKey, curSec, slot)
+                  .then((hist) => {
+                      if (cancelled || !hist) { untrack(()=>{ _bootstrapComplete = true; }); return; }
+                      seedOverlaysFromHistory(hist, Math.min(hist.times.length, seedCountFor(curSec)));
+                      historyCluster = hist.clusters?.[slot] as LiquidationClusterMatrix | null;
+                      historyVolumeProfile = hist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
+                      untrack(()=>{
+                          const fetchedLast = lastHistoricalTime(hist);
+                          if (fetchedLast != null && fetchedLast > _lastHistoryTime) _lastHistoryTime = fetchedLast;
+                          anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
+                          _bootstrapComplete = true;
+                      });
+                  })
+                  .catch(() => { untrack(()=>{ _bootstrapComplete = true; }); });
+               return () => { cancelled = true; };
+          }
+       }
+       (async () => {
+           try {
+               // For >=60, check live tail already primed via LiveRing between mount and fetch
+               const preLive = getResolvedHistory(pairKey, curSec, slot);
+               if (preLive && preLive.times.length > 0 && preLive.candleTimes.length > 0) {
+                   seedOverlaysFromHistory(preLive, Math.min(preLive.times.length, seedCountFor(curSec)));
+                   untrack(()=>{
+                       const preLast = lastHistoricalTime(preLive);
+                       if (preLast != null && preLast > _lastHistoryTime) _lastHistoryTime = preLast;
+                   });
+                   try {
+                       const preCandles: CandleOHLCV[] = [];
+                       const seenPre = new Set<number>();
+                       for (let i = 0; i < preLive.candleTimes.length; i++) {
+                           const t = preLive.candleTimes[i];
+                           const o = preLive.candles.open[i], h = preLive.candles.high[i], l = preLive.candles.low[i], c = preLive.candles.close[i];
+                           if (t == null || seenPre.has(t)) continue;
+                           seenPre.add(t);
+                           preCandles.push({ time: t as Time, open: o, high: h, low: l, close: c, reconstructed: preLive.candleReconstructed?.[i] });
+                       }
+                       preCandles.sort((a,b)=>Number(a.time)-Number(b.time));
+                       const prePaint = preCandles.filter(c=>!c.reconstructed);
+                       if (prePaint.length>0 && candleSeries && priceLineSeries) {
+                           const cap = seedCountFor(curSec);
+                           const recentPre = prePaint.slice(-cap);
+                           candleSeries.setData(recentPre);
+                           priceLineSeries.setData(recentPre.map(c=>({time:c.time, value:c.close})));
+                           if (recentPre.length>0) {
+                               untrack(()=>{
+                                   _lastHistoryTime = Number(recentPre[recentPre.length-1].time);
+                                   anchorViewportToLast(_lastHistoryTime);
+                               });
+                           }
+                       }
+                   } catch {}
+                   untrack(()=>{ _bootstrapComplete = true; });
+               }
+               const hist = await fetchIndicatorHistoryOnce(pairKey, curSec, slot);
+            if (cancelled || !hist) { untrack(()=>{ _bootstrapComplete = true; }); return; }
+            const step = curTf?.barDurationSec || 60;
 
             const seenTimes = new Set<number>();
             const historicalCandles: CandleOHLCV[] = [];
@@ -291,25 +593,27 @@
             }
 
             historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
-            // Build the final paint array. `buildPaintCandles` gap-fills
-            // missing intervals but deliberately does NOT drop candles the
-            // backend marked `reconstructed`: on a sparse sub-minute market
-            // those SYNTHETIC doji-fill candles are the majority of
-            // `/api/history`, and filtering them here wiped ~90% of the
-            // chart's history after an F5 reload (fresh JS context → empty
-            // candle cache → history comes only from the fetch), while the
-            // live WS coalescer paints them unfiltered. Synthetic candles
-            // are excluded at the persistent-cache boundary only
-            // (`setCachedCandles` below), so navigation can't replay
-            // flat-line ghosts — see AUDIT-V8-004.
-            const paintCandles = buildPaintCandles(historicalCandles, step);
+            // Backend `/api/history` already gap-fills with SYNTHETIC Dojis
+            // up to MAX_HISTORY_FILL_BARS per gap, so no second fill is needed
+            // for history-sourced data — a second `fillTimeGaps(300)` would
+            // double-fill sparse sub-minute ranges and then truncate real
+            // candles when the final `limit=1000` slice is applied. The extra
+            // frontend fill is only used for the warm-cache path (above),
+            // where gaps come from a sparse local cache that was never
+            // backend-filled. For cold history we present the server's
+            // gap-filled series as-is; synthetics stay in the paint set
+            // (the live WS coalescer also paints them) but are stripped at
+            // the persistent-cache boundary — see AUDIT-V8-004.
+            const hasServerGapFill = historicalCandles.some((c) => !!c.reconstructed);
+            const paintCandles = hasServerGapFill
+                ? historicalCandles
+                : buildPaintCandles(historicalCandles, step);
             // Persist the processed candle array so the next component mount
-            // (timeframe switch / back-forward nav) paints instantly. The
-            // `setCachedCandles` helper also runs a defence-in-depth filter,
-            // so a stray reconstructed candle can never poison the cache.
-            setCachedCandles(pairKey, timeframe, paintCandles);
-            const visibleCap = Math.min(paintCandles.length, seedCountFor(timeframe));
-            const recent = <T extends { time: Time; value: number }>(arr: T[]) => arr.slice(-visibleCap);
+            // (timeframe switch / back-forward nav) paints instantly. Slot-aware
+            // key: micro 1s and fast 1s are distinct when the operator picks
+            // duplicate durations (now forbidden by validation, but defensive).
+            setCachedCandles(pairKey, curSec, paintCandles, slot);
+            const visibleCap = Math.min(paintCandles.length, seedCountFor(curSec));
             const recentCandles = paintCandles.slice(-visibleCap);
             if (recentCandles.length > 0 && candleSeries && priceLineSeries) {
                 candleSeries.setData(recentCandles);
@@ -321,129 +625,45 @@
                 });
             }
 
-            // Pull all historical indicator series in one shot via
-            // the unified helper. Each result is independently
-            // aligned to hist.times and dedup-sorted.
-            const [
-                emaFast, emaMed, emaSlow, emaLong,
-                bbUp, bbMid, bbLo,
-                supertrendPts,
-                donchUp, donchMid, donchLo,
-                ichiTenkan, ichiKijun, ichiSA, ichiSB,
-                avwapW, avwapM, avwapS,
-                kelUp, kelMid, kelLo,
-                stdUp, stdMid, stdLo,
-                psarPts,
-            ] = alignedSeriesFromHistory(hist, [
-                ['ema_stack', 'fast'],
-                ['ema_stack', 'medium'],
-                ['ema_stack', 'slow'],
-                ['ema_stack', 'long'],
-                ['bollinger', 'upper'],
-                ['bollinger', 'middle'],
-                ['bollinger', 'lower'],
-                ['supertrend'],
-                ['donchian', 'upper'],
-                ['donchian', 'middle'],
-                ['donchian', 'lower'],
-                ['ichimoku', 'tenkan'],
-                ['ichimoku', 'kijun'],
-                ['ichimoku', 'senkou_a'],
-                ['ichimoku', 'senkou_b'],
-                ['anchored_vwap', 'weekly'],
-                ['anchored_vwap', 'monthly'],
-                ['anchored_vwap', 'swing'],
-                ['keltner', 'upper'],
-                ['keltner', 'middle'],
-                ['keltner', 'lower'],
-                ['stddev_channel', 'upper'],
-                ['stddev_channel', 'center'],
-                ['stddev_channel', 'lower'],
-                ['psar', 'sar'],
-            ]);
+            // Pull all historical indicator series in one shot via the
+            // shared seeding helper (also used by the warm-cache remount
+            // path so overlay lines survive TF tab switches). Each result
+            // is independently aligned to hist.times and dedup-sorted.
+            seedOverlaysFromHistory(hist, visibleCap);
 
-            if (emaFast.length > 0) ema10Series.setData(recent(emaFast));
-            if (emaMed.length > 0) ema50Series.setData(recent(emaMed));
-            if (emaSlow.length > 0) ema100Series.setData(recent(emaSlow));
-            if (emaLong.length > 0) ema200Series.setData(recent(emaLong));
-            if (bbUp.length > 0) bbUpperSeries.setData(recent(bbUp));
-            if (bbMid.length > 0) bbMiddleSeries.setData(recent(bbMid));
-            if (bbLo.length > 0) bbLowerSeries.setData(recent(bbLo));
-
-            // VWAP: daily for < 1 h, weekly for 1 h ≤ tf < 12 h, monthly for ≥ 12 h.
-            const vwapSeed = vwapPickKey(timeframe);
-            const vwapHist =
-                vwapSeed.iSubKey === 'weekly' ? avwapW :
-                vwapSeed.iSubKey === 'monthly' ? avwapM :
-                pairsFromHistory(hist, 'vwap');
-            if (vwapHist.length > 0) vwapSeries.setData(recent(vwapHist));
-
-            // Anchored VWAP — picked from whichever weekly/monthly/swing array the API returned.
-            if (anchoredVwapSeries) {
-                const avwapAvail = avwapW.length > 0 ? avwapW
-                    : avwapM.length > 0 ? avwapM
-                    : avwapS;
-                if (avwapAvail.length > 0) anchoredVwapSeries.setData(recent(avwapAvail));
-            }
-            if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(recent(supertrendPts));
-            if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(recent(donchUp));
-            if (donchMid.length > 0 && donchianMiddleSeries) donchianMiddleSeries.setData(recent(donchMid));
-            if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(recent(donchLo));
-            if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(recent(ichiTenkan));
-            if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(recent(ichiKijun));
-            if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(recent(ichiSA));
-            if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(recent(ichiSB));
-            if (kelUp.length > 0 && keltnerUpperSeries) keltnerUpperSeries.setData(recent(kelUp));
-            if (kelMid.length > 0 && keltnerMiddleSeries) keltnerMiddleSeries.setData(recent(kelMid));
-            if (kelLo.length > 0 && keltnerLowerSeries) keltnerLowerSeries.setData(recent(kelLo));
-            if (stdUp.length > 0 && stddevUpperSeries) stddevUpperSeries.setData(recent(stdUp));
-            if (stdMid.length > 0 && stddevMiddleSeries) stddevMiddleSeries.setData(recent(stdMid));
-            if (stdLo.length > 0 && stddevLowerSeries) stddevLowerSeries.setData(recent(stdLo));
-            if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts.filter(p => p.value > 0)));
-
-            if (recentCandles.length > 0) {
-                _lastHistoryTime = Number(recentCandles[recentCandles.length - 1].time);
-            }
+            untrack(()=>{
+                if (recentCandles.length > 0) {
+                    _lastHistoryTime = Number(recentCandles[recentCandles.length - 1].time);
+                }
+            });
 
             // Stable logical range anchored to the last candle so gap-fill
             // Doji candles render at consistent barSpacing instead of being
             // compressed by fitContent().  The viewport shows the most recent
             // window; the user can scroll left for older data.
             //
-            // `setVisibleRange` (NOT `setVisibleLogicalRange`) is used here
-            // because lightweight-charts@5.x's `setVisibleLogicalRange`
-            // requires bar indices (0..dataLength-1), not epoch timestamps.
-            // Passing epoch seconds to it produced a degenerate view that
-            // collapsed sub-minute candle bodies into a pinned band.
-            if (recentCandles.length > 0) {
-                const lastTimeSec = Number(recentCandles[recentCandles.length - 1].time);
-                // AUDIT-V8-008 (D3): widen the sub-minute window to the full
-                // seeded history so the slower ribbon lines are reachable —
-                // a fixed 180 s window hid every point of the EMA-200 on a
-                // 1 s chart (its first point is at bar 200 = 200 s back),
-                // making the LONG line look broken/missing. The seeded
-                // candle count (`seedCountFor`) bounds the data anyway, so
-                // the range is simply the seed window; the viewport still
-                // shows the most recent candles at the configured barSpacing
-                // and the user scrolls left for the older bars.
-                const seedWindowCandles = timeframe <= 5 ? 300 : 600;
-                const visibleSecs = timeframe <= 30 ? seedWindowCandles * timeframe : 3600;
-                chart.timeScale().setVisibleRange({
-                    from: (lastTimeSec - visibleSecs) as Time,
-                    to: (lastTimeSec + Math.floor(visibleSecs * 0.1)) as Time,
-                });
-            }
-
-            // v6.5: capture per-TF cluster + volume profile from
-            // history (used as a fallback if the WS stream hasn't
-            // yet populated tf.cluster / tf.volumeProfile).
-            const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
-            historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
-            historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
-            _bootstrapComplete = true;
+            // AUDIT-V8-008 (D3): widen the sub-minute window to the full
+            // seeded history so the slower ribbon lines are reachable —
+            // a fixed 180 s window hid every point of the EMA-200 on a
+            // 1 s chart (its first point is at bar 200 = 200 s back),
+            // making the LONG line look broken/missing. The seeded
+            // candle count (`seedCountFor`) bounds the data anyway, so
+            // the range is simply the seed window; the viewport still
+            // shows the most recent candles at the configured barSpacing
+            // and the user scrolls left for the older bars.
+            untrack(()=>{
+                anchorViewportToLast(_lastHistoryTime);
+                // v6.5: capture per-TF cluster + volume profile from
+                // history (used as a fallback if the WS stream hasn't
+                // yet populated tf.cluster / tf.volumeProfile).
+                const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
+                historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
+                historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
+                _bootstrapComplete = true;
+            });
         } catch (err) {
             console.error("Error bootstrapping price chart history:", err);
-            _bootstrapComplete = true;
+            untrack(()=>{ _bootstrapComplete = true; });
         }
     })();
     return () => { cancelled = true; };
@@ -734,7 +954,7 @@
     $effect(() => {
         const show = tf?.showSupportResistance ?? false;
         const raw = tf?.indicators?.['support_resistance'];
-        // The normalizer emits the strongest current SR level as `raw`.
+        // Strongest SR level
         const v = raw && Number.isFinite(raw.raw_value) && raw.raw_value > 0 ? raw.raw_value : null;
         srLevelValue = show ? v : null;
         if (!candleSeries) return;
@@ -751,11 +971,7 @@
         }
     });
 
-    /// SMC structure / liquidity markers (BOS↑ / CHoCH↓ / SWEEP↑ / ...).
-    /// Same toggle-gate pattern as the three pattern-marker $effects above:
-    /// clear() runs whenever the toggle flips (or latestSnapshot advances)
-    /// so a stale BO↑ / CH↑ / SP↑ doesn't linger after the user clicks
-    /// BOS/CHoCH off.
+    // SMC markers
     $effect(() => {
         const show = tf?.showSmcStructure ?? false;
         if (!smcMarkers || !candleSeries) return;
@@ -770,6 +986,39 @@
         });
     });
 
+    // Trade markers — live paper/live open/close (distinct LONG green / SHORT red, R in text)
+    $effect(() => {
+        void _chartReady;
+        const tfVal = tf;
+        if (!_chartReady || !tradeMarkerSeries || !tfVal) return;
+        const barSec = tfVal.barDurationSec ?? 60;
+        // Poll every 5s plus on pairKey/slot change — lightweight, deduped inside helper
+        const pair = pairKey;
+        const slotKey = slot;
+        let cancelled = false;
+        (async () => {
+            const markers = await buildTradeMarkers(pair, pair, barSec);
+            if (cancelled) return;
+            // Filter to current symbol (quote-agnostic via helper) already done, just align
+            if (!tradeMarkersApi) {
+                tradeMarkersApi = createSeriesMarkers(tradeMarkerSeries, markers as any);
+            } else {
+                tradeMarkersApi.setMarkers(markers as any);
+            }
+        })();
+        const timer = setInterval(async () => {
+            if (cancelled) return;
+            const m = await buildTradeMarkers(pair, pair, barSec);
+            if (cancelled) return;
+            if (tradeMarkersApi) tradeMarkersApi.setMarkers(m as any);
+            else if (tradeMarkerSeries) tradeMarkersApi = createSeriesMarkers(tradeMarkerSeries, m as any);
+        }, 5000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    });
+
     let _lastUpdateTs = 0;
     const candleCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec: number = typeof snap.timestamp === 'number'
@@ -780,11 +1029,7 @@
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
 
         if (snap.close != null) {
-            // Loose gate: accept any tick that has at least a `close`,
-            // including in-progress ticks where OHLC are not all settled.
-            // For the missing fields, fill with the close so the candle
-            // still updates and the price line tracks. If `close` itself
-            // is missing it is a malformed payload — log loudly.
+            // Loose gate: accept any close; fill missing OHLC with close
             const cl = parseFloat(String(snap.close));
             const o = snap.open != null ? parseFloat(String(snap.open)) : cl;
             const h = snap.high != null ? parseFloat(String(snap.high)) : cl;
@@ -941,21 +1186,6 @@
         'neutral'
     );
 
-    function smcAgeLabel(ageBars: number, timeframeSec: number): string {
-        const secs = ageBars * timeframeSec;
-        if (secs < 60) return `${secs}s`;
-        if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-        if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
-        return `${Math.floor(secs / 86400)}d`;
-    }
-
-    // Volume profile — toggle visibility + data feeding.
-    // v6.5 fallback chain: prefer WS-populated tf.volumeProfile; fall back to
-    // history-sourced historyVolumeProfile when WS hasn't delivered yet.
-    // Visibility is handled separately via `setVisible()` so the snapshot
-    // is preserved across toggle flips — flipping the pill on never causes
-    // a transient null state, which would otherwise race with the WS push
-    // cadence (only completed snapshots carry volume_profile).
     $effect(() => {
         const visible = tf?.showVolumeProfile ?? false;
         const data = tf?.volumeProfile ?? historyVolumeProfile ?? null;
@@ -964,27 +1194,11 @@
         volumeProfilePrim.updateData(data);
     });
 
-    // Liquidation heatmap — toggle visibility + data feeding.
-    // Mirror of `volumeProfile`'s pattern: prefer the live WS cluster,
-    // fall back to history-sourced `historyCluster` until the first
-    // per-TF refresh tick fires after a daemon restart.
     //
-    // Block C: feeds both the **estimated** cluster matrix AND the
-    // **observed** real-event buckets (from `tf.liquidity.recent_real_buckets`).
-    // The shared frontend renderer draws them in two layers. When the
-    // exchange has no public feed (Hyperliquid without
-    // `hyperliquid_user_address`), the real layer stays empty and the
-    // HL caveat watermark surfaces above the chart.
     $effect(() => {
         const visible = tf?.showLiqHeatmap ?? false;
         if (!liqHeatmapPrim) return;
         liqHeatmapPrim.setVisible(visible);
-        // Always feed data so the toggle can flip back on without race.
-        // `updateData` accepts partial inputs and merges against the
-        // previous shape — passing `null` is intentional when no data
-        // has arrived yet (the primitive suppresses rendering on null).
-        // v7.0-prod: also forward the per-TF operator-selected leverage
-        // tiers so matching clusters intensify (D5 default `[10]`).
         const cluster = tf?.cluster ?? historyCluster ?? null;
         const flow = tf?.liquidity ?? null;
         const ex = tf?.exchange ?? '';
@@ -992,22 +1206,18 @@
         liqHeatmapPrim.updateData({ cluster, flow, exchange: ex, highlightTiers });
     });
 
-    // SMC Fair Value Gap zones — toggle visibility + rolling zone list.
     $effect(() => {
         const visible = tf?.showFvgZones ?? false;
         const dto = tf?.indicators?.['smc_fvg'] ?? null;
         if (!fvgPrim) return;
         fvgPrim.setVisible(visible);
         if (!visible) {
-            // Don't accumulate while hidden — clear so toggling back on
-            // doesn't surface stale zones.
             fvgPrim.clear();
             return;
         }
         fvgPrim.updateData(dto);
     });
 
-    // SMC Order Block zones — toggle visibility + rolling zone list.
     $effect(() => {
         const visible = tf?.showOrderBlocks ?? false;
         const dto = tf?.indicators?.['smc_order_blocks'] ?? null;

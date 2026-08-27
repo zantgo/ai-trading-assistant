@@ -196,7 +196,11 @@ export function parseLevelLabel(
         }
     } else if (kind === 'VolumeNode') {
         if (l.includes('HVN')) { name = 'HVN'; valueKey = 'poc'; }
-        else if (l.includes('LVN')) { name = 'LVN'; valueKey = 'val'; }
+        // Audit fix (m10): LVN was bound to `val` (the VALUE-AREA LOW
+        // boundary) — a wrong price under the LVN label. The volume
+        // profile values map exposes only poc/vah/val (no low-volume-node
+        // price), so LVN rows honestly resolve to '—' instead of lying.
+        else if (l.includes('LVN')) { name = 'LVN'; valueKey = null; }
         else { name = 'Volume Node'; }
     } else if (kind === 'Fibonacci') {
         const m = l.match(/FIB[_ ]?(\d+\.?\d*)|(\d+\.?\d*)[_ ]?FIB/i);

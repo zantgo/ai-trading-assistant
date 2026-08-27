@@ -1,7 +1,7 @@
 use core_domain::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide};
 use rust_decimal::Decimal;
 use tokio::sync::mpsc;
-use tokio::time::{Instant, timeout, Duration};
+use tokio::time::{timeout, Duration, Instant};
 
 const CAPACITY: usize = 10_000;
 const EVENT_COUNT: usize = 10_000;
@@ -13,7 +13,11 @@ fn make_trade(i: usize) -> NormalizedEvent {
         symbol: "BTC-USD".into(),
         price: Decimal::from(50_000u64 + (i % 500) as u64),
         size: Decimal::from(1u64),
-        side: if i % 2 == 0 { TradeSide::Buy } else { TradeSide::Sell },
+        side: if i % 2 == 0 {
+            TradeSide::Buy
+        } else {
+            TradeSide::Sell
+        },
         timestamp_ms: i as u64,
         trade_id: format!("trade_{}", i),
     })

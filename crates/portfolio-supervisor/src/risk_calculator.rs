@@ -205,9 +205,15 @@ pub fn compute_risk_with_atr(input: &RiskCalculationInput) -> Result<RiskCalcula
         let sl_distance = atr * multiplier;
         let tp_distance = atr * multiplier * target_rr;
         if is_long {
-            (input.entry_price - sl_distance, input.entry_price + tp_distance)
+            (
+                input.entry_price - sl_distance,
+                input.entry_price + tp_distance,
+            )
         } else {
-            (input.entry_price + sl_distance, input.entry_price - tp_distance)
+            (
+                input.entry_price + sl_distance,
+                input.entry_price - tp_distance,
+            )
         }
     } else {
         (input.stop_loss_price, input.take_profit_price)

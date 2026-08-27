@@ -4,7 +4,7 @@
 // each sub-tab, and assert the JSON payload matches the schema.
 //
 // Uses the Svelte 5 `mount` API and the `navigator.clipboard` mock
-// pattern documented in LiquidityStatusPanel.test.ts.
+// pattern. 
 
 // @vitest-environment jsdom
 
@@ -30,7 +30,7 @@ const mockApp = {
     activePaperPosition: {
         symbol: 'BTC-USDT',
         size: 0.05,
-        average_entry_price: 64000,
+        entry_price: 64000,
         opened_at: 1753950000,
     },
     paperHistory: [],

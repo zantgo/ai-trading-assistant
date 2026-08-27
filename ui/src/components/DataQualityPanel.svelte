@@ -1,6 +1,9 @@
 <script lang="ts">
     import type { PipelineReliabilityMetrics } from '../types';
-    import styles from './DataQualityPanel.module.css';
+    import KpiStrip from './KpiStrip.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
+    import styles from '../styles/engine-dashboard.module.css';
 
     let report: PipelineReliabilityMetrics | null = $state(null);
     let loading = $state(true);
@@ -30,80 +33,68 @@
         };
     });
 
-    function coverageClass(pct: number): string {
-        if (pct >= 99) return styles.coverageExcellent;
-        if (pct >= 95) return styles.coverageGood;
-        if (pct >= 80) return styles.coverageModerate;
-        return styles.coveragePoor;
+    function coverageColor(pct: number): string {
+        if (pct >= 99) return '#22c55e';
+        if (pct >= 95) return '#84cc16';
+        if (pct >= 80) return '#f59e0b';
+        return '#ef4444';
     }
 
-    function gapClass(count: number): string {
-        if (count === 0) return styles.metricNormal;
-        if (count <= 5) return styles.metricWarn;
-        return styles.metricBad;
+    function countColor(count: number, warnAt: number, badAt: number): string {
+        if (count === 0) return '#22c55e';
+        if (count <= warnAt) return '#f59e0b';
+        return '#ef4444';
     }
 
-    function outlierClass(count: number): string {
-        if (count === 0) return styles.metricNormal;
-        if (count <= 10) return styles.metricWarn;
-        return styles.metricBad;
-    }
-
-    function oooClass(count: number): string {
-        if (count === 0) return styles.metricNormal;
-        return styles.metricBad;
+    function buildExport(): string {
+        return buildEngineExport('data_infra', 'data_quality', null, {
+            loading,
+            error,
+            report: report ? {
+                coverage: report.coverage,
+                total_candles_processed: report.total_candles_processed,
+                gap_count: report.gap_count,
+                outliers_rejected: report.outliers_rejected,
+                outliers_bypassed: report.outliers_bypassed,
+                out_of_order_dropped: report.out_of_order_dropped,
+                reconstructed_candles: report.reconstructed_candles,
+            } : null,
+        });
     }
 </script>
 
-<div class={styles.container}>
-    <div class={styles.header}>
-        <h2 class={styles.title}>Data Quality</h2>
+<div style="display:flex; flex-direction:column; gap:16px">
+    <div style="display:flex; align-items:center; justify-content:flex-end">
+        <ExportDataButton onExport={buildExport} title="Copy all Data Quality data as JSON" />
     </div>
-
     {#if loading}
-        <div class={styles.placeholder}>Loading...</div>
+        <div class={styles.empty}>Loading…</div>
     {:else if error}
-        <div class={styles.error}>Error: {error}</div>
+        <div class="{styles.alertBanner} {styles.alertError}">Error: {error}</div>
     {:else if report}
-          <div class={styles.metrics}>
-              <div class={styles.metric}>
-                  <div class={styles.metricLabel}>Coverage</div>
-                  {#if report.total_candles_processed > 0}
-                      <div class="{styles.metricValue} {coverageClass(report.coverage * 100)}">
-                          {(report.coverage * 100).toFixed(2)}%
-                      </div>
-                  {:else}
-                      <div class={styles.metricValue} style="color: #999">No data yet</div>
-                  {/if}
-              </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Total Candles</div>
-                <div class={styles.metricValue}>{report.total_candles_processed.toLocaleString('en-US')}</div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Gaps Detected</div>
-                <div class="{styles.metricValue} {gapClass(report.gap_count)}">
-                    {report.gap_count}
-                </div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Outliers Rejected</div>
-                <div class="{styles.metricValue} {outlierClass(report.outliers_rejected)}">
-                    {report.outliers_rejected}
-                </div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Out-of-Order Dropped</div>
-                <div class="{styles.metricValue} {oooClass(report.out_of_order_dropped)}">
-                    {report.out_of_order_dropped}
-                </div>
-            </div>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Reconstructed Candles</div>
-                <div class={styles.metricValue}>{report.reconstructed_candles}</div>
-            </div>
-        </div>
+        <KpiStrip items={[
+            {
+                label: 'Coverage',
+                value: report.total_candles_processed > 0 ? `${(report.coverage * 100).toFixed(2)}%` : 'No data yet',
+                sub: 'expected candles delivered',
+                color: report.total_candles_processed > 0 ? coverageColor(report.coverage * 100) : 'rgba(255,255,255,0.4)',
+            },
+            { label: 'Total Candles', value: report.total_candles_processed.toLocaleString('en-US'), sub: 'processed this session' },
+            { label: 'Gaps Detected', value: String(report.gap_count), sub: 'REST gap-fill events', color: countColor(report.gap_count, 5, 6) },
+            { label: 'Outliers Rejected', value: String(report.outliers_rejected), sub: 'median-filter drops', color: countColor(report.outliers_rejected, 10, 11) },
+            { label: 'Out-of-Order Dropped', value: String(report.out_of_order_dropped), sub: 'late ticks', color: countColor(report.out_of_order_dropped, 0, 1) },
+            { label: 'Reconstructed', value: String(report.reconstructed_candles), sub: 'synthesized candles' },
+        ]} />
+        {#if report.gap_count > 0}
+            <div class="{styles.alertBanner} {styles.alertWarn}">GAPS: {report.gap_count} gap-fill event{report.gap_count === 1 ? '' : 's'} — historical REST fetch was used.</div>
+        {/if}
+        {#if report.outliers_rejected > 0}
+            <div class="{styles.alertBanner} {styles.alertWarn}">OUTLIERS: {report.outliers_rejected} tick{report.outliers_rejected === 1 ? '' : 's'} rejected by the median filter.</div>
+        {/if}
+        {#if report.out_of_order_dropped > 0}
+            <div class="{styles.alertBanner} {styles.alertError}">OUT-OF-ORDER: {report.out_of_order_dropped} late tick{report.out_of_order_dropped === 1 ? '' : 's'} dropped at L3.</div>
+        {/if}
     {:else}
-        <div class={styles.placeholder}>No data</div>
+        <div class={styles.empty}>No data</div>
     {/if}
 </div>

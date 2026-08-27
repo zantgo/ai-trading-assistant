@@ -14,6 +14,7 @@ import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
+import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 
 function createTimeframeTelemetry(
     symbol: string,
@@ -29,7 +30,9 @@ function createTimeframeTelemetry(
         isCompleted: false, latestSnapshot: null, historyPrices: [],
         pipelineState: 'LOADING',
         indicatorLifecycle: {},
-        showEmas: false, showBb: false, showVwap: true, showVolume: false,
+        liveCandleCache: undefined,
+        liveHistoryCount: 0,
+        showEmas: false, showBb: false, showVwap: false, showVolume: false,
         showAdx: false, showAtr: false, showRsi: false, showMacd: false,
         showSqueeze: false, showBbwp: false, showFib: false, showRvol: false,
         showStochastic: false, showChandeMo: false,
@@ -50,7 +53,7 @@ function createTimeframeTelemetry(
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,
-        bbwpPeriodVal: 20, bbwpLookbackVal: 252, analysisLimit: 100,
+        bbwpPeriodVal: 20, bbwpLookbackVal: 252,
         stochKPeriodVal: 18, stochDPeriodVal: 5, stochSPeriodVal: 9, chandemoPeriodVal: 12,
         supertrendPeriodVal: 10, supertrendMultiplierVal: 3.0,
         keltnerEmaPeriodVal: 20, keltnerAtrPeriodVal: 10, keltnerMultiplierVal: 2.0,
@@ -68,12 +71,17 @@ function createTimeframeTelemetry(
 function createInstanceState(symbol: string): InstanceState {
     return {
         symbol, exchange: 'Hyperliquid', isConnected: false,
+        // v7.3: `mode` is explicitly declared (undefined until the config
+        // sync populates it) so App-level `activeMode` derivations are
+        // reactive to the later assignment.
+        mode: undefined,
         microTerm: createTimeframeTelemetry(symbol, 'micro', 60),
         fastTerm: createTimeframeTelemetry(symbol, 'fast', 180),
         slowTerm: createTimeframeTelemetry(symbol, 'slow', 300),
         macroTerm: createTimeframeTelemetry(symbol, 'macro', 900),
         historyLatestClose: '0',
         currentView: 'terminal',
+        activeTf: 'micro',
         alignment: null,
         analysis: null,
         risk: null,
@@ -128,16 +136,18 @@ export class AppStore {
 
     // ─── Grid cockpit navigation state ────────────────────────────────
     isManageModalOpen = $state(false);
-    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings'>('profile');
+    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings' | 'backtesting'>('profile');
     middleTab = $state<string>('overview');
     activeEngineTab = $state<'overview' | 'instance'>('overview');
     selectedInstance = $state<string | null>(null);
+    /// v10.1: BTE navbar collapse — true while the Backtesting shell has a
+    /// bound instance or a loaded run (full 10-tab set); false shows only
+    /// Overview / History / Settings.
+    btSessionActive = $state(false);
 
-    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings') {
+    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings' | 'backtesting') {
         this.currentEngine = engine;
-        if (engine !== 'market_monitor') {
-            this.middleTab = 'overview';
-        }
+        this.middleTab = ENGINE_DEFAULT_TAB[engine];
         if (engine === 'market_monitor') {
             this.activeEngineTab = this.selectedInstance ? 'instance' : 'overview';
         }
@@ -355,9 +365,78 @@ export class AppStore {
         exchange: 'Hyperliquid', account_name: '', api_key: '',
         api_secret: '', passphrase: '', referred_uid: '', is_active: true,
     });
-    async fetchExchangeKeys() { /***/ }
-    async addExchangeKey() { /***/ }
-    async deleteExchangeKey(_id: number) { /***/ }
+    async fetchExchangeKeys() {
+        try {
+            const res = await fetch('/api/keys', { headers: { Accept: 'application/json' } });
+            if (res.ok) {
+                const data = await res.json();
+                this.exchangeAccounts = (data.keys ?? []) as ExchangeAccount[];
+                this.exchangeActiveCount = this.exchangeAccounts.filter((k) => k.is_active).length;
+            }
+        } catch {
+            // tolerate — the panel renders the empty state
+        }
+    }
+    async addExchangeKey() {
+        const draft = this.exchangeFormDraft;
+        try {
+            const res = await fetch('/api/keys', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(draft),
+            });
+            if (res.ok || res.status === 201) {
+                this.exchangeFormDraft = {
+                    exchange: 'Hyperliquid', account_name: '', api_key: '',
+                    api_secret: '', passphrase: '', referred_uid: '', is_active: true,
+                };
+                await this.fetchExchangeKeys();
+                return true;
+            }
+        } catch {
+            // fall through
+        }
+        return false;
+    }
+    async deleteExchangeKey(id: number) {
+        try {
+            const res = await fetch(`/api/keys/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                await this.fetchExchangeKeys();
+                return true;
+            }
+        } catch {
+            // fall through
+        }
+        return false;
+    }
+    async rotateExchangeKeys(newSecret: string): Promise<string> {
+        try {
+            const res = await fetch('/api/keys/rotate', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ new_master_secret: newSecret }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) return data?.message ?? 'Keys rotated';
+            return data?.error ?? 'Rotation failed';
+        } catch {
+            return 'Rotation failed';
+        }
+    }
+    async backupExchangeKeys(passphrase: string): Promise<{ ok: boolean; error?: string; json?: unknown }> {
+        try {
+            const res = await fetch(`/api/keys/backup?passphrase=${encodeURIComponent(passphrase)}`);
+            if (res.ok) {
+                const json = await res.json();
+                return { ok: true, json };
+            }
+            const data = await res.json().catch(() => ({}));
+            return { ok: false, error: data?.error ?? 'Backup failed' };
+        } catch {
+            return { ok: false, error: 'Backup failed' };
+        }
+    }
 
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');
@@ -380,8 +459,8 @@ export class AppStore {
         };
 
         this._delegate(this.session, [
-            'sessionActive', 'sessionCurrency', 'sessionExchange',
-            'sessionCapital', 'sessionInstanceCount',
+            'sessionActive', 'sessionMode', 'sessionCurrency', 'sessionExchange',
+            'sessionCapital', 'sessionInstanceCount', 'sessionId',
             'sessionLoading', 'sessionChecked', 'sessionError',
         ]);
 
@@ -400,7 +479,7 @@ export class AppStore {
             'apiKeyConfigured', 'rulesContent', 'globalCandlesConfig',
             'globalIndicatorsConfig', 'indicatorRegistry', 'emaFastLabel', 'emaMediumLabel',
             'emaSlowLabel', 'emaLongLabel', 'rsiLabel', 'adxLabel', 'atrLabel',
-            'macdLabel',
+            'macdLabel', 'workspaceSlowTimeframeSecs', 'workspaceMacroTimeframeSecs',
         ]);
 
         this._delegate(this.analytics, [
@@ -506,7 +585,6 @@ export class AppStore {
                 tf.stochDPeriodVal = this.settings.globalIndicatorsConfig.stoch_d_period ?? 5;
                 tf.stochSPeriodVal = this.settings.globalIndicatorsConfig.stoch_s_period ?? 9;
                 tf.chandemoPeriodVal = this.settings.globalIndicatorsConfig.chandemo_period ?? 12;
-                tf.analysisLimit = this.settings.globalCandlesConfig.analysis_limit ?? 100;
             }
         }
     }
@@ -588,8 +666,6 @@ export class AppStore {
     set atrPeriodVal(v: number) { this.micro().atrPeriodVal = v; }
     get squeezePeriodVal() { return this.micro().squeezePeriodVal; }
     set squeezePeriodVal(v: number) { this.micro().squeezePeriodVal = v; }
-    get analysisLimit() { return this.micro().analysisLimit; }
-    set analysisLimit(v: number) { this.micro().analysisLimit = v; }
 
     get historyLatestClose() { return this.activeInstance().historyLatestClose; }
     set historyLatestClose(v: string) { this.activeInstance().historyLatestClose = v; }

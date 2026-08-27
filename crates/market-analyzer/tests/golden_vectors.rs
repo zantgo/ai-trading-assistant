@@ -31,7 +31,11 @@ fn series() -> Vec<((f64, f64, f64, f64), f64)> {
         let h = o.max(c) + 0.5;
         let l = o.min(c) - 0.5;
         price = c;
-        let vol = if i >= 10 && i <= 14 { 2_500.0 } else { 1_000.0 };
+        let vol = if (10..=14).contains(&i) {
+            2_500.0
+        } else {
+            1_000.0
+        };
         out.push(((o, h, l, c), vol));
     }
     out
@@ -53,14 +57,14 @@ fn rsi_bounded_and_wilder_converges() {
     for ((_, _h, _l, c), _) in s.iter() {
         if let Some(v) = rsi.update(*c) {
             last = f(v);
-            assert!(
-                (0.0..=100.0).contains(&last),
-                "RSI out of range: {last}"
-            );
+            assert!((0.0..=100.0).contains(&last), "RSI out of range: {last}");
         }
     }
     // The spike (bars 10-14) must push RSI well above the mid-band.
-    assert!(last > 50.0, "RSI should be elevated after the spike, got {last}");
+    assert!(
+        last > 50.0,
+        "RSI should be elevated after the spike, got {last}"
+    );
 }
 
 #[test]

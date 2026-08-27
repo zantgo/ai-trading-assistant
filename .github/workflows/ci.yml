@@ -1,109 +1,52 @@
 name: CI
-
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
-
-# Defaults: `cargo` is installed via the `dtolnay/rust-toolchain@stable`
-# action below; the toolchain is pinned in `rust-toolchain.toml`.
-# `bun` is installed via `oven-sh/setup-bun@v2` for the UI jobs.
-# `python3` is set up via `actions/setup-python@v5` for `test-doc`.
-#
-# Package lists mirror `manage.sh:184-192` (test_core / test_engine).
-# Test-indicators / test-property / test-doc / svelte-check are
-# invoked through `manage.sh` directly to keep the script the single
-# source of truth for the test surface.
+    branches: [ main ]
 
 jobs:
-  lint-core:
-    name: Stage 0 — Lint (Rust correctness lints)
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run targeted clippy (correctness lints)
-        run: cargo clippy --workspace --all-targets --no-deps -- -D clippy::await_holding_lock -D static_mut_refs -D clippy::items_after_test_module
-
-  lint-ui:
-    name: Stage 0b — Lint (svelte-check)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --no-deps -- -D clippy::await_holding_lock -D static_mut_refs -D clippy::items_after_test_module
       - uses: oven-sh/setup-bun@v2
-      - name: Install dependencies
-        working-directory: ui
-        run: bun install --frozen-lockfile
-      - name: svelte-check
-        working-directory: ui
-        run: bun run check
+      - run: cd ui && bun install --frozen-lockfile && bun run check
 
   test-core:
-    name: Stage 1 — TEST-CORE (Indicators & Serialization)
-    needs: lint-core
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run core tests
-        run: cargo test -p core-domain -p market-analyzer -p config-models
+      - run: cargo test -p core-domain -p market-analyzer -p config-models
 
-  test-indicators:
-    name: Stage 1b — TEST-INDICATORS (37-candle e2e)
-    needs: lint-core
+  test-engine:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run per-indicator e2e tests
-        run: cargo test -p market-analyzer --test indicator_pipeline_e2e -- --nocapture --test-threads=1
+      - run: cargo test -p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
 
   test-ui:
-    name: Stage 2 — TEST-UI (Svelte 5 Components)
-    needs: test-core
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - name: Install dependencies
-        working-directory: ui
-        run: bun install --frozen-lockfile
-      - name: Run UI tests
-        working-directory: ui
-        run: bun run test
-
-  test-engine:
-    name: Stage 3 — TEST-ENGINE (DB, Paper Trading, Server)
-    needs: test-ui
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Verify daemon binary builds
-        run: cargo build --bin execution-daemon
-      - name: Run engine integration tests
-        run: cargo test -p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
+      - run: cd ui && bun install --frozen-lockfile && bun run test
 
   test-doc:
-    name: Stage 4 — TEST-DOC (Documentation corpus)
-    needs: test-engine
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: oven-sh/setup-bun@v2
-      - name: Install UI deps (for scripts that read src/)
-        working-directory: ui
-        run: bun install --frozen-lockfile
-      - name: Run documentation consistency checks
-        run: ./manage.sh test-doc
-
+      - run: python3 scripts/check_docs.py

@@ -28,6 +28,24 @@ fn rsi_family_signs_follow_the_convention() {
     assert!(NormalizationEngine::normalize_rsi(75.0, DivergenceState::None).normalized < 0.0);
     assert!(NormalizationEngine::normalize_rsi(25.0, DivergenceState::None).normalized > 0.0);
 
+    // RSI middle band (AUDIT-AIU-108, v6.10.21): below 50 → bearish negative,
+    // above 50 → bullish positive — matching MFI/Stochastic/WilliamsR and the
+    // 04-02-11 signal table (the legacy `BULLISH_DISCOUNT` / `BEARISH_PREMIUM`
+    // inversion is retired).
+    assert!(NormalizationEngine::normalize_rsi(40.0, DivergenceState::None).normalized < 0.0);
+    assert!(NormalizationEngine::normalize_rsi(60.0, DivergenceState::None).normalized > 0.0);
+    assert_eq!(
+        NormalizationEngine::normalize_rsi(40.0, DivergenceState::None).state_label,
+        "BEARISH_MOMENTUM"
+    );
+    assert_eq!(
+        NormalizationEngine::normalize_rsi(60.0, DivergenceState::None).state_label,
+        "BULLISH_MOMENTUM"
+    );
+    assert!(
+        (NormalizationEngine::normalize_rsi(50.0, DivergenceState::None).normalized).abs() < 1e-9
+    );
+
     // MFI: overbought ≥ 80 → negative; oversold ≤ 20 → positive;
     // middle band signs by flow (below 50 bearish, above 50 bullish).
     assert!(NormalizationEngine::normalize_mfi(85.0).normalized < 0.0);
@@ -96,27 +114,91 @@ fn williams_r_matches_the_capture_values() {
 }
 
 #[test]
+fn rsi_matches_the_momentum_convention_values() {
+    // AUDIT-AIU-108 capture values (v6.10.21): mid-band reads now vote with
+    // the momentum flow. RSI 40 (below midline) → −0.35 BEARISH_MOMENTUM;
+    // RSI 60 (above midline) → +0.35 BULLISH_MOMENTUM; extremes unchanged.
+    let bearish = NormalizationEngine::normalize_rsi(40.0, DivergenceState::None);
+    assert!((bearish.normalized + 0.35).abs() < 1e-9);
+    assert_eq!(bearish.state_label, "BEARISH_MOMENTUM");
+
+    let bullish = NormalizationEngine::normalize_rsi(60.0, DivergenceState::None);
+    assert!((bullish.normalized - 0.35).abs() < 1e-9);
+    assert_eq!(bullish.state_label, "BULLISH_MOMENTUM");
+
+    let oversold = NormalizationEngine::normalize_rsi(20.0, DivergenceState::None);
+    assert!((oversold.normalized - 0.8).abs() < 1e-9);
+    assert_eq!(oversold.state_label, "OVERSOLD_ACCUMULATION");
+
+    let overbought = NormalizationEngine::normalize_rsi(80.0, DivergenceState::None);
+    assert!((overbought.normalized + 0.8).abs() < 1e-9);
+    assert_eq!(overbought.state_label, "OVERBOUGHT_DISTRIBUTION");
+}
+
+#[test]
 fn label_sign_invariant_across_the_sampled_grid() {
     // Grid sweep: every sampled input must produce a normalized value whose
     // SIGN agrees with the label semantics (bullish-family labels → ≥ 0,
     // bearish-family labels → ≤ 0, neutral labels → 0).
     let cases: Vec<(NormalizedIndicatorValue, &str)> = vec![
-        (NormalizationEngine::normalize_mfi(5.0), "MFI_OVERSOLD_ACCUMULATION"),
+        (
+            NormalizationEngine::normalize_mfi(5.0),
+            "MFI_OVERSOLD_ACCUMULATION",
+        ),
         (NormalizationEngine::normalize_mfi(30.0), "MFI_BEARISH_FLOW"),
         (NormalizationEngine::normalize_mfi(60.0), "MFI_BULLISH_FLOW"),
-        (NormalizationEngine::normalize_mfi(95.0), "MFI_OVERBOUGHT_DISTRIBUTION"),
-        (NormalizationEngine::normalize_stochastic(10.0, 5.0), "OVERSOLD_ACCUMULATION"),
-        (NormalizationEngine::normalize_stochastic(40.0, 30.0), "BULLISH_MOMENTUM_ALIGNMENT"),
-        (NormalizationEngine::normalize_stochastic(60.0, 70.0), "BEARISH_MOMENTUM_ALIGNMENT"),
-        (NormalizationEngine::normalize_stochastic(90.0, 85.0), "OVERBOUGHT_DISTRIBUTION"),
-        (NormalizationEngine::normalize_williams_r(-90.0), "WILLIAMS_R_OVERSOLD"),
-        (NormalizationEngine::normalize_williams_r(-40.0), "WILLIAMS_R_BULLISH_BIAS"),
-        (NormalizationEngine::normalize_williams_r(-60.0), "WILLIAMS_R_BEARISH_BIAS"),
-        (NormalizationEngine::normalize_williams_r(-10.0), "WILLIAMS_R_OVERBOUGHT"),
-        (NormalizationEngine::normalize_rsi(80.0, DivergenceState::None), "rsi_overbought"),
-        (NormalizationEngine::normalize_rsi(20.0, DivergenceState::None), "rsi_oversold"),
-        (NormalizationEngine::normalize_chandemo(60.0), "CLIMACTIC_BULL_EXHAUSTION"),
-        (NormalizationEngine::normalize_chandemo(-60.0), "CLIMACTIC_BEAR_EXHAUSTION"),
+        (
+            NormalizationEngine::normalize_mfi(95.0),
+            "MFI_OVERBOUGHT_DISTRIBUTION",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(10.0, 5.0),
+            "OVERSOLD_ACCUMULATION",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(40.0, 30.0),
+            "BULLISH_MOMENTUM_ALIGNMENT",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(60.0, 70.0),
+            "BEARISH_MOMENTUM_ALIGNMENT",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(90.0, 85.0),
+            "OVERBOUGHT_DISTRIBUTION",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-90.0),
+            "WILLIAMS_R_OVERSOLD",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-40.0),
+            "WILLIAMS_R_BULLISH_BIAS",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-60.0),
+            "WILLIAMS_R_BEARISH_BIAS",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-10.0),
+            "WILLIAMS_R_OVERBOUGHT",
+        ),
+        (
+            NormalizationEngine::normalize_rsi(80.0, DivergenceState::None),
+            "rsi_overbought",
+        ),
+        (
+            NormalizationEngine::normalize_rsi(20.0, DivergenceState::None),
+            "rsi_oversold",
+        ),
+        (
+            NormalizationEngine::normalize_chandemo(60.0),
+            "CLIMACTIC_BULL_EXHAUSTION",
+        ),
+        (
+            NormalizationEngine::normalize_chandemo(-60.0),
+            "CLIMACTIC_BEAR_EXHAUSTION",
+        ),
     ];
     for (v, expected_label) in cases {
         let s = sign_of(&v);

@@ -1,6 +1,6 @@
 # Market Monitoring Engine — Overview Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven core analytical layers (L1–L7) with two fractional extension layers (L1.5: Derivatives Telemetry, L2.5: Liquidity Synthesis) — see `01-01-ontology.md` Ch. 6 and `03-02-11-mme-liquidity-extension.md`. L1–L3 sequential, L4 ∥ L5 parallel from L3 (with additional feeds from L1.5 and L2.5), L6–L7 sequential after convergence.
@@ -125,7 +125,7 @@ The MME follows a Welcome-Gate pattern: no pipelines spawn until a **session** (
 
 ## 5. Indicator & Signal System
 
-The MME computes **51 technical indicators** across 8 functional groups, with **101 signal-kind declarations** across 12 SignalKind types (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
+The MME computes **52 technical indicators** across 8 functional groups, with **101 signal-kind declarations** across 12 SignalKind types (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
 
 - Per-indicator specifications: [indicators/](indicators/04-02-00-indicator-index.md)
 - Indicator rulebook: [mme-indicators-guide.md](03-02-09-mme-indicators-guide.md)
@@ -138,7 +138,7 @@ The MME computes **51 technical indicators** across 8 functional groups, with **
 | Metric | Target |
 |--------|--------|
 | Full 7-layer cascade per candle | ≤ 15 ms (MME share of the 25 ms end-to-end observation loop: DIE Raw→Distribution ≤ 10 ms + MME cascade ≤ 15 ms; see [01-03 §4](../../conceptual-foundations/01-03-systemic-data-flow.md)) |
-| Indicator computation (50) | < 10 ms |
+| Indicator computation (52) | < 10 ms |
 | Cross-TF synthesis (L2–L6) | < 5 ms |
 | Shadow / pipeline overhead (L3 quality stamp, L7 rollup) | ≤ 3 ms |
 | Live shadow update | < 5 ms |
@@ -151,3 +151,6 @@ The MME computes **51 technical indicators** across 8 functional groups, with **
 - [Systemic Data Flow — Sequence A](../../conceptual-foundations/01-03-systemic-data-flow.md)
 - [Ontology](../../conceptual-foundations/01-01-ontology.md)
 - All seven layer specs and the matrix contracts linked in §1.
+
+**Dashboard tabs ↔ layers (v7.3).** The MME workspace sub-tabs follow the layer order (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)): Charts · Metrics (L1) · Alignment (L2) · Analysis (L3) · Opportunities (L4) · Risks (L5) · Recommendation (L6); the Overview tab is the L7 aggregate landing.
+

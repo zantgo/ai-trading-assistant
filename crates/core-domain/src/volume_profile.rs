@@ -22,11 +22,13 @@
 //! the bin it stacks the buy half on top of the bin centerline and the
 //! sell half below, matching the TradingView default style.
 //!
-//! ## Dynamic bin count
+//! ## Bin count
 //!
-//! The number of bins is computed by the backend using the loaded price
-//! range, tick size, and bar duration. It's clamped to `[30, 120]` per
-//! `docs/engines/mme/layer-2.5-volume-profile.md`.
+//! Production uses the static config `volume_profile_bins` (default 100,
+//! min 1); the snapshot's `num_bins` reports the non-empty bins after the
+//! zero-volume filter. `VolumeProfileSnapshot::dynamic_bin_count()` (the
+//! tick-size/bar-duration formula clamped to `[30, 120]`) exists for
+//! future activation but has no production callers (03-02-13).
 
 use serde::{Deserialize, Serialize};
 

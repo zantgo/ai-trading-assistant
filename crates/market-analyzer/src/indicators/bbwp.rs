@@ -50,7 +50,10 @@ impl Bbwp {
             return None;
         }
 
-        let current_width = *self.width_history.last().unwrap();
+        let current_width = match self.width_history.last() {
+            Some(w) => *w,
+            None => return None,
+        };
 
         let mut count_below: usize = 0;
         let total = self.width_history.len();
@@ -120,8 +123,8 @@ mod tests {
         );
         let percentile = result.unwrap();
         assert!(
-            percentile >= Decimal::from_f64_retain(0.00).unwrap()
-                && percentile <= Decimal::from_f64_retain(100.00).unwrap()
+            percentile >= Decimal::from_f64_retain(0.00).unwrap_or_default()
+                && percentile <= Decimal::from_f64_retain(100.00).unwrap_or_default()
         );
     }
 
@@ -158,14 +161,14 @@ mod tests {
     #[test]
     fn test_compression_detection() {
         let bbwp = Bbwp::new(50, 20);
-        assert!(bbwp.is_compression(Decimal::from_f64_retain(5.00).unwrap()));
-        assert!(!bbwp.is_compression(Decimal::from_f64_retain(15.00).unwrap()));
+        assert!(bbwp.is_compression(Decimal::from_f64_retain(5.00).unwrap_or_default()));
+        assert!(!bbwp.is_compression(Decimal::from_f64_retain(15.00).unwrap_or_default()));
     }
 
     #[test]
     fn test_exhaustion_detection() {
         let bbwp = Bbwp::new(50, 20);
-        assert!(bbwp.is_exhaustion(Decimal::from_f64_retain(95.00).unwrap()));
-        assert!(!bbwp.is_exhaustion(Decimal::from_f64_retain(85.00).unwrap()));
+        assert!(bbwp.is_exhaustion(Decimal::from_f64_retain(95.00).unwrap_or_default()));
+        assert!(!bbwp.is_exhaustion(Decimal::from_f64_retain(85.00).unwrap_or_default()));
     }
 }

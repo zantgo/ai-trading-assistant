@@ -1,6 +1,6 @@
 # 03-02-14: MME Sub-Minute Timeframe Feasibility on Commodity Hardware
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 
@@ -65,10 +65,13 @@ A `0.5 KB/s` per pair estimate is conservative.
 
 ## Sub-minute bin-count sanity (volume profile)
 
-For sub-minute TFs, the existing `VolumeProfile::dynamic_bin_count()`
-formula was stress-tested. Verified by tests
-`dynamic_bin_count_handles_sub_minute_tfs` and
-`dynamic_bin_count_sub_minute_clamped_to_30`:
+NOTE (v2026-08): `VolumeProfileSnapshot::dynamic_bin_count()` is **dead
+code** — the production analyzer builds profiles with the static config
+`volume_profile_bins` (default 100, min 1) on every timeframe, and the
+snapshot's `num_bins` reports the non-empty bins after the zero-volume
+filter (canonical: 03-02-13 §Dynamic bin count). The feasibility
+analysis below documents the *tested* dynamic-binning behavior for
+future activation only:
 
 - 1s TF with $500 range, $0.01 tick → 50_000 raw bins → clamped to 120
 - 15s TF, same range → same result (TF bonus uses `log2` which is
@@ -83,7 +86,7 @@ least a meaningful histogram.
 ## Sub-minute warm-up cost
 
 The `VolumeProfile::update()` skips output until `bars.len() >=
-window_size / 2`. At sub-minute TFs with the default 300-bar window:
+window_size / 2`. At sub-minute TFs with the default 500-bar window:
 
 | TF | Warm-up time to first profile |
 |---|---|

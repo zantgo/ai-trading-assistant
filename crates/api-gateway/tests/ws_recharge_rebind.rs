@@ -39,7 +39,6 @@ use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::SymbolMapper;
-use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -106,15 +105,14 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
 /// Build an `ActivePair` wired to a fresh set of broadcast channels.
 /// Returns the pair and the four `broadcast::Sender`s so the test can
 /// publish snapshots on any slot.
-fn build_active_pair_with_channels(
-    pair_key: &str,
-) -> (
+type PairWithSenders = (
     Arc<ActivePair>,
     broadcast::Sender<MarketSnapshot>,
     broadcast::Sender<MarketSnapshot>,
     broadcast::Sender<MarketSnapshot>,
     broadcast::Sender<MarketSnapshot>,
-) {
+);
+fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
     let (micro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (fast_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (slow_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
@@ -164,7 +162,7 @@ fn build_active_pair_with_channels(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-    custom_pipelines: std::collections::HashMap::new(),
+        custom_pipelines: std::collections::HashMap::new(),
         micro: new_pipe(60, "Micro", TimeframeSlot::Micro, micro_bcast.clone()),
         fast: new_pipe(180, "Fast", TimeframeSlot::Fast, fast_bcast.clone()),
         slow: new_pipe(300, "Slow", TimeframeSlot::Slow, slow_bcast.clone()),
@@ -249,8 +247,7 @@ async fn setup_app_with_pair() -> (
     workspace.insert(PAIR_KEY.to_string(), instance).await;
 
     {
-        let mut cfg: WorkspaceConfig = WorkspaceConfig::default();
-        cfg.instances = Vec::new();
+        let cfg: WorkspaceConfig = WorkspaceConfig::default();
         workspace.set_config(cfg).await;
     }
 
@@ -271,12 +268,20 @@ async fn setup_app_with_pair() -> (
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
+        allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     (state, micro_bcast, fast_bcast, slow_bcast, macro_bcast)
 }

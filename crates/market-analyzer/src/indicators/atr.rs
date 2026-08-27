@@ -203,11 +203,11 @@ mod tests {
     #[test]
     fn test_regime_classification_expanding() {
         let mut history = VecDeque::new();
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(15.0).unwrap()); // 50% above average → Expanding
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(15.0).unwrap_or_default()); // 50% above average → Expanding
         let regime = classify_regime(&history);
         assert_eq!(regime, VolatilityRegime::Expanding);
     }
@@ -215,11 +215,11 @@ mod tests {
     #[test]
     fn test_regime_classification_contracting() {
         let mut history = VecDeque::new();
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(5.0).unwrap()); // 50% below average → Contracting
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(5.0).unwrap_or_default()); // 50% below average → Contracting
         let regime = classify_regime(&history);
         assert_eq!(regime, VolatilityRegime::Contracting);
     }
@@ -227,11 +227,11 @@ mod tests {
     #[test]
     fn test_regime_classification_stable() {
         let mut history = VecDeque::new();
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
-        history.push_back(Decimal::from_f64_retain(10.1).unwrap()); // 1% above → Stable
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap_or_default());
+        history.push_back(Decimal::from_f64_retain(10.1).unwrap_or_default()); // 1% above → Stable
         let regime = classify_regime(&history);
         assert_eq!(regime, VolatilityRegime::Stable);
     }

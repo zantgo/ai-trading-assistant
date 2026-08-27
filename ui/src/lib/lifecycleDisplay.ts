@@ -27,8 +27,12 @@ export type IndicatorLifecycleDisplay = {
  * The map here is only a fallback when the caller passes no capability.
  */
 const SIGNAL_CAPABILITY: Record<string, 'Conditional' | 'DataOnly' | 'AlwaysActive' | string> = {
-  // Mirror of the screen-side `signalCapability` map; defaulting to
-  // 'AlwaysActive' so unmapped keys fall through to the LIVE label.
+  // Audit fix (m9): the map was empty — `capabilityFor()` always returned
+  // ''. Keep it keyed by the registry's `signal_capability` tokens so the
+  // fallback is truthful when a caller passes no capability.
+  AlwaysActive: 'AlwaysActive',
+  Conditional: 'Conditional',
+  DataOnly: 'DataOnly',
 };
 
 function formatStateLabel(raw: string): string {

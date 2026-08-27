@@ -124,15 +124,16 @@
         opportunity,
     }));
 
-    // ── Verdict & Rationale card accent — the card's left line mirrors
-    //    the verdict: green LONG, red SHORT, amber HOLD (v6.10.28, v6.17:
-    //    the accent moved from the quote to the unified card). ──
+    // ── Verdict & Rationale card accent — the card's left-edge line
+    //    mirrors the verdict: green LONG, red SHORT, amber HOLD. The
+    //    accent rides the SummaryCard boundary itself, so the inner
+    //    content block stays transparent (v6.10.28, v6.17, v7.2). ──
     const verdictAccent = $derived(
         rank.top === 'SHORT'
-            ? styles.verdictCardShort
+            ? 'short'
             : rank.top === 'LONG'
-                ? styles.verdictCardLong
-                : '',
+                ? 'long'
+                : 'hold',
     );
 
     function buildExport() {
@@ -221,7 +222,6 @@
         return cleaned;
     }
 
-    const rrDisplay = $derived(decisionCtx?.expected_reward_risk_ratio ?? 0);
     // `entry_danger` is now a RiskDimension-shaped object on the wire.
     // The legacy code (`decisionCtx?.entry_danger ?? 50`) treated it as a
     // bare scalar and got the wrong numbers. Read `.score` defensively.
@@ -232,7 +232,6 @@
             : (dangerRaw as { score?: number } | null)?.score ?? 50,
     );
     const dangerLevel = $derived(entryDangerLevel(dangerDisplay));
-    const dangerState = $derived((dangerRaw as { state?: string } | null)?.state ?? 'Unknown');
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
     const stopLossPct = $derived(advisory?.stop_loss_distance_pct ?? 0);
     // v6.11: setup-efficiency KPI — market quality ÷ overall risk.
@@ -319,12 +318,25 @@
         {/snippet}
     </LayerHeader>
 
+    <!-- ── PROJECT RISK AND RETURN (v7.3): the what-if drawer now expands
+         directly beneath the header — above the VERDICT & RATIONALE card
+         — styled as a header extension (same dark tone, same hairline
+         border) so the header appears to grow downwards. -->
+    {#if drawerOpen}
+        <ProjectRiskDrawer
+            setup={drawerSetup}
+            markPrice={markPrice}
+            onProjection={(state: ProjectionState) => { projection = state; }}
+        />
+    {/if}
+
     <!-- ── VERDICT & RATIONALE (v7.0): moved from the bottom of the panel
          into the head-badge zone — the terminal execution exception of the
          [Subject] Summary naming scheme. The verdict-consistent accent
-         (green LONG / red SHORT / amber HOLD) rides the inner block. ── -->
-    <SummaryCard label="VERDICT & RATIONALE">
-        <div class="{styles.verdictCard} {verdictAccent}">
+         (green LONG / red SHORT / amber HOLD) rides the SummaryCard's
+         left edge (v7.2). ── -->
+    <SummaryCard label="VERDICT & RATIONALE" accent={verdictAccent}>
+        <div class={styles.verdictCard}>
             <blockquote class={styles.verdictQuote}>{buildVerdictSentence(rank, dangerDisplay)}</blockquote>
             {#if verdictAwareGuidance(advisory, rank.top, rank.top_prob)}
                 <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top, rank.top_prob)}</div>
@@ -343,17 +355,10 @@
         </div>
     </SummaryCard>
 
-    {#if drawerOpen}
-        <ProjectRiskDrawer
-            setup={drawerSetup}
-            markPrice={markPrice}
-            onProjection={(state: ProjectionState) => { projection = state; }}
-        />
-    {/if}
-
     <!-- Unified directional gauge — net bias from Long% − Short%,
          shown as a semi-circular dial. Center = Neutral, right = Long (green),
          left = Short (red). -->
+    <div class={styles.sectionTitle}>Recommendation Bias</div>
     <div class={styles.gaugeCard}>
         <div class={styles.gaugeWrap}>
             <svg viewBox="0 0 200 115" class={styles.gauge}>
@@ -394,7 +399,7 @@
         <div class={styles.sectionTitle}>
             {topSetup && topSetup.opportunity_type === 'NoActiveSetup'
                 ? 'No Active Setup'
-                : (topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'SETUP')}
+                : (topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'TOP SETUP')}
             <span class={styles.sectionMeta}>
                 {topSetup
                     ? (topSetup.opportunity_type === 'NoActiveSetup'
@@ -521,15 +526,29 @@
             </div>
             <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>Risk-Adjusted Reward-to-Risk</span>
-                <span class={styles.kpiVal} style="color: {riskAdjRrDisplay.isNA ? '#94a3b8' : rrDisplay >= 2 ? '#22c55e' : rrDisplay >= 1 ? '#f59e0b' : '#ef4444'}">
-                    {(() => {
-                        if (riskAdjRrDisplay.isNA) return '\u2014';
-                        const v = Number(riskAdjRrDisplay.value);
-                        if (Number.isNaN(v) || v <= 0) return '\u2014';
-                        const norm = v >= 9.99 ? '9.99+' : v >= 5 ? v.toFixed(1) : v.toFixed(2);
-                        return norm;
-                    })()}
-                </span>
+                {#if riskAdjRrDisplay.isNA}
+                    <span class={styles.kpiVal} style="color: #94a3b8">—</span>
+                {:else}
+                    {@const adjusted = Number(riskAdjRrDisplay.value)}
+                    <!-- Audit fix (M3-UI): the color must be derived from the
+                         SAME resolved value being displayed. Previously the
+                         number used `riskAdjRrDisplay.value` (which falls
+                         back to `topSetup.rr × (1 − overall_risk/100)` when
+                         `expected_reward_risk_ratio <= 0`) while the color
+                         read the raw `rrDisplay` — a good adjusted ratio
+                         (e.g. 2.50) rendered in red whenever the raw field
+                         was zero. -->
+                    <span
+                        class={styles.kpiVal}
+                        style="color: {adjusted >= 2 ? '#22c55e' : adjusted >= 1 ? '#f59e0b' : '#ef4444'}"
+                    >
+                        {(() => {
+                            if (Number.isNaN(adjusted) || adjusted <= 0) return '\u2014';
+                            const norm = adjusted >= 9.99 ? '9.99+' : adjusted >= 5 ? adjusted.toFixed(1) : adjusted.toFixed(2);
+                            return norm;
+                        })()}
+                    </span>
+                {/if}
             </div>
             <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>ATR Stop Guide</span>

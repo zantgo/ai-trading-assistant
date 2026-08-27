@@ -10,12 +10,16 @@
         type WsState,
     } from '../lib/websocket.svelte';
     import {
-        detectBackendErrorKind,
+        clampWaitMinutes,
         decide,
+        detectBackendErrorKind,
         parseSymbols,
         reasonFor,
         reasonLabel,
         summarize,
+        WAIT_WINDOW_DEFAULT,
+        WAIT_WINDOW_MAX,
+        WAIT_WINDOW_MIN,
         type PairOutcome,
     } from '../lib/watchlistScanner';
     import styles from './WatchlistScannerModal.module.css';
@@ -36,11 +40,25 @@
     let inputText = $state('');
     let parsed = $derived(parseSymbols(inputText));
     let cancelRun = $state(false);
+    /// Recommendation grace window (minutes). A pair is kept when a
+    /// recommendation to any side appears within the window; deleted
+    /// otherwise (default 5 min, clamp 1–60).
+    let waitMinutes = $state(WAIT_WINDOW_DEFAULT);
 
     /// Per-pair outcome table. Seeded once on phase transition to `running`
     /// and mutated in place as each pair advances through its lifecycle.
     let outcomes = $state<PairOutcome[]>([]);
-    let currentIndex = $state(0);
+
+    /// Seconds ticker for the running-phase elapsed labels.
+    let nowTick = $state(0);
+    $effect(() => {
+        if (phase !== 'running') return;
+        const id = setInterval(() => { nowTick = nowTick + 1; }, 1000);
+        return () => clearInterval(id);
+    });
+
+    const waitWindowMs = $derived(clampWaitMinutes(waitMinutes) * 60_000);
+    const waitLabel = $derived(`${clampWaitMinutes(waitMinutes)} min`);
 
     const sessionReady = $derived(app.sessionActive);
     const summary = $derived(phase === 'done' ? summarize(outcomes) : null);
@@ -49,7 +67,7 @@
         phase = 'input';
         inputText = '';
         outcomes = [];
-        currentIndex = 0;
+        waitMinutes = WAIT_WINDOW_DEFAULT;
         cancelRun = false;
     }
 
@@ -66,92 +84,93 @@
     async function startRun() {
         if (parsed.length === 0) return;
         cancelRun = false;
+        const windowMs = waitWindowMs;
         outcomes = parsed.map((base) => ({
             base,
             pairKey: app.pairKeyFor(base),
             status: 'pending' as const,
         }));
-        currentIndex = 0;
         phase = 'running';
 
-        for (let i = 0; i < outcomes.length; i++) {
-            if (cancelRun) break;
-            currentIndex = i;
-            await processOne(i);
-        }
+        // PHASE 1 — add every pair + wire its WS, all concurrently.
+        const added = await Promise.all(
+            outcomes.map(async (outcome, i) => {
+                if (cancelRun) return null;
+                outcomes[i] = { ...outcome, status: 'adding', startedMs: Date.now() };
+                const result = await createInstance(outcome.base, app.quote);
+                if (!result.ok || !result.instanceId) {
+                    const reason = detectBackendErrorKind(result.error);
+                    outcomes[i] = {
+                        ...outcome,
+                        status: 'done',
+                        reason,
+                        error: result.error,
+                        elapsedMs: Date.now() - (outcome.startedMs ?? Date.now()),
+                    };
+                    return null;
+                }
+                const instanceId = result.instanceId;
+                app.initInstance(outcome.base, undefined, instanceId);
+                if (app.instancesMap[outcome.pairKey]) {
+                    app.instancesMap[outcome.pairKey].instanceId = instanceId;
+                }
+                connectWsForInstance(app, wssMap, outcome.pairKey);
+                return { i, instanceId, pairKey: outcome.pairKey };
+            }),
+        );
 
-        currentIndex = outcomes.length;
+        // PHASE 2 — one wait window per pair, all concurrent: each pair is
+        // watched for `windowMs`; the first recommendation to any side
+        // keeps the instance, a window without one removes it.
+        await Promise.all(
+            added
+                .filter((a): a is { i: number; instanceId: string; pairKey: string } => a !== null)
+                .map(async ({ i, instanceId, pairKey }) => {
+                    if (cancelRun) return;
+                    const outcome = outcomes[i];
+                    outcomes[i] = { ...outcome, status: 'waiting' };
+                    const verdict = await waitForAdvisory(app, pairKey, windowMs);
+                    const elapsedMs = verdict.waitedMs ?? 0;
+
+                    if (verdict.status === 'TIMEOUT') {
+                        await deleteInstanceById(instanceId);
+                        app.removeInstance(pairKey);
+                        outcomes[i] = {
+                            ...outcome,
+                            status: 'done',
+                            reason: 'TIMEOUT',
+                            elapsedMs,
+                        };
+                        return;
+                    }
+
+                    const keep = decide(verdict.decisionContext, verdict.advisory) === 'KEEP';
+                    if (!keep) {
+                        await deleteInstanceById(instanceId);
+                        app.removeInstance(pairKey);
+                        outcomes[i] = {
+                            ...outcome,
+                            status: 'done',
+                            reason: reasonFor('DELETE', verdict.decisionContext, verdict.advisory),
+                            guidance: verdict.advisory?.directional_guidance,
+                            tradeReadiness: verdict.decisionContext.trade_readiness,
+                            elapsedMs,
+                        };
+                        return;
+                    }
+
+                    outcomes[i] = {
+                        ...outcome,
+                        status: 'done',
+                        reason: 'KEEP',
+                        guidance: verdict.advisory?.directional_guidance,
+                        tradeReadiness: verdict.decisionContext.trade_readiness,
+                        elapsedMs,
+                    };
+                }),
+        );
+
         phase = 'done';
-    }
-
-    async function processOne(index: number) {
-        const outcome = outcomes[index];
-        if (!outcome) return;
-        const startedAt = Date.now();
-
-        // 1. ADD
-        outcomes[index] = { ...outcome, status: 'adding' };
-        const result = await createInstance(outcome.base, app.quote);
-        if (!result.ok || !result.instanceId) {
-            const reason = detectBackendErrorKind(result.error);
-            outcomes[index] = {
-                ...outcome,
-                status: 'done',
-                reason,
-                error: result.error,
-                elapsedMs: Date.now() - startedAt,
-            };
-            return;
-        }
-
-        const instanceId = result.instanceId;
-        app.initInstance(outcome.base, undefined, instanceId);
-        if (app.instancesMap[outcome.pairKey]) {
-            app.instancesMap[outcome.pairKey].instanceId = instanceId;
-        }
-
-        // 2. WIRE WS
-        connectWsForInstance(app, wssMap, outcome.pairKey);
-
-        // 3. WAIT FOR DECISION (30s cap)
-        outcomes[index] = { ...outcome, status: 'waiting' };
-        const verdict = await waitForAdvisory(app, outcome.pairKey, 30_000);
-
-        if (verdict.status === 'TIMEOUT') {
-            await deleteInstanceById(instanceId);
-            app.removeInstance(outcome.pairKey);
-            outcomes[index] = {
-                ...outcome,
-                status: 'done',
-                reason: 'TIMEOUT',
-                elapsedMs: Date.now() - startedAt,
-            };
-            return;
-        }
-
-        const keep = decide(verdict.decisionContext, verdict.advisory) === 'KEEP';
-        if (!keep) {
-            await deleteInstanceById(instanceId);
-            app.removeInstance(outcome.pairKey);
-            outcomes[index] = {
-                ...outcome,
-                status: 'done',
-                reason: reasonFor('DELETE', verdict.decisionContext, verdict.advisory),
-                guidance: verdict.advisory?.directional_guidance,
-                tradeReadiness: verdict.decisionContext.trade_readiness,
-                elapsedMs: Date.now() - startedAt,
-            };
-            return;
-        }
-
-        outcomes[index] = {
-            ...outcome,
-            status: 'done',
-            reason: 'KEEP',
-            guidance: verdict.advisory?.directional_guidance,
-            tradeReadiness: verdict.decisionContext.trade_readiness,
-            elapsedMs: Date.now() - startedAt,
-        };
     }
 
     function chipClass(outcome: PairOutcome): string {
@@ -166,10 +185,24 @@
         return styles.chipRemoved;
     }
 
+    function elapsedLabel(ms: number): string {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        const m = Math.floor(s / 60);
+        const r = s % 60;
+        return `${m}:${String(r).padStart(2, '0')}`;
+    }
+
+    function waitElapsed(outcome: PairOutcome): string {
+        if (!outcome.startedMs) return elapsedLabel(0);
+        return elapsedLabel(Date.now() - outcome.startedMs);
+    }
+
     function statusText(outcome: PairOutcome): string {
         if (outcome.status === 'pending') return 'Queued';
         if (outcome.status === 'adding') return 'Adding…';
-        if (outcome.status === 'waiting') return 'Awaiting decision…';
+        if (outcome.status === 'waiting') {
+            return `Awaiting recommendation · window ${waitLabel} · ${waitElapsed(outcome)} elapsed`;
+        }
         if (outcome.status === 'evaluating') return 'Evaluating…';
         if (outcome.reason === 'KEEP') {
             return `Kept · ${outcome.guidance ?? ''} · ${outcome.tradeReadiness ?? ''}`;
@@ -183,7 +216,7 @@
         const done = outcomes.filter((o) => o.status === 'done').length;
         if (total === 0) return '';
         if (done >= total) return `Done · ${total}/${total}`;
-        return `Processing ${Math.min(done + 1, total)} of ${total}`;
+        return `Watching ${total - done} of ${total} · window ${waitLabel}`;
     }
 </script>
 
@@ -201,7 +234,8 @@
                 <div class={styles.inputHeader}>
                     <h3 class={styles.inputTitle}>Watchlist symbols</h3>
                     <p class={styles.inputSubtitle}>
-                        Add a basket of pairs and keep only those with a clear decision.
+                        Add a basket of pairs and keep only those with a clear decision within
+                        the wait window (default {WAIT_WINDOW_DEFAULT} min).
                     </p>
                 </div>
                 <div class={styles.inputBlock}>
@@ -217,6 +251,24 @@
                     <div class={styles.inputHelp}>
                         Paste a tag-style list. Spaces, commas, and # prefixes are all accepted; duplicates
                         are ignored. Up to 10 characters per symbol.
+                    </div>
+                    <div class={styles.inputWaitRow}>
+                        <label class={styles.inputWaitLabel} for="watchlist-wait">
+                            Wait window (minutes)
+                        </label>
+                        <input
+                            id="watchlist-wait"
+                            type="number"
+                            min={WAIT_WINDOW_MIN}
+                            max={WAIT_WINDOW_MAX}
+                            class={styles.inputWaitField}
+                            bind:value={waitMinutes}
+                            disabled={!sessionReady}
+                        />
+                        <span class={styles.inputWaitHint}>
+                            A pair is kept when a recommendation to any side appears within the
+                            window; otherwise it is removed.
+                        </span>
                     </div>
                     <div class={styles.inputMeta}>
                         <span class={styles.inputMetaLabel}>{parsed.length} queued</span>

@@ -346,6 +346,10 @@ function formatRawForExport(
   switch (meta.value_format) {
     case 'percent1':
       return { value: Number(rawRaw.toFixed(1)), display: `${rawRaw.toFixed(1)}%` };
+    case 'percent4':
+      // Fraction-scale raw (funding_rate: per-8h decimal) — ×100 for the
+      // operator-facing percentage.
+      return { value: Number((rawRaw * 100).toFixed(4)), display: `${(rawRaw * 100).toFixed(4)}%` };
     case 'price':
       // Screen uses the magnitude-scaled formatter (no $ prefix in the table).
       return { value: Number(rawRaw.toFixed(2)), display: fmtPrice(rawRaw, markPrice) };
@@ -610,7 +614,7 @@ function buildLiquidityBlock(
   const asymSign = asym != null && asym > 0 ? '+' : asym != null && asym < 0 ? '-' : '';
   const asymMagnitude = asym != null ? Math.abs(asym) : null;
   const asymDescription =
-    asym == null ? null : asymVal > 0.3 ? 'long_squeeze_risk' : asymVal < -0.3 ? 'short_squeeze_risk' : 'neutral';
+    asym == null ? null : asymVal > 0.3 ? 'short_squeeze_risk' : asymVal < -0.3 ? 'long_squeeze_risk' : 'neutral';
   const mapCluster = (c: LiquidationCluster) => ({
     peak_price: c.peak_price,
     price_low: c.price_low,

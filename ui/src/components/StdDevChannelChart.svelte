@@ -82,7 +82,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const up = pairsFromHistory(h, 'stddev_channel', 'upper');
             const mid = pairsFromHistory(h, 'stddev_channel', 'center');

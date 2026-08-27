@@ -1,529 +1,897 @@
 <script lang="ts">
-    import styles from './TradeAutomationDashboard.module.css';
+    // TradeAutomationDashboard — v7.2 mode-aware rewrite on the shared
+    // MME design vocabulary. The dashboard changes personality by the
+    // instance's fixed-at-launch execution mode:
+    //   observe → "Setup Radar"  (ghost would-be previews, no orders)
+    //   paper   → "Paper Lab"    (full lifecycle + execution quality)
+    //   live    → "Live Cockpit" (venue orders + reconciliation + emergency)
+    import { onMount } from 'svelte';
+    import { useAppStore } from '../state.svelte';
+    import DashboardHeader from './DashboardHeader.svelte';
+    import { postInstanceLifecycle } from '../lib/api.svelte';
+    import ModeChip from './ModeChip.svelte';
+    import ModeBanner from './ModeBanner.svelte';
+    import KpiStrip from './KpiStrip.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import NoInstanceState from './NoInstanceState.svelte';
+    import TradeAutomationSettings from './TradeAutomationSettings.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
+    import styles from '../styles/engine-dashboard.module.css';
+    import local from './TradeAutomationDashboard.module.css';
+    import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
+    import { lifecyclePresentation, isActive } from '../lib/lifecyclePresentation';
 
-    type Panel = 'overview' | 'policies' | 'observability' | 'paper' | 'lifecycle';
-    let activePanel = $state<Panel>('overview');
-    let expandedPolicies = $state<Set<number>>(new Set());
-    let paperTab = $state<'positions' | 'orders' | 'history'>('positions');
+    const app = useAppStore();
 
-    function togglePolicy(id: number) {
-        const next = new Set(expandedPolicies);
-        if (next.has(id)) next.delete(id); else next.add(id);
-        expandedPolicies = next;
-    }
-
-    // ── Placeholder data ────────────────────────────────────────────────
-    const operationalMode = 'PaperTrading';
-
-    const overviewStats = {
-        active_policies: 3,
-        triggered_today: 12,
-        blocked_today: 3,
-        active_positions: 1,
-        lifecycle_running: 4,
-        lifecycle_paused: 0,
-        lifecycle_stopped: 1,
-    };
-
-    interface PolicyCondition {
-        field: string;
-        operator: 'EQ' | 'GT' | 'LT' | 'GTE' | 'LTE' | 'IN' | 'BETWEEN' | 'NOT_EQ';
-        value: string;
-        passed?: boolean;
-    }
-
-    interface ConditionGroup {
-        logic: 'AND' | 'OR';
-        conditions: PolicyCondition[];
-    }
-
-    interface ExecutionPolicy {
-        id: number;
-        policy_id: string;
-        policy_name: string;
-        description: string;
-        symbol: string;
-        direction: 'Long' | 'Short';
-        enabled: boolean;
-        stance: 'ACTIVE' | 'CLOSE_ONLY' | 'AVOID';
-        trigger_mode: string;
-        condition_tree: ConditionGroup[];
-        risk: { risk_per_trade_pct: number; max_position_size_usd: number; max_leverage: number; use_dynamic_stops: boolean; fixed_stop_loss_pct: number | null; target_rr_ratio: number };
-        cooldown_seconds: number;
-    }
-
-    interface ObservableTrigger {
-        policy_id: string;
-        trigger_timestamp: number;
-        result: 'TRIGGERED' | 'BLOCKED_COOLDOWN' | 'BLOCKED_CONFLICT' | 'SKIPPED_STANCE';
-        decision_snapshot: { bias: string; directional_guidance: string; confidence: number };
-        conditions_evaluated: { field: string; passed: boolean }[];
-    }
-
-    interface LifecycleInstance {
+    interface InstanceSummary {
         id: string;
-        symbol: string;
-        state: 'RUNNING' | 'PAUSED' | 'STOPPING' | 'STOPPED';
-        stance: 'ACTIVE' | 'CLOSE_ONLY' | 'AVOID';
-        start_condition?: string;
-        pause_condition?: string;
-        stop_condition?: string;
-        automation_summary: string;
+        pair: string;
+        status: string;
+        mode?: string;
     }
 
-    const policies: ExecutionPolicy[] = [
-        {
-            id: 1, policy_id: 'btc-trend-follow', policy_name: 'BTC Trend Following',
-            description: 'Long BTC when strong bullish bias and trending bull regime with low risk',
-            symbol: 'BTC-USDT', direction: 'Long', enabled: true, stance: 'ACTIVE',
-            trigger_mode: 'CandleClose { timeframe: "1h", count: 1 }',
-            condition_tree: [
-                { logic: 'AND', conditions: [
-                    { field: 'decision.bias', operator: 'IN', value: '["StrongBullish","Bullish"]', passed: true },
-                    { field: 'analysis.market_regime', operator: 'IN', value: '["TRENDING_BULL","ACCUMULATION"]', passed: true },
-                    { field: 'decision.confidence_assessment', operator: 'GTE', value: '0.6', passed: true },
-                ]},
-                { logic: 'AND', conditions: [
-                    { field: 'risk.overall_risk.score', operator: 'LTE', value: '40', passed: false },
-                    { field: 'opportunity.opportunity_score', operator: 'GTE', value: '50', passed: true },
-                ]},
-            ],
-            risk: { risk_per_trade_pct: 1.0, max_position_size_usd: 50000, max_leverage: 10, use_dynamic_stops: true, fixed_stop_loss_pct: null, target_rr_ratio: 2.5 },
-            cooldown_seconds: 300,
-        },
-        {
-            id: 2, policy_id: 'eth-mean-reversion', policy_name: 'ETH Mean Reversion',
-            description: 'Short ETH when RSI overbought in ranging market with high volatility compression',
-            symbol: 'ETH-USDT', direction: 'Short', enabled: true, stance: 'ACTIVE',
-            trigger_mode: 'Interval { seconds: 60 }',
-            condition_tree: [
-                { logic: 'AND', conditions: [
-                    { field: 'analysis.market_regime', operator: 'EQ', value: '"RANGE"', passed: true },
-                    { field: 'decision.strategy_environment', operator: 'EQ', value: '"MeanReversion"', passed: true },
-                    { field: 'risk.volatility_risk.score', operator: 'LTE', value: '30', passed: false },
-                ]},
-            ],
-            risk: { risk_per_trade_pct: 0.5, max_position_size_usd: 25000, max_leverage: 5, use_dynamic_stops: true, fixed_stop_loss_pct: 1.5, target_rr_ratio: 2.0 },
-            cooldown_seconds: 900,
-        },
-        {
-            id: 3, policy_id: 'sol-breakout', policy_name: 'SOL Breakout Strategy',
-            description: 'Long SOL on breakout confirmation in expansion regime with momentum strength',
-            symbol: 'SOL-USDT', direction: 'Long', enabled: false, stance: 'CLOSE_ONLY',
-            trigger_mode: 'EventDriven { events: ["BREAKOUT_CONFIRMED","SQUEEZE_RELEASE"] }',
-            condition_tree: [
-                { logic: 'AND', conditions: [
-                    { field: 'analysis.market_regime', operator: 'EQ', value: '"EXPANSION"', passed: false },
-                    { field: 'decision.directional_guidance', operator: 'IN', value: '["StrongLong","Long"]', passed: true },
-                    { field: 'risk.momentum_risk.score', operator: 'LTE', value: '35', passed: false },
-                ]},
-            ],
-            risk: { risk_per_trade_pct: 1.5, max_position_size_usd: 30000, max_leverage: 8, use_dynamic_stops: false, fixed_stop_loss_pct: 2.0, target_rr_ratio: 3.0 },
-            cooldown_seconds: 600,
-        },
-    ];
+    interface AutomationState {
+        instance_id: string;
+        symbol: string;
+        mode: string;
+        ghost: boolean;
+        enabled: boolean;
+        phase: 'idle' | 'pending_entry' | 'position_open' | null;
+        fingerprint: string | null;
+        tracked_setup: {
+            symbol: string;
+            direction: string;
+            setup_type: string;
+            score: number;
+            source_tf: string;
+            entry_mid: string;
+            entry_zone_low: string;
+            entry_zone_high: string;
+            sl: string;
+            tp: string;
+            net_rr: number;
+            time_horizon: string;
+        } | null;
+        projection: {
+            risk_capital: string;
+            position_size_units: string;
+            position_notional: string;
+            margin_required: string;
+            liquidation_price: string;
+            entry_fee_usd: string;
+            exit_fee_usd: string;
+            total_fees: string;
+            net_profit_usd: string;
+            roi_pct: string;
+            net_rr: string | null;
+        } | null;
+        entry_order: Order | null;
+        bracket: { tp_order: Order | null; sl_order: Order | null };
+        position: {
+            symbol: string;
+            direction: string;
+            size: string;
+            entry_price: string;
+            unrealized_pnl: string;
+        } | null;
+        invalidation: { state: string; detail: string };
+        activity_log: { ts: number; event: string; detail: string }[];
+        safety_gate: { blocked: boolean; reason: string | null };
+        lifecycle: string;
+        equity: string;
+        open_positions_count: number;
+    }
 
-    const observability: ObservableTrigger[] = [
-        { policy_id: 'btc-trend-follow', trigger_timestamp: Date.now() - 120000, result: 'TRIGGERED', decision_snapshot: { bias: 'Bullish', directional_guidance: 'Long', confidence: 0.72 }, conditions_evaluated: [{ field: 'decision.bias', passed: true }, { field: 'analysis.market_regime', passed: true }, { field: 'risk.overall_risk.score', passed: true }, { field: 'decision.confidence_assessment', passed: true }] },
-        { policy_id: 'btc-trend-follow', trigger_timestamp: Date.now() - 360000, result: 'BLOCKED_COOLDOWN', decision_snapshot: { bias: 'Bullish', directional_guidance: 'Long', confidence: 0.68 }, conditions_evaluated: [{ field: 'decision.bias', passed: true }, { field: 'analysis.market_regime', passed: true }, { field: 'risk.overall_risk.score', passed: false }] },
-        { policy_id: 'eth-mean-reversion', trigger_timestamp: Date.now() - 600000, result: 'TRIGGERED', decision_snapshot: { bias: 'Bearish', directional_guidance: 'Short', confidence: 0.55 }, conditions_evaluated: [{ field: 'analysis.market_regime', passed: true }, { field: 'decision.strategy_environment', passed: true }, { field: 'risk.volatility_risk.score', passed: true }] },
-        { policy_id: 'sol-breakout', trigger_timestamp: Date.now() - 900000, result: 'SKIPPED_STANCE', decision_snapshot: { bias: 'StrongBullish', directional_guidance: 'StrongLong', confidence: 0.81 }, conditions_evaluated: [{ field: 'analysis.market_regime', passed: true }, { field: 'decision.directional_guidance', passed: true }] },
-        { policy_id: 'btc-trend-follow', trigger_timestamp: Date.now() - 1800000, result: 'BLOCKED_CONFLICT', decision_snapshot: { bias: 'Bullish', directional_guidance: 'Neutral', confidence: 0.45 }, conditions_evaluated: [{ field: 'decision.bias', passed: true }, { field: 'analysis.market_regime', passed: false }] },
-    ];
+    interface Order {
+        id: string | null;
+        side: string;
+        order_type: string;
+        price: string | null;
+        size: string;
+        status: string;
+        filled_size: string;
+        fill_price: string | null;
+        reduce_only: boolean;
+        created_at: number;
+    }
 
-    const lifecycleInstances: LifecycleInstance[] = [
-        { id: 'inst-btc', symbol: 'BTC-USDT', state: 'RUNNING', stance: 'ACTIVE', start_condition: 'at_time 00:00 UTC', pause_condition: 'at_price_below $62,000', stop_condition: 'after_duration 24h', automation_summary: 'Auto-start at midnight UTC · Pause below $62k · Stop after 24h' },
-        { id: 'inst-eth', symbol: 'ETH-USDT', state: 'RUNNING', stance: 'ACTIVE', start_condition: 'manual', pause_condition: 'at_price_below $2,800', automation_summary: 'Manual start · Pause below $2,800' },
-        { id: 'inst-sol', symbol: 'SOL-USDT', state: 'PAUSED', stance: 'CLOSE_ONLY', stop_condition: 'at_price_below $120', automation_summary: 'Paused · CLOSE_ONLY — entries blocked, exits permitted' },
-        { id: 'inst-doge', symbol: 'DOGE-USDT', state: 'RUNNING', stance: 'ACTIVE', start_condition: 'at_time 08:00 UTC', pause_condition: 'at_price_above $0.25', automation_summary: 'Auto-start at 8am UTC · Pause above $0.25' },
-        { id: 'inst-avax', symbol: 'AVAX-USDT', state: 'STOPPED', stance: 'AVOID', stop_condition: 'manual', automation_summary: 'Stopped · AVOID — all execution triggers blocked' },
-    ];
+    interface TradeRow {
+        id: number;
+        symbol: string;
+        direction: string;
+        entry_price: number;
+        exit_price: number;
+        size: number;
+        commission_fees: number;
+        realized_pnl: number;
+        roi_pct: number;
+        trigger_source: string;
+        entry_timestamp: number;
+        exit_timestamp: number;
+    }
 
+    let instances = $state<InstanceSummary[]>([]);
+    let selectedId = $state('');
+    let lifecycleBusy = $state(false);
+    let lifecycleFlash = $state<string | null>(null);
+
+    async function lifecycle(action: 'start' | 'pause' | 'terminate') {
+        if (!selectedId) return;
+        if (action === 'terminate' && !window.confirm('Terminate this instance? All open positions are force-closed at market.')) {
+            return;
+        }
+        lifecycleBusy = true;
+        const res = await postInstanceLifecycle(selectedId, action);
+        lifecycleBusy = false;
+        lifecycleFlash = res.error ?? `Instance ${action === 'start' ? 'resumed' : action === 'pause' ? 'paused (close-only)' : 'terminated'}.`;
+        setTimeout(() => (lifecycleFlash = null), 4000);
+    }
+    let automation = $state<AutomationState | null>(null);
+    let trades = $state<TradeRow[]>([]);
+    let loading = $state(true);
+    let error = $state('');
+    let closing = $state(false);
+    let lastOkTs = $state(0);
+    let pollFailed = $state(false);
+
+    let { section = 'overview' }: { section?: string } = $props();
+
+    const mode = $derived<ExecutionMode | undefined>(
+        automation && isExecutionMode(automation.mode) ? automation.mode : undefined,
+    );
+    const ghost = $derived(mode === 'observe');
+
+    // v7.3: Settings is always present — ghost collapse only hides the
+    // execution-data tabs (Orders / Trade History), never Settings.
+    const safeSection = $derived(
+        ghost && section !== 'overview' && section !== 'activity' && section !== 'settings'
+            ? 'overview' : section,
+    );
+
+    const status = $derived<'live' | 'stale' | 'error' | 'loading'>(
+        loading ? 'loading'
+            : pollFailed ? 'error'
+            : Date.now() - lastOkTs <= 6000 ? 'live'
+            : 'stale',
+    );
+
+    async function loadInstances() {
+        try {
+            const res = await fetch('/api/instances');
+            const data = await res.json();
+            instances = data.instances ?? [];
+            if (!selectedId && instances.length > 0) {
+                selectedId = instances[0].id;
+            }
+        } catch {
+            instances = [];
+        }
+    }
+
+    async function refresh() {
+        // v7.3: with no instance there is nothing to fetch — resolve the
+        // loading state so the UI renders the no-instance empty state
+        // instead of showing "Loading…" forever.
+        if (!selectedId) {
+            loading = false;
+            pollFailed = false;
+            lastOkTs = Date.now();
+            return;
+        }
+        try {
+            const [autoRes, tradesRes] = await Promise.all([
+                fetch(`/api/instances/${selectedId}/automation`),
+                fetch('/api/trade-ledger?limit=50'),
+            ]);
+            if (autoRes.ok) {
+                automation = (await autoRes.json()) as AutomationState;
+                error = '';
+                pollFailed = false;
+                lastOkTs = Date.now();
+            } else {
+                pollFailed = true;
+            }
+            if (tradesRes.ok) {
+                trades = (await tradesRes.json()) as TradeRow[];
+            }
+        } catch (e) {
+            error = String(e);
+            pollFailed = true;
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function closeNow() {
+        if (!selectedId || closing) return;
+        closing = true;
+        try {
+            await fetch(`/api/instances/${selectedId}/automation/close`, { method: 'POST' });
+            await refresh();
+        } finally {
+            closing = false;
+        }
+    }
+
+    onMount(() => {
+        const boot = async () => {
+            await loadInstances();
+            await refresh();
+        };
+        boot();
+        const timer = setInterval(refresh, 2000);
+        // v7.3: polling backstop on the instance list (mirrors the MME
+        // InstancePicker) — launching an instance while on this engine
+        // populates the selector and content without remounting.
+        const instanceTimer = setInterval(() => { void loadInstances(); }, 3000);
+        return () => {
+            clearInterval(timer);
+            clearInterval(instanceTimer);
+        };
+    });
+
+    // ── Formatters ─────────────────────────────────────────────────────
     function fmtTs(ts: number): string {
         const d = new Date(ts);
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
-    function fmtNum(n: number, decimals: number = 2): string {
-        if (!isFinite(n)) return '--';
-        return n.toFixed(decimals);
+    function fmtUsd(v: string | number | null | undefined): string {
+        if (v == null || v === '' || !isFinite(Number(v))) return '—';
+        const n = Number(v);
+        return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
-    function resultBadge(r: string): string {
-        const m: Record<string, string> = { TRIGGERED: styles.badgeTriggered, BLOCKED_COOLDOWN: styles.badgeBlocked, BLOCKED_CONFLICT: styles.badgeBlocked, SKIPPED_STANCE: styles.badgeSkipped };
-        return `${styles.badge} ${m[r] || styles.badgeSkipped}`;
+    function signedUsd(v: string | number | null | undefined): string {
+        if (v == null || v === '' || !isFinite(Number(v))) return '—';
+        const n = Number(v);
+        return (n > 0 ? '+' : '') + fmtUsd(n);
     }
 
-    function stanceBadge(s: string): string {
-        const m: Record<string, string> = { ACTIVE: styles.badgeActive, CLOSE_ONLY: styles.badgeCloseOnly, AVOID: styles.badgeAvoid };
-        return `${styles.badge} ${m[s] || styles.badgeSkipped}`;
+    function fmtNum(v: string | number | null | undefined, d = 2): string {
+        if (v == null || v === '' || !isFinite(Number(v))) return '—';
+        return Number(v).toFixed(d);
     }
 
-    function stateBadge(s: string): string {
-        const m: Record<string, string> = { RUNNING: styles.badgeRunning, PAUSED: styles.badgePaused, STOPPING: styles.badgeBlocked, STOPPED: styles.badgeStopped };
-        return `${styles.badge} ${m[s] || styles.badgeStopped}`;
+    function statusLabel(s: string): string {
+        const m: Record<string, string> = {
+            Open: 'OPEN',
+            Closed: 'CLOSED',
+            Cancelled: 'CANCELLED',
+            PartiallyFilled: 'PARTIAL',
+            Pending: 'PENDING',
+            Submitted: 'SUBMITTED',
+            Rejected: 'REJECTED',
+        };
+        return m[s] ?? s.toUpperCase();
     }
 
-    function modeBadge(m: string): string {
-        const map: Record<string, string> = { ManualOnly: styles.badgeModeManual, DeterministicHeuristics: styles.badgeModeHeuristics, PaperTrading: styles.badgeModePaper, LiveTrading: styles.badgeRunning };
-        return map[m] || styles.badgeModeManual;
+    function orderStatusClass(s: string): string {
+        if (s === 'Closed') return styles.badgeLong;
+        if (s === 'Cancelled' || s === 'Rejected') return styles.badgeError;
+        return styles.badgeNeutral;
     }
 
-    function directionClass(d: string): string {
-        return d === 'Long' ? styles.statPositive : styles.statNegative;
+    function phaseLabel(p: string | null): string {
+        if (ghost) return 'EVALUATING (ghost)';
+        switch (p) {
+            case 'pending_entry': return 'WAITING ENTRY';
+            case 'position_open': return 'POSITION OPEN';
+            case 'idle': return 'IDLE — scanning';
+            default: return '—';
+        }
+    }
+
+    function eventLabel(e: string): string {
+        const m: Record<string, string> = {
+            setup_accepted: 'SETUP ACCEPTED',
+            setup_dispatched: 'SETUP DISPATCHED',
+            entry_rejected: 'ENTRY REJECTED',
+            entry_filled: 'ENTRY FILLED',
+            bracket_armed: 'BRACKET ARMED',
+            invalidated_level: 'INVALIDATED — LEVEL',
+            invalidated_signal: 'INVALIDATED — SIGNAL',
+            cancelled_replaced: 'CANCELLED — REPLACED',
+            replaced_adopted: 'REPLACED — ADOPTED',
+            reprice_pending: 'ENTRY RE-PRICED',
+            setup_gone_cancel: 'CANCELLED — SETUP GONE',
+            setup_gone_close: 'CLOSED — SETUP GONE',
+            bracket_refresh: 'BRACKET REFRESHED',
+            confidence_drop: 'CLOSED — CONFIDENCE DROP',
+            chase_entry: 'CHASE ENTRY',
+            expired: 'PENDING EXPIRED',
+            time_stop: 'TIME STOP',
+            breakeven: 'STOP TO BREAKEVEN',
+            trailing_stop: 'TRAILING STOP',
+            position_closed: 'POSITION CLOSED',
+            close_error: 'CLOSE ERROR',
+            entry_blocked: 'ENTRY BLOCKED',
+            recovery_flatten: 'RECOVERY — FLATTENED',
+        };
+        return m[e] ?? e.replace(/_/g, ' ').toUpperCase();
+    }
+
+    function eventClass(e: string): string {
+        if (e === 'invalidated_level' || e === 'invalidated_signal' || e === 'setup_gone_cancel' || e === 'setup_gone_close' || e === 'confidence_drop' || e === 'close_error') return local.eventBad;
+        if (e === 'entry_filled' || e === 'position_closed' || e === 'bracket_refresh' || e === 'replaced_adopted' || e === 'breakeven') return local.eventGood;
+        return local.eventNeutral;
+    }
+
+    function pnlClass(v: string | number | null | undefined): string {
+        const n = v == null || v === '' ? 0 : Number(v);
+        return n > 0 ? styles.pos : n < 0 ? styles.neg : '';
+    }
+
+    function headerTitle(s: string): string {
+        const m: Record<string, string> = {
+            overview: ghost ? 'Setup Radar' : mode === 'live' ? 'Live Cockpit' : 'Paper Lab',
+            orders: 'Order Board',
+            activity: 'Activity Log',
+            history: 'Trade History',
+            settings: 'Execution Settings',
+        };
+        return m[s] ?? 'Execution';
+    }
+
+    function tabLabel(s: string): string {
+        const m: Record<string, string> = {
+            overview: 'Overview',
+            orders: 'Orders',
+            activity: 'Activity',
+            history: 'Trade History',
+            settings: 'Settings',
+        };
+        return m[s] ?? 'Overview';
+    }
+
+    // Live mid for the would-be position card (observe radar).
+    function liveMid(): number | null {
+        const pair = app.instancesMap[automation?.symbol ?? ''];
+        const snap = pair?.microTerm?.latestSnapshot as (Record<string, unknown> & { mid_price?: string | number }) | undefined;
+        if (!snap) return null;
+        const v = Number(snap.mid_price);
+        return isFinite(v) && v > 0 ? v : null;
+    }
+
+    // ── Derived content blocks ─────────────────────────────────────────
+    const radarKpis = $derived([
+        { label: 'Would-be Equity', value: ghost ? '—' : `$${fmtUsd(automation?.equity)}`, sub: 'no capital engaged', color: undefined },
+        { label: 'Would-be Positions', value: String(automation?.open_positions_count ?? 0), sub: automation?.symbol ?? '—' },
+        { label: 'Executor Phase', value: phaseLabel(automation?.phase ?? null), sub: 'ghost evaluation' },
+        { label: 'Top Candidate', value: automation?.tracked_setup ? `${automation.tracked_setup.direction} ${automation.tracked_setup.setup_type}` : '—', sub: 'from 4-TF top setup' },
+        { label: 'Setup Score', value: automation?.tracked_setup ? fmtNum(automation.tracked_setup.score, 0) : '—', sub: 'candidate quality' },
+        { label: 'Net R:R', value: automation?.tracked_setup ? fmtNum(automation.tracked_setup.net_rr) : '—', sub: 'entry geometry' },
+    ]);
+
+    const labKpis = $derived([
+        { label: 'Paper Equity', value: `$${fmtUsd(automation?.equity)}`, sub: 'unified paper ledger', color: undefined },
+        { label: 'Open Positions', value: String(automation?.open_positions_count ?? 0), sub: 'across all symbols' },
+        { label: 'Executor Phase', value: phaseLabel(automation?.phase ?? null), sub: automation?.symbol ?? '—' },
+        { label: 'Tracked Setup', value: automation?.tracked_setup ? `${automation.tracked_setup.direction} ${automation.tracked_setup.setup_type}` : '—', sub: automation?.tracked_setup ? `score ${fmtNum(automation.tracked_setup.score, 0)}` : 'no active setup' },
+        { label: 'Position uPnL', value: automation?.position ? signedUsd(automation.position.unrealized_pnl) : '—', sub: 'mark-to-market', color: pnlClass(automation?.position?.unrealized_pnl) || undefined },
+        { label: 'Lifecycle', value: automation?.lifecycle ?? '—', sub: 'instance state' },
+    ]);
+
+    const cockpitKpis = $derived([
+        { label: 'Account Equity', value: `$${fmtUsd(automation?.equity)}`, sub: 'engine ledger', color: undefined },
+        { label: 'Open Positions', value: String(automation?.open_positions_count ?? 0), sub: 'across all symbols' },
+        { label: 'Executor Phase', value: phaseLabel(automation?.phase ?? null), sub: automation?.symbol ?? '—' },
+        { label: 'Tracked Setup', value: automation?.tracked_setup ? `${automation.tracked_setup.direction} ${automation.tracked_setup.setup_type}` : '—', sub: automation?.tracked_setup ? `score ${fmtNum(automation.tracked_setup.score, 0)}` : 'no active setup' },
+        { label: 'Position uPnL', value: automation?.position ? signedUsd(automation.position.unrealized_pnl) : '—', sub: 'mark-to-market', color: pnlClass(automation?.position?.unrealized_pnl) || undefined },
+        { label: 'Last Poll', value: status === 'live' ? 'fresh' : status, sub: 'venue sync cadence ~1s' },
+    ]);
+
+    const kpis = $derived(mode === 'live' ? cockpitKpis : ghost ? radarKpis : labKpis);
+
+    // Execution-quality numbers (paper lab): fill slippage vs planned
+    // entry midpoint + fee realism from the projection.
+    const quality = $derived.by(() => {
+        const pos = automation?.position;
+        const setup = automation?.tracked_setup;
+        if (!pos || !setup) return null;
+        const fill = Number(pos.entry_price);
+        const mid = Number(setup.entry_mid);
+        const slipPct = mid > 0 ? ((fill - mid) / mid) * 100 : 0;
+        return {
+            slipPct,
+            slipLabel: `${slipPct > 0 ? '+' : ''}${slipPct.toFixed(3)}%`,
+            slipColor: Math.abs(slipPct) > 0.05 ? styles.warn : '',
+            entryFee: automation?.projection?.entry_fee_usd ?? null,
+            exitFee: automation?.projection?.exit_fee_usd ?? null,
+            totalFees: automation?.projection?.total_fees ?? null,
+            rr: automation?.tracked_setup?.net_rr,
+        };
+    });
+
+    // Would-be position (observe radar): derived client-side from the
+    // tracked setup + live mid — the executor never holds ghost positions.
+    const wouldBe = $derived.by(() => {
+        const setup = automation?.tracked_setup;
+        const proj = automation?.projection;
+        if (!setup || !proj) return null;
+        const mid = liveMid();
+        if (mid == null) return null;
+        const notional = Number(proj.position_notional) || 0;
+        const entry = Number(setup.entry_mid) || 1;
+        const dir = setup.direction === 'LONG' ? 1 : -1;
+        const uPnl = dir * ((mid - entry) / entry) * notional;
+        return { mid, uPnl, size: proj.position_size_units, entry };
+    });
+
+    // Qualification diagnostics (observe radar): why the candidate does
+    // or doesn't qualify for the would-be entry.
+    const diagnostics = $derived.by(() => {
+        const setup = automation?.tracked_setup;
+        if (!setup) return [];
+        return [
+            { name: 'Setup score ≥ 60', pass: setup.score >= 60, value: fmtNum(setup.score, 0) },
+            { name: 'Net R:R ≥ 1.0', pass: setup.net_rr >= 1.0, value: fmtNum(setup.net_rr) },
+            { name: 'Actionable viability', pass: true, value: 'Actionable' },
+            { name: 'Geometry consistent', pass: true, value: 'entry / SL / TP' },
+        ];
+    });
+
+    const reconOrders = $derived.by(() => {
+        const rows: { role: string; order: Order }[] = [];
+        if (automation?.entry_order) rows.push({ role: 'ENTRY', order: automation.entry_order });
+        if (automation?.bracket?.tp_order) rows.push({ role: 'TP', order: automation.bracket.tp_order });
+        if (automation?.bracket?.sl_order) rows.push({ role: 'SL', order: automation.bracket.sl_order });
+        return rows;
+    });
+
+    // ── Export JSON: the current tab's visible state, mode-aware ────────
+    function buildExport(): string {
+        const a = automation;
+        let data: Record<string, unknown>;
+        switch (safeSection) {
+            case 'orders':
+                data = {
+                    mode,
+                    ghost,
+                    entry_order: a?.entry_order ?? null,
+                    bracket: a?.bracket ?? { tp_order: null, sl_order: null },
+                };
+                break;
+            case 'activity':
+                data = { mode, ghost, activity_log: a?.activity_log ?? [] };
+                break;
+            case 'history':
+                data = {
+                    mode,
+                    trades: trades.map((t) => ({
+                        id: t.id, symbol: t.symbol, direction: t.direction,
+                        entry_price: t.entry_price, exit_price: t.exit_price,
+                        size: t.size, commission_fees: t.commission_fees,
+                        realized_pnl: t.realized_pnl, roi_pct: t.roi_pct,
+                        trigger_source: t.trigger_source, entry_timestamp: t.entry_timestamp,
+                        exit_timestamp: t.exit_timestamp,
+                    })),
+                };
+                break;
+            default:
+                data = {
+                    mode,
+                    ghost,
+                    phase: a?.phase ?? null,
+                    lifecycle: a?.lifecycle ?? null,
+                    equity: a?.equity ?? null,
+                    enabled: a?.enabled ?? false,
+                    open_positions_count: a?.open_positions_count ?? 0,
+                    safety_gate: a?.safety_gate ?? { blocked: false, reason: null },
+                    tracked_setup: a?.tracked_setup ?? null,
+                    projection: a?.projection ?? null,
+                    position: a?.position ?? null,
+                    would_be: ghost ? {
+                        live_mid: liveMid(),
+                        setup_direction: a?.tracked_setup?.direction ?? null,
+                        setup_entry_mid: a?.tracked_setup?.entry_mid ?? null,
+                        projection_notional: a?.projection?.position_notional ?? null,
+                    } : null,
+                    invalidation: a?.invalidation ?? { state: 'none', detail: '' },
+                };
+        }
+        return buildEngineExport('trade_automation', safeSection, mode ?? null, data);
     }
 </script>
 
 <div class={styles.dashboard}>
-    <div class={styles.sidebar}>
-        <h2 class={styles.sidebarTitle}>TRADE AUTOMATION</h2>
-        <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>Overview</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'policies' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'policies'}>Policies</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'observability' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'observability'}>Observability</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'paper' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'paper'}>Paper Trading</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'lifecycle' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'lifecycle'}>Lifecycle</button>
-    </div>
-
     <div class={styles.content}>
-        {#if activePanel === 'overview'}
-            <h3 class={styles.sectionTitle}>Trade Automation Engine</h3>
-            <p class={styles.sectionDesc}>
-                Evaluates execution policies against MME market intelligence, runs the Position Sizing Protocol,
-                and routes orders to the paper or live trading engine. The strategy layer is identical between
-                paper and live modes — toggling the operational mode preserves strategy behavior.
-            </p>
+        <DashboardHeader
+            title={headerTitle(safeSection)}
+            tabLabel={tabLabel(safeSection)}
+            {status}
+        >
+            {#snippet trailing()}
+                {#if mode}
+                    <ModeChip {mode} />
+                {/if}
+                {#if !ghost && selectedId}
+                    {@const active = isActive(automation?.lifecycle)}
+                    {@const tae = lifecyclePresentation(automation?.lifecycle, mode)}
+                    <button
+                        class="{styles.select} {active ? styles.taeActive : styles.taePaused}"
+                        disabled={lifecycleBusy}
+                        onclick={() => void lifecycle(active ? 'pause' : 'start')}
+                        title={active ? 'TAE ACTIVE — pause: close-only (open positions keep their rules)' : 'TAE PAUSED — activate: open new setups'}
+                    >TAE: {active ? 'ACTIVE' : 'PAUSED'}</button>
+                    <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('terminate')} title="Force-close all positions">TERMINATE</button>
+                    {#if lifecycleFlash}
+                        <span class={styles.badge}>{lifecycleFlash}</span>
+                    {/if}
+                {:else if ghost && automation}
+                    {@const tae = lifecyclePresentation(automation.lifecycle, mode)}
+                    <span class="{styles.badge} {styles.badgeNeutral}">{tae.label}</span>
+                {/if}
+                {#if instances.length > 0}
+                    <select class={styles.select} bind:value={selectedId} onchange={refresh}>
+                        {#each instances as inst (inst.id)}
+                            <option value={inst.id}>{inst.pair}</option>
+                        {/each}
+                    </select>
+                {:else}
+                    <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
+                {/if}
+                {#if safeSection !== 'settings'}
+                    <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {/if}
+                {#if automation}
+                    {#if automation.enabled}
+                        <span class="{styles.badge} {styles.badgeNeutral}" title="Global [workspace.minimal_tae] engine switch">ENGINE ON</span>
+                    {:else}
+                        <span class="{styles.badge} {styles.badgeEmpty}" title="Global [workspace.minimal_tae] engine switch">ENGINE OFF</span>
+                    {/if}
+                    {#if automation.safety_gate?.blocked}
+                        <span class="{styles.badge} {styles.badgeError}">SAFETY: {automation.safety_gate.reason}</span>
+                    {/if}
+                {/if}
+            {/snippet}
+        </DashboardHeader>
 
-            <div class={styles.statsGrid}>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Operational Mode</div>
-                    <div class={styles.statValue}>
-                        <span class="{styles.badge} {modeBadge(operationalMode)}">{operationalMode}</span>
+        <ModeBanner engine="trade_automation" {mode} />
+
+        {#if safeSection === 'settings'}
+            <TradeAutomationSettings {mode} />
+        {:else if instances.length === 0 && !loading}
+            <!-- v7.3: no active instance → SVG empty state. No fallback
+                 data, no loading message. -->
+            <NoInstanceState engine="trade_automation" />
+        {:else if loading}
+            <div class={styles.empty}>Loading automation state…</div>
+        {:else if error && !automation}
+            <div class={styles.empty}>{error}</div>
+        {:else if !automation}
+            <div class={styles.empty}>No automation state available (is the daemon running with [workspace.minimal_tae] enabled?).</div>
+        {:else}
+            <KpiStrip items={kpis} />
+
+            {#if safeSection === 'overview'}
+                <!-- ── Observe: Setup Radar ─────────────────────────── -->
+                {#if ghost}
+                    {#if automation.position}
+                        <div class="{styles.alertBanner} {styles.alertError}">
+                            ORPHANED POSITION — a position is open but observe mode does not manage it. Launch again in paper/live mode to manage it, or flatten it manually.
+                        </div>
+                    {/if}
+
+                    <div class="{styles.card} {styles.cardGhost}">
+                        <h3 class={styles.cardTitle}>Next Candidate — would-be setup</h3>
+                        {#if automation.tracked_setup}
+                            {@const s = automation.tracked_setup}
+                            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px">
+                                <span class="{styles.badge} {s.direction === 'LONG' ? styles.badgeLong : styles.badgeShort}">{s.direction}</span>
+                                <span class={local.setupType}>{s.setup_type}</span>
+                                <div class={styles.metaList}>
+                                    <div class={styles.metaChip}><span class={styles.metaChipLabel}>score</span><span class={styles.metaChipValue}>{fmtNum(s.score, 0)}</span></div>
+                                    <div class={styles.metaChip}><span class={styles.metaChipLabel}>rr</span><span class={styles.metaChipValue}>{fmtNum(s.net_rr)}</span></div>
+                                    <div class={styles.metaChip}><span class={styles.metaChipLabel}>tf</span><span class={styles.metaChipValue}>{s.source_tf}</span></div>
+                                    <div class={styles.metaChip}><span class={styles.metaChipLabel}>horizon</span><span class={styles.metaChipValue}>{s.time_horizon}</span></div>
+                                </div>
+                            </div>
+                            <div class={local.setupGrid}>
+                                <div class={local.setupBox}>
+                                    <div class={local.setupLabel}>Entry (limit)</div>
+                                    <div class={local.setupValue}>${fmtUsd(s.entry_mid)}</div>
+                                    <div class={local.setupSub}>zone ${fmtUsd(s.entry_zone_low)} – ${fmtUsd(s.entry_zone_high)}</div>
+                                </div>
+                                <div class={local.setupBox}>
+                                    <div class={local.setupLabel}>Stop-Loss (invalidation)</div>
+                                    <div class="{local.setupValue} {styles.neg}">${fmtUsd(s.sl)}</div>
+                                    <div class={local.setupSub}>LEVEL invalidation</div>
+                                </div>
+                                <div class={local.setupBox}>
+                                    <div class={local.setupLabel}>Take-Profit</div>
+                                    <div class="{local.setupValue} {styles.pos}">${fmtUsd(s.tp)}</div>
+                                    <div class={local.setupSub}>target zone midpoint</div>
+                                </div>
+                            </div>
+                            {#if automation.projection}
+                                <div class={local.projection}>
+                                    <span class="{local.projectionTitle} {local.projectionGhost}">PROJECTED RISK AND RETURN — WOULD-BE</span>
+                                    <div class={local.projectionGrid}>
+                                        <div class={local.projItem}><span class={local.projLabel}>Size</span><span class={local.projValue}>{fmtNum(automation.projection.position_size_units, 4)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Notional</span><span class={local.projValue}>${fmtUsd(automation.projection.position_notional)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Risk capital</span><span class={local.projValue}>${fmtUsd(automation.projection.risk_capital)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Margin</span><span class={local.projValue}>${fmtUsd(automation.projection.margin_required)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Liq. price</span><span class={local.projValue}>${fmtUsd(automation.projection.liquidation_price)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Entry fee</span><span class={local.projValue}>${fmtUsd(automation.projection.entry_fee_usd)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Exit fee</span><span class={local.projValue}>${fmtUsd(automation.projection.exit_fee_usd)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Total fees</span><span class={local.projValue}>${fmtUsd(automation.projection.total_fees)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Profit @ TP</span><span class="{local.projValue} {pnlClass(automation.projection.net_profit_usd)}">${signedUsd(automation.projection.net_profit_usd)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>ROI @ TP</span><span class="{local.projValue} {pnlClass(automation.projection.roi_pct)}">{fmtNum(automation.projection.roi_pct)}%</span></div>
+                                    </div>
+                                </div>
+                            {/if}
+                            <span class={local.ghostWatermark}>GHOST / NO ACTION</span>
+                        {:else}
+                            <div class={styles.empty}>No eligible setup right now — the executor scans the 4 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
+                        {/if}
                     </div>
-                    <div class={styles.statSub}>Paper · Simulated matching</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Active Policies</div>
-                    <div class={styles.statValue}>{overviewStats.active_policies} / 3</div>
-                    <div class={styles.statSub}>Enabled execution policies</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Triggered Today</div>
-                    <div class={styles.statValue}>{overviewStats.triggered_today}</div>
-                    <div class={styles.statSub}>{overviewStats.blocked_today} blocked</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Active Positions</div>
-                    <div class={styles.statValue}>{overviewStats.active_positions}</div>
-                    <div class={styles.statSub}>Paper execution engine</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Lifecycle</div>
-                    <div class={styles.statValue}>{overviewStats.lifecycle_running} / 5</div>
-                    <div class={styles.statSub}>{overviewStats.lifecycle_running} running · {overviewStats.lifecycle_paused} paused · {overviewStats.lifecycle_stopped} stopped</div>
-                </div>
-                <div class={styles.statCard}>
-                    <div class={styles.statLabel}>Sizing Formula</div>
-                    <div class={styles.statValue} style="font-size:1rem; font-family:var(--mono)">S = E·R / Dsl</div>
-                    <div class={styles.statSub}>Position Sizing Protocol</div>
-                </div>
-            </div>
 
-            <h3 class={styles.sectionTitle} style="margin-top:1rem">Execution Flow</h3>
-            <table class={styles.table}>
-                <thead><tr><th>Layer</th><th>Input</th><th>Output</th><th>Description</th></tr></thead>
-                <tbody>
-                    <tr><td>L1: Policy</td><td>Decision Matrix · Overview Matrix</td><td>Policy Matrix</td><td>Evaluates conditions against MME output; produces triggering signals</td></tr>
-                    <tr><td>L2: Execution</td><td>Policy Matrix · Capital Matrix · Decision Matrix</td><td>Execution Matrix</td><td>Position sizing · order routing · paper/live dispatch · fill tracking</td></tr>
-                    <tr><td>L3: Risk Gate</td><td>Execution Matrix · PME Safety Veto</td><td>Approved / Blocked</td><td>Pre-trade safety checks: lifecycle state, stance, capital, exposure</td></tr>
-                </tbody>
-            </table>
-
-        {:else if activePanel === 'policies'}
-            <h3 class={styles.sectionTitle}>Execution Policies</h3>
-            <p class={styles.sectionDesc}>
-                User-configured policies evaluate condition trees against MME decision matrices.
-                Expand each policy to inspect its condition structure and risk parameters.
-            </p>
-
-            {#each policies as policy (policy.id)}
-                <div class={styles.policyCard}>
-                    <div class={styles.policyHeader} role="button" tabindex="0" onclick={() => togglePolicy(policy.id)} onkeydown={(e) => e.key === 'Enter' && togglePolicy(policy.id)}>
-                        <span class={styles.policyName}>{policy.policy_name}</span>
-                        <span class={styles.policySymbol}>{policy.symbol}</span>
-                        <span class="{styles.policyDirection} {directionClass(policy.direction)}">{policy.direction}</span>
-                        <span class={stanceBadge(policy.stance)}>{policy.stance.replace('_', ' ')}</span>
-                        <div class={styles.policyMeta}>
-                            <span>{policy.trigger_mode}</span>
-                            <div class="{styles.toggle} {policy.enabled ? styles.toggleOn : styles.toggleOff}" role="switch" aria-checked={policy.enabled}>
-                                <div class="{styles.toggleKnob} {policy.enabled ? styles.toggleKnobOn : styles.toggleKnobOff}"></div>
+                    {#if automation.tracked_setup}
+                        <div class={styles.card}>
+                            <h3 class={styles.cardTitle}>Qualification Diagnostics</h3>
+                            <div class={local.checkList}>
+                                {#each diagnostics as d (d.name)}
+                                    <div class={local.checkRow}>
+                                        <span class="{local.checkMark} {d.pass ? local.checkPass : local.checkFail}">{d.pass ? '✓' : '✗'}</span>
+                                        <span class={local.checkName}>{d.name}</span>
+                                        <span class={local.checkValue}>{d.value}</span>
+                                    </div>
+                                {/each}
                             </div>
                         </div>
-                        <span class="{styles.expandIcon} {expandedPolicies.has(policy.id) ? styles.expandIconOpen : ''}">▶</span>
-                    </div>
 
-                    {#if expandedPolicies.has(policy.id)}
-                        <div class={styles.policyDetail}>
-                            <p style="color:#888; font-size:0.75rem; margin-bottom:0.75rem">{policy.description}</p>
-
-                            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.4rem">Condition Tree</h4>
-                            {#each policy.condition_tree as group, gi}
-                                <div class={styles.conditionGroup}>{gi > 0 ? group.logic : ''}</div>
-                                <div class={styles.conditionTree}>
-                                    {#each group.conditions as cond}
-                                        <div class={styles.conditionRow}>
-                                            <span class={styles.conditionField}>{cond.field}</span>
-                                            <span class={styles.conditionOp}>{cond.operator}</span>
-                                            <span class={styles.conditionValue}>{cond.value}</span>
-                                            {#if cond.passed !== undefined}
-                                                <span class={cond.passed ? styles.conditionPass : styles.conditionFail}>
-                                                    {cond.passed ? '✓' : '✗'}
-                                                </span>
-                                            {/if}
-                                        </div>
-                                    {/each}
+                        {#if wouldBe}
+                            <div class="{styles.card} {styles.cardGhost}">
+                                <h3 class={styles.cardTitle}>Would-Be Position</h3>
+                                <div class={local.positionRow}>
+                                    <span class="{styles.badge} {automation.tracked_setup.direction === 'LONG' ? styles.badgeLong : styles.badgeShort}">{automation.tracked_setup.direction}</span>
+                                    <span class={local.positionSymbol}>{automation.tracked_setup.symbol}</span>
+                                    <span class={local.positionMeta}>size {fmtNum(wouldBe.size, 4)} · if filled at ${fmtUsd(wouldBe.entry)}</span>
+                                    <span class="{local.positionPnl} {pnlClass(wouldBe.uPnl)}">would-be uPnL {signedUsd(wouldBe.uPnl)}</span>
                                 </div>
-                            {/each}
-
-                            <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin:0.75rem 0 0.4rem">Risk Parameters</h4>
-                            <div class={styles.riskParams}>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Risk per Trade</span>
-                                    <span class={styles.riskParamValue}>{policy.risk.risk_per_trade_pct}%</span>
-                                </div>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Max Position Size</span>
-                                    <span class={styles.riskParamValue}>${policy.risk.max_position_size_usd.toLocaleString()}</span>
-                                </div>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Max Leverage</span>
-                                    <span class={styles.riskParamValue}>{policy.risk.max_leverage}x</span>
-                                </div>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Dynamic Stops</span>
-                                    <span class={styles.riskParamValue}>{policy.risk.use_dynamic_stops ? 'Enabled' : 'Disabled'}</span>
-                                </div>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Stop-Loss</span>
-                                    <span class={styles.riskParamValue}>{policy.risk.fixed_stop_loss_pct != null ? policy.risk.fixed_stop_loss_pct + '% fixed' : 'Dynamic (MME)'}</span>
-                                </div>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Target R:R</span>
-                                    <span class={styles.riskParamValue}>{policy.risk.target_rr_ratio}</span>
-                                </div>
-                                <div class={styles.riskParam}>
-                                    <span class={styles.riskParamLabel}>Cooldown</span>
-                                    <span class={styles.riskParamValue}>{policy.cooldown_seconds}s</span>
+                                <div class={local.invalidationBanner}>
+                                    <strong>Ghost:</strong> no order is placed in observe mode. This card computes the position the executor WOULD hold from the tracked setup and the live mid.
                                 </div>
                             </div>
+                        {/if}
+                    {/if}
+
+                <!-- ── Paper: Active setup + execution quality ───────── -->
+                {:else}
+                    {#if automation.tracked_setup}
+                        <div class={styles.card}>
+                            <h3 class={styles.cardTitle}>Active Setup</h3>
+                            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px">
+                                <span class="{styles.badge} {automation.tracked_setup.direction === 'LONG' ? styles.badgeLong : styles.badgeShort}">{automation.tracked_setup.direction}</span>
+                                <span class={local.setupType}>{automation.tracked_setup.setup_type}</span>
+                                <span class={local.setupMeta}>score {fmtNum(automation.tracked_setup.score, 0)} · RR {fmtNum(automation.tracked_setup.net_rr)} · {automation.tracked_setup.time_horizon} · source {automation.tracked_setup.source_tf}</span>
+                            </div>
+                            <div class={local.setupGrid}>
+                                <div class={local.setupBox}>
+                                    <div class={local.setupLabel}>Entry (limit)</div>
+                                    <div class={local.setupValue}>${fmtUsd(automation.tracked_setup.entry_mid)}</div>
+                                    <div class={local.setupSub}>zone ${fmtUsd(automation.tracked_setup.entry_zone_low)} – ${fmtUsd(automation.tracked_setup.entry_zone_high)}</div>
+                                </div>
+                                <div class={local.setupBox}>
+                                    <div class={local.setupLabel}>Stop-Loss (invalidation)</div>
+                                    <div class="{local.setupValue} {styles.neg}">${fmtUsd(automation.tracked_setup.sl)}</div>
+                                    <div class={local.setupSub}>LEVEL invalidation</div>
+                                </div>
+                                <div class={local.setupBox}>
+                                    <div class={local.setupLabel}>Take-Profit</div>
+                                    <div class="{local.setupValue} {styles.pos}">${fmtUsd(automation.tracked_setup.tp)}</div>
+                                    <div class={local.setupSub}>target zone midpoint</div>
+                                </div>
+                            </div>
+                            {#if automation.projection}
+                                <div class={local.projection}>
+                                    <span class={local.projectionTitle}>PROJECTED RISK AND RETURN</span>
+                                    <div class={local.projectionGrid}>
+                                        <div class={local.projItem}><span class={local.projLabel}>Size</span><span class={local.projValue}>{fmtNum(automation.projection.position_size_units, 4)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Notional</span><span class={local.projValue}>${fmtUsd(automation.projection.position_notional)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Risk capital</span><span class={local.projValue}>${fmtUsd(automation.projection.risk_capital)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Margin</span><span class={local.projValue}>${fmtUsd(automation.projection.margin_required)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Liq. price</span><span class={local.projValue}>${fmtUsd(automation.projection.liquidation_price)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Entry fee</span><span class={local.projValue}>${fmtUsd(automation.projection.entry_fee_usd)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Exit fee</span><span class={local.projValue}>${fmtUsd(automation.projection.exit_fee_usd)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Total fees</span><span class={local.projValue}>${fmtUsd(automation.projection.total_fees)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>Profit @ TP</span><span class="{local.projValue} {pnlClass(automation.projection.net_profit_usd)}">${signedUsd(automation.projection.net_profit_usd)}</span></div>
+                                        <div class={local.projItem}><span class={local.projLabel}>ROI @ TP</span><span class="{local.projValue} {pnlClass(automation.projection.roi_pct)}">{fmtNum(automation.projection.roi_pct)}%</span></div>
+                                    </div>
+                                </div>
+                            {/if}
+                        </div>
+
+                        {#if quality}
+                            <div class={styles.card}>
+                                <h3 class={styles.cardTitle}>Execution Quality</h3>
+                                <div class={local.qualityGrid}>
+                                    <div class={local.qualityItem}>
+                                        <div class={local.qualityLabel}>Fill slippage vs mid</div>
+                                        <div class="{local.qualityValue} {quality.slipColor}">{quality.slipLabel}</div>
+                                        <div class={local.qualitySub}>entry filled at {fmtNum(automation.position?.entry_price)} vs planned {fmtNum(automation.tracked_setup.entry_mid)}</div>
+                                    </div>
+                                    <div class={local.qualityItem}>
+                                        <div class={local.qualityLabel}>Entry fee</div>
+                                        <div class={local.qualityValue}>${fmtUsd(quality.entryFee)}</div>
+                                        <div class={local.qualitySub}>from projection</div>
+                                    </div>
+                                    <div class={local.qualityItem}>
+                                        <div class={local.qualityLabel}>Exit fee</div>
+                                        <div class={local.qualityValue}>${fmtUsd(quality.exitFee)}</div>
+                                        <div class={local.qualitySub}>from projection</div>
+                                    </div>
+                                    <div class={local.qualityItem}>
+                                        <div class={local.qualityLabel}>Projected net R:R</div>
+                                        <div class={local.qualityValue}>{fmtNum(quality.rr)}</div>
+                                        <div class={local.qualitySub}>plan vs reality check</div>
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
+                    {:else}
+                        <div class={styles.card}>
+                            <h3 class={styles.cardTitle}>Active Setup</h3>
+                            <div class={styles.empty}>No eligible setup right now — the executor scans the 4 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
+                        </div>
+                    {/if}
+                {/if}
+
+                <!-- ── Position card ── -->
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>{ghost ? 'Position' : 'Position'}</h3>
+                    {#if automation.position}
+                        <div class={local.positionCard}>
+                            <div class={local.positionRow}>
+                                <span class="{styles.badge} {automation.position.direction === 'LONG' ? styles.badgeLong : styles.badgeShort}">{automation.position.direction}</span>
+                                <span class={local.positionSymbol}>{automation.position.symbol}</span>
+                                <span class={local.positionMeta}>size {fmtNum(automation.position.size, 4)} · entry ${fmtUsd(automation.position.entry_price)}</span>
+                                <span class="{local.positionPnl} {pnlClass(automation.position.unrealized_pnl)}">uPnL {signedUsd(automation.position.unrealized_pnl)}</span>
+                                {#if !ghost}
+                                    <button class={local.closeBtn} onclick={closeNow} disabled={closing}>{closing ? 'Closing…' : 'Close now'}</button>
+                                {/if}
+                            </div>
+                            <div class={local.invalidationBanner}>
+                                <strong>Invalidation:</strong> a position closes when price hits TP or SL (LEVEL), or when the recommendation flips to the opposite direction (SIGNAL → close at market). A neutral signal does not invalidate an open position.
+                            </div>
+                        </div>
+                    {:else}
+                        <div class={styles.empty}>{ghost ? 'No position — observe mode never opens one. The radar shows would-be setups only.' : 'No open position.'}</div>
+                    {/if}
+                </div>
+
+                <!-- ── Live: reconciliation strip ── -->
+                {#if mode === 'live'}
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Engine ↔ Venue Reconciliation</h3>
+                        {#if reconOrders.length === 0}
+                            <div class={styles.empty}>No live orders on the book.</div>
+                        {:else}
+                            <div style="display:flex; flex-direction:column; gap:8px">
+                                {#each reconOrders as r (r.order.id ?? r.role)}
+                                    <div class={local.reconRow}>
+                                        <span class={local.reconRole}>{r.role}</span>
+                                        <span class="{styles.badge} {orderStatusClass(r.order.status)}">{statusLabel(r.order.status)}</span>
+                                        <span class={local.reconMono} title={r.order.id ?? ''}>{r.order.id ?? '—'}</span>
+                                        <span class={local.reconMono}>side {r.order.side} · {fmtNum(r.order.size, 4)}</span>
+                                        <span class={local.reconMono}>fill {fmtUsd(r.order.fill_price)}</span>
+                                        {#if r.order.reduce_only}
+                                            <span class="{styles.badge} {styles.badgeNeutral}">REDUCE-ONLY</span>
+                                        {/if}
+                                    </div>
+                                {/each}
+                            </div>
+                            <div class={local.invalidationBanner}>
+                                <strong>Reconciliation:</strong> order states are the engine ledger. The daemon polls venue fills (~1s) and applies them to this ledger. If an exchange-side order looks stale, verify it in the venue app before acting.
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+
+            {:else if safeSection === 'orders'}
+                <!-- ── Order board ── -->
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Order Board</h3>
+                    {#if !automation.entry_order && !automation.bracket.tp_order && !automation.bracket.sl_order}
+                        <div class={styles.empty}>{ghost ? 'Observe mode places no orders.' : 'No orders.'}</div>
+                    {:else}
+                        <table class={styles.table}>
+                            <thead><tr><th>Role</th><th>Type</th><th>Side</th><th class={styles.tdRight}>Price</th><th class={styles.tdRight}>Size</th><th class={styles.tdRight}>Filled</th><th>Status</th></tr></thead>
+                            <tbody>
+                                {#if automation.entry_order}
+                                    <tr>
+                                        <td class={styles.tdMono}>ENTRY</td>
+                                        <td class={styles.tdMono}>{automation.entry_order.order_type}</td>
+                                        <td class={automation.entry_order.side === 'BUY' ? styles.pos : styles.neg}>{automation.entry_order.side}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(automation.entry_order.price)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(automation.entry_order.size, 4)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(automation.entry_order.filled_size, 4)}</td>
+                                        <td><span class="{styles.badge} {orderStatusClass(automation.entry_order.status)}">{statusLabel(automation.entry_order.status)}</span></td>
+                                    </tr>
+                                {/if}
+                                {#if automation.bracket.tp_order}
+                                    <tr>
+                                        <td class={styles.tdMono}>TP</td>
+                                        <td class={styles.tdMono}>{automation.bracket.tp_order.order_type}</td>
+                                        <td class={automation.bracket.tp_order.side === 'BUY' ? styles.pos : styles.neg}>{automation.bracket.tp_order.side}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(automation.bracket.tp_order.price)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(automation.bracket.tp_order.size, 4)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(automation.bracket.tp_order.filled_size, 4)}</td>
+                                        <td><span class="{styles.badge} {orderStatusClass(automation.bracket.tp_order.status)}">{statusLabel(automation.bracket.tp_order.status)}</span></td>
+                                    </tr>
+                                {/if}
+                                {#if automation.bracket.sl_order}
+                                    <tr>
+                                        <td class={styles.tdMono}>SL</td>
+                                        <td class={styles.tdMono}>{automation.bracket.sl_order.order_type}</td>
+                                        <td class={automation.bracket.sl_order.side === 'BUY' ? styles.pos : styles.neg}>{automation.bracket.sl_order.side}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(automation.bracket.sl_order.price)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(automation.bracket.sl_order.size, 4)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(automation.bracket.sl_order.filled_size, 4)}</td>
+                                        <td><span class="{styles.badge} {orderStatusClass(automation.bracket.sl_order.status)}">{statusLabel(automation.bracket.sl_order.status)}</span></td>
+                                    </tr>
+                                {/if}
+                            </tbody>
+                        </table>
+                    {/if}
+                </div>
+
+            {:else if safeSection === 'activity'}
+                <!-- ── Activity log ── -->
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Activity Log</h3>
+                    {#if automation.activity_log.length === 0}
+                        <div class={styles.empty}>No events yet.</div>
+                    {:else}
+                        <div class={local.activityList}>
+                            {#each automation.activity_log as a (a.ts)}
+                                <div class={local.activityRow}>
+                                    <span class={local.activityTs}>{fmtTs(a.ts)}</span>
+                                    <span class="{local.activityEvent} {eventClass(a.event)}">{eventLabel(a.event)}</span>
+                                    <span class={local.activityDetail}>{a.detail}</span>
+                                </div>
+                            {/each}
                         </div>
                     {/if}
                 </div>
-            {/each}
 
-        {:else if activePanel === 'observability'}
-            <h3 class={styles.sectionTitle}>Policy Observability</h3>
-            <p class={styles.sectionDesc}>
-                Per-policy trigger log extracted from the system observability buffer.
-                Shows which policies fired, were blocked, or were skipped with full condition trace.
-            </p>
-
-            {#if observability.length === 0}
-                <div class={styles.placeholder}>No trigger events recorded.</div>
-            {:else}
-                {#each observability as obs, i}
-                    <div class={styles.obsCard}>
-                        <div class={styles.obsHeader}>
-                            <span class={styles.obsTimestamp}>{fmtTs(obs.trigger_timestamp)}</span>
-                            <span class={styles.obsPolicyId}>{obs.policy_id}</span>
-                            <span class={styles.obsResultBadge}>
-                                <span class={resultBadge(obs.result)}>{obs.result.replace(/_/g, ' ')}</span>
-                            </span>
-                        </div>
-                        <div style="margin-bottom:0.5rem; font-size:0.72rem; color:#888">
-                            Decision: <span style="color:#ccc">{obs.decision_snapshot.bias}</span>
-                            <span style="margin-left:0.5rem">Guidance: <span style="color:#ccc">{obs.decision_snapshot.directional_guidance}</span></span>
-                            <span style="margin-left:0.5rem">Confidence: <span style="color:#ccc">{fmtNum(obs.decision_snapshot.confidence * 100, 0)}%</span></span>
-                        </div>
-                        <div class={styles.obsConditions}>
-                            {#each obs.conditions_evaluated as c}
-                                <span class="{styles.obsConditionChip} {c.passed ? styles.obsConditionPass : styles.obsConditionFail}">
-                                    {c.field} = {c.passed ? 'PASS' : 'FAIL'}
-                                </span>
-                            {/each}
-                        </div>
-                    </div>
-                {/each}
+            {:else if safeSection === 'history'}
+                <!-- ── Trade history ── -->
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Trade History</h3>
+                    {#if trades.length === 0}
+                        <div class={styles.empty}>No closed trades yet. Closed trades appear here with their exit reason (TP / SL / invalidated / manual / stop flatten).</div>
+                    {:else}
+                        <table class={styles.table}>
+                            <thead>
+                                <tr>
+                                    <th>Exited</th><th>Symbol</th><th>Side</th>
+                                    <th class={styles.tdRight}>Entry</th><th class={styles.tdRight}>Exit</th>
+                                    <th class={styles.tdRight}>Size</th><th class={styles.tdRight}>Fees</th>
+                                    <th class={styles.tdRight}>P&L</th><th class={styles.tdRight}>ROI</th><th>Trigger</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {#each trades as t (t.id)}
+                                    <tr>
+                                        <td>{fmtTs(t.exit_timestamp)}</td>
+                                        <td class={styles.tdMono}>{t.symbol}</td>
+                                        <td class={t.direction === 'LONG' ? styles.pos : styles.neg}>{t.direction}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(t.entry_price)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(t.exit_price)}</td>
+                                        <td class={styles.tdRight}>{fmtNum(t.size, 4)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(t.commission_fees)}</td>
+                                        <td class="{styles.tdRight} {pnlClass(t.realized_pnl)}">{signedUsd(t.realized_pnl)}</td>
+                                        <td class="{styles.tdRight} {pnlClass(t.roi_pct)}">{fmtNum(t.roi_pct)}%</td>
+                                        <td class={styles.tdMono}>{t.trigger_source}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    {/if}
+                </div>
             {/if}
-
-        {:else if activePanel === 'paper'}
-            <h3 class={styles.sectionTitle}>Paper Trading Engine</h3>
-            <p class={styles.sectionDesc}>
-                Simulated order matching using DIE mid-price. Same state machine, sizing protocol,
-                and audit logging as live — only the execution destination changes.
-            </p>
-
-            <div class={styles.paperTabBar}>
-                <button class="{styles.paperTab} {paperTab === 'positions' ? styles.paperTabActive : ''}" onclick={() => paperTab = 'positions'}>Positions</button>
-                <button class="{styles.paperTab} {paperTab === 'orders' ? styles.paperTabActive : ''}" onclick={() => paperTab = 'orders'}>Orders</button>
-                <button class="{styles.paperTab} {paperTab === 'history' ? styles.paperTabActive : ''}" onclick={() => paperTab = 'history'}>History</button>
-            </div>
-
-            {#if paperTab === 'positions'}
-                <table class={styles.table}>
-                    <thead>
-                        <tr>
-                            <th>Market</th>
-                            <th>Side</th>
-                            <th class={styles.tdRight}>Size</th>
-                            <th class={styles.tdRight}>Entry</th>
-                            <th class={styles.tdRight}>Mark</th>
-                            <th class={styles.tdRight}>Liq Price</th>
-                            <th class={styles.tdRight}>Margin</th>
-                            <th class={styles.tdRight}>P&L</th>
-                            <th class={styles.tdRight}>ROI</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class={styles.tdMono}>BTC-USDT</td>
-                            <td class={styles.statPositive}>LONG</td>
-                            <td class={styles.tdRight}>0.12</td>
-                            <td class={styles.tdRight}>$68,420</td>
-                            <td class={styles.tdRight}>$69,150</td>
-                            <td class={styles.tdRight}>$62,811</td>
-                            <td class={styles.tdRight}>$821.04</td>
-                            <td class="tdRight" style="color:#4caf50">+$87.60</td>
-                            <td class="tdRight" style="color:#4caf50">+1.07%</td>
-                        </tr>
-                    </tbody>
-                </table>
-            {:else if paperTab === 'orders'}
-                <table class={styles.table}>
-                    <thead>
-                        <tr>
-                            <th>Type</th>
-                            <th>Direction</th>
-                            <th class={styles.tdRight}>Price</th>
-                            <th class={styles.tdRight}>Size</th>
-                            <th>Created</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class={styles.tdMono}>LIMIT</td>
-                            <td class={styles.statPositive}>BUY</td>
-                            <td class={styles.tdRight}>$67,500</td>
-                            <td class={styles.tdRight}>25%</td>
-                            <td>{fmtTs(Date.now() - 1800000)}</td>
-                        </tr>
-                        <tr>
-                            <td class={styles.tdMono}>LIMIT</td>
-                            <td class={styles.statPositive}>BUY</td>
-                            <td class={styles.tdRight}>$66,800</td>
-                            <td class={styles.tdRight}>25%</td>
-                            <td>{fmtTs(Date.now() - 3600000)}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            {:else}
-                <table class={styles.table}>
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Market</th>
-                            <th>Side</th>
-                            <th class={styles.tdRight}>Entry</th>
-                            <th class={styles.tdRight}>Exit</th>
-                            <th class={styles.tdRight}>P&L</th>
-                            <th class={styles.tdRight}>ROI</th>
-                            <th>Trigger</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>{fmtTs(Date.now() - 7200000)}</td>
-                            <td class={styles.tdMono}>ETH-USDT</td>
-                            <td class={styles.statNegative}>SHORT</td>
-                            <td class={styles.tdRight}>$3,120</td>
-                            <td class={styles.tdRight}>$3,008</td>
-                            <td class="tdRight" style="color:#4caf50">+$112.00</td>
-                            <td class="tdRight" style="color:#4caf50">+3.59%</td>
-                            <td>TAKE_PROFIT</td>
-                        </tr>
-                        <tr>
-                            <td>{fmtTs(Date.now() - 18000000)}</td>
-                            <td class={styles.tdMono}>BTC-USDT</td>
-                            <td class={styles.statPositive}>LONG</td>
-                            <td class={styles.tdRight}>$67,800</td>
-                            <td class={styles.tdRight}>$66,445</td>
-                            <td class="tdRight" style="color:#ef5350">-$135.50</td>
-                            <td class="tdRight" style="color:#ef5350">-2.00%</td>
-                            <td>STOP_LOSS</td>
-                        </tr>
-                    </tbody>
-                </table>
-            {/if}
-
-            <div class={styles.paperAccountBar}>
-                <div class={styles.paperAccountItem}>
-                    <span class={styles.paperAccountLabel}>Balance</span>
-                    <span class={styles.paperAccountValue}>$10,000.00</span>
-                </div>
-                <div class={styles.paperAccountItem}>
-                    <span class={styles.paperAccountLabel}>Available</span>
-                    <span class={styles.paperAccountValue}>$9,178.96</span>
-                </div>
-                <div class={styles.paperAccountItem}>
-                    <span class={styles.paperAccountLabel}>Margin Used</span>
-                    <span class={styles.paperAccountValue}>$821.04</span>
-                </div>
-                <div class={styles.paperAccountItem}>
-                    <span class={styles.paperAccountLabel}>Leverage</span>
-                    <span class={styles.paperAccountValue}>10x</span>
-                </div>
-            </div>
-
-        {:else if activePanel === 'lifecycle'}
-            <h3 class={styles.sectionTitle}>Instance Lifecycle</h3>
-            <p class={styles.sectionDesc}>
-                Per-instance lifecycle management with automation config.
-                Gate 0 in the pre-trade chain — entries admitted only when RUNNING.
-                Exits always bypass Gate 0.
-            </p>
-
-            <div class={styles.lifecycleGrid}>
-                {#each lifecycleInstances as inst (inst.id)}
-                    <div class={styles.lifecycleCard}>
-                        <div class={styles.lifecycleHeader}>
-                            <span class={styles.lifecycleSymbol}>{inst.symbol}</span>
-                            <div style="display:flex; gap:0.3rem; align-items:center">
-                                <span class={stateBadge(inst.state)}>{inst.state}</span>
-                                <span class={stanceBadge(inst.stance)}>{inst.stance.replace('_', ' ')}</span>
-                            </div>
-                        </div>
-                        <div class={styles.lifecycleInfo}>
-                            <div class={styles.lifecycleRow}>
-                                <span class={styles.lifecycleLabel}>Start</span>
-                                <span class={styles.lifecycleValue}>{inst.start_condition ?? '—'}</span>
-                            </div>
-                            <div class={styles.lifecycleRow}>
-                                <span class={styles.lifecycleLabel}>Pause</span>
-                                <span class={styles.lifecycleValue}>{inst.pause_condition ?? '—'}</span>
-                            </div>
-                            <div class={styles.lifecycleRow}>
-                                <span class={styles.lifecycleLabel}>Stop</span>
-                                <span class={styles.lifecycleValue}>{inst.stop_condition ?? '—'}</span>
-                            </div>
-                            <div style="margin-top:0.5rem; font-size:0.68rem; color:#5a5f6e; font-style:italic">{inst.automation_summary}</div>
-                        </div>
-                        <div class={styles.lifecycleControls} style="margin-top:0.75rem">
-                            <button class="{styles.lifecycleBtn} {styles.lifecycleBtnStart}" disabled={inst.state === 'RUNNING'}>▶ Start</button>
-                            <button class="{styles.lifecycleBtn} {styles.lifecycleBtnPause}" disabled={inst.state !== 'RUNNING'}>⏸ Pause</button>
-                            <button class="{styles.lifecycleBtn} {styles.lifecycleBtnStop}" disabled={inst.state === 'STOPPED'}>⏹ Stop</button>
-                        </div>
-                    </div>
-                {/each}
-            </div>
         {/if}
     </div>
 </div>

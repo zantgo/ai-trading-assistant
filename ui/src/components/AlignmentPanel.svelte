@@ -40,10 +40,10 @@
         });
     }
 
-    // AL-2 (v6.10.10): the wire's AlignState can be STRONG_BULLISH /
-    // STRONG_BEARISH / MIXED / NO_DATA — the color helpers previously
-    // only matched BULLISH/Bearish, so strongly-aligned dimensions
-    // rendered as neutral gray cards.
+    // AL-2 (v6.10.10): the wire's AlignState is PascalCase — StrongBullish,
+    // StrongBearish, Bullish, Bearish, Neutral, Mixed, NoData. The helpers
+    // normalize case+underscores so both PascalCase and legacy SCREAMING
+    // payloads resolve; strongly-aligned dimensions must not render gray.
     function dimFillClass(score: number, state: string): string {
         if (score >= 100) return styles.dimFillConfluent;
         const s = String(state || '').toUpperCase().replace(/_/g, '');
@@ -58,10 +58,14 @@
         return styles.stateNeutral;
     }
     function shortStateLabel(state: string): string {
-        const s = state.toUpperCase();
-        if (s === 'STRONG_BULLISH') return 'STRONG';
-        if (s === 'STRONG_BEARISH') return 'STRONG';
-        if (s === 'NODATA' || s === 'NO_DATA') return 'NO DATA';
+        // Wire AlignState is PascalCase ("StrongBullish", "NoData").
+        // Strip underscores + uppercase so every casing resolves. The
+        // `STRONG_BULLISH` forms below can never arrive after the
+        // underscore-strip, but keeping them is harmless and self-documenting.
+        const s = String(state || '').toUpperCase().replace(/_/g, '');
+        if (s === 'STRONGBULLISH') return 'STRONG';
+        if (s === 'STRONGBEARISH') return 'STRONG';
+        if (s === 'NODATA') return 'NO DATA';
         return s;
     }
     function scoreClass(s: number): string {
@@ -74,11 +78,6 @@
         if (l.includes('BEAR')) return styles.mtfLabelBearish;
         return styles.mtfLabelNeutral;
     }
-    function tfDirectionCls(score: number): string {
-        if (score > 0) return styles.bullValue;
-        if (score < 0) return styles.bearValue;
-        return '';
-    }
     function tfRegimeCls(r: string): string {
         // M-6 (v6.10.11): tone classification via the shared `regimeTone`
         // — this panel colors direction (bull/bear) and volatile regimes.
@@ -89,12 +88,36 @@
         return styles.tfRegimeNeutral;
     }
 
-    const SLOT_RANK: Record<string, number> = { MICRO: 0, FAST: 1, SLOW: 2, MACRO: 3 };
-    const sortedTfAlignments = $derived(
-        (alignment?.timeframe_alignments ?? [])
-            .slice()
-            .sort((a, b) => (SLOT_RANK[a.timeframe] ?? 99) - (SLOT_RANK[b.timeframe] ?? 99))
-    );
+    // ── Per-Timeframe gauge grid (v7.4): MICRO/FAST/SLOW/MACRO order with
+    // a ring gauge per TF — the markup transplanted from the Analysis tab.
+    const timeframeSlots = $derived.by(() => {
+        const order = ['MICRO', 'FAST', 'SLOW', 'MACRO'];
+        const alignments = alignment?.timeframe_alignments ?? [];
+        return order.map(slot => {
+            const found = alignments.find(a => a.timeframe.toUpperCase() === slot);
+            return {
+                name: slot,
+                active: !!found,
+                trend: found?.trend_score ?? 0,
+                momentum: found?.momentum_score ?? 0,
+                overall: found?.overall_score ?? 0,
+                regime: found?.regime ?? 'AWAITING',
+                signals: found?.active_signals ?? 0,
+            };
+        });
+    });
+
+    function scoreColor(val: number): string {
+        if (val > 0) return '#22c55e';
+        if (val < 0) return '#ef4444';
+        return '#64748b';
+    }
+
+    function tfGaugeColor(score: number): string {
+        if (score > 5) return '#22c55e';
+        if (score < -5) return '#ef4444';
+        return '#64748b';
+    }
 
     const dimNames = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Signal', 'Regime', 'Confidence', 'Liquidity', 'Tradability'];
 
@@ -270,15 +293,15 @@
          the bottom of the panel into the head-badge zone. Gray premium
          card, prose only — the green/red composition strip and the
          "Composition weights" whisper footnote are gone. -->
-    <SummaryCard label="ALIGNMENT SUMMARY">
+    <SummaryCard label="SUMMARY">
         <div class={styles.interpretation}>
             {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
                     {#if mLabel(alignment.mtf_overall_label).toUpperCase() === 'NEUTRAL'}
-                        Multi-timeframe alignment shows <strong>moderate consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
+                        Multi-timeframe alignment shows <strong>moderate consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present} timeframes).
                         The composite score of {scoreText} is classified as <strong>NEUTRAL</strong> — the dimensions offset into a flat composite.
                     {:else}
-                        Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
+                        Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present} timeframes).
                         The composite score of {scoreText} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
                     {/if}
                     {#if alignment.signal_cross_tf_count > 0}
@@ -306,6 +329,7 @@
          composite blend). Both use the plain card look. The old CONSENSUS
          2×2 axis grid is gone — the four axis values still surface in the
          Score section's weight chips below. -->
+    <div class={styles.sectionTitle}>Metrics</div>
     <div class={styles.alignmentHero}>
         <div class={styles.dialCard}>
             <div class={styles.dialRow}>
@@ -393,30 +417,62 @@
         </div>
     </div>
 
-    <!-- ── Per-Timeframe cards ── -->
+    <!-- ── Per-Timeframe gauge grid (v7.4) — the ring-gauge 2×2 grid moved
+         up from the Analysis tab (it reads the same L2 timeframe_alignments
+         the old chip cards did); the per-TF active-signals count is kept
+         from the legacy snapshot cards. ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Per-Timeframe Snapshot</div>
-        {#if sortedTfAlignments.length > 0}
-            <div class={styles.tfCards}>
-                {#each sortedTfAlignments as tf (tf.timeframe)}
-                    <div class={styles.tfCard}>
-                        <header class={styles.tfCardHead}>
-                            <span class={styles.tfCardName}>{tf.timeframe}</span>
-                            <span class={styles.tfCardSig}>{tf.active_signals} signals</span>
-                        </header>
-                        <div class={styles.tfCardChips}>
-                            <span class="{styles.tfChip} {tfDirectionCls(tf.trend_score)}">
-                                Trend {tf.trend_score.toFixed(2)}
-                            </span>
-                            <span class="{styles.tfChip} {tfDirectionCls(tf.momentum_score)}">
-                                Momentum {tf.momentum_score.toFixed(2)}
-                            </span>
-                            <span class="{styles.tfChip} {tfDirectionCls(tf.overall_score)}">
-                                Overall {tf.overall_score.toFixed(1)}
-                            </span>
-                            <span class="{styles.tfChip} {tfRegimeCls(tf.regime)}">
-                                {tf.regime}
-                            </span>
+        {#if timeframeSlots.some((tf) => tf.active)}
+            <div class={styles.timeframeGrid}>
+                {#each timeframeSlots as tf (tf.name)}
+                    <div class={styles.tfSquare}>
+                        <div class={styles.tfHeader}>
+                            <span class={styles.tfName}>{tf.name}</span>
+                            {#if tf.active}
+                                <span class={styles.tfSigChip}>{tf.signals} signals</span>
+                                <div class={styles.tfGauge}>
+                                    <svg viewBox="0 0 24 24" class={styles.tfGaugeSvg}>
+                                        <circle cx="12" cy="12" r="10" class={styles.tfGaugeTrack} />
+                                        <circle
+                                            cx="12"
+                                            cy="12"
+                                            r="10"
+                                            class={styles.tfGaugeProgress}
+                                            stroke={tfGaugeColor(tf.overall)}
+                                            stroke-dasharray="62.8"
+                                            stroke-dashoffset={62.8 * (1 - Math.min(Math.max((tf.overall + 100) / 200, 0), 1))}
+                                            transform="rotate(-90 12 12)"
+                                        />
+                                    </svg>
+                                </div>
+                            {/if}
+                        </div>
+                        <div class={styles.tfGridBody}>
+                            <div class={styles.tfStatRow}>
+                                <span class={styles.tfStatLabel}>Trend</span>
+                                <span class={styles.tfStatValue} style="color: {scoreColor(tf.trend)}">
+                                    {tf.active ? (tf.trend >= 0 ? '+' : '') + tf.trend.toFixed(2) : '—'}
+                                </span>
+                            </div>
+                            <div class={styles.tfStatRow}>
+                                <span class={styles.tfStatLabel}>Momentum</span>
+                                <span class={styles.tfStatValue} style="color: {scoreColor(tf.momentum)}">
+                                    {tf.active ? (tf.momentum >= 0 ? '+' : '') + tf.momentum.toFixed(2) : '—'}
+                                </span>
+                            </div>
+                            <div class={styles.tfStatRow}>
+                                <span class={styles.tfStatLabel}>Overall</span>
+                                <span class={styles.tfStatValue} style="color: {tfGaugeColor(tf.overall)}">
+                                    {tf.active ? (tf.overall >= 0 ? '+' : '') + tf.overall.toFixed(1) : '—'}
+                                </span>
+                            </div>
+                            <div class={styles.tfStatRow}>
+                                <span class={styles.tfStatLabel}>Regime</span>
+                                <span class="{styles.tfRegimeBadge} {tfRegimeCls(tf.regime)}">
+                                    {tf.active ? tf.regime : 'OFFLINE'}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 {/each}
@@ -429,7 +485,7 @@
     <!-- ── Alignment Breakdown — card grid ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>
-            Alignment Breakdown
+            Breakdown
         </div>
         {#if alignment?.dimensions?.length}
             <div class={styles.dimGrid}>

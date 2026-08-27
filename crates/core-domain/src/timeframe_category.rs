@@ -74,9 +74,9 @@ impl TimeframeCategory {
     /// Returns `(min_pct, max_pct)`. The operator can override per-instance.
     pub fn default_stop_loss_range(&self) -> (f64, f64) {
         match self {
-            Self::Scalp => (0.001, 0.003),      // 0.1% – 0.3%
-            Self::Intraday => (0.003, 0.010),   // 0.3% – 1.0%
-            Self::Swing => (0.010, 0.030),      // 1.0% – 3.0%
+            Self::Scalp => (0.001, 0.003),    // 0.1% – 0.3%
+            Self::Intraday => (0.003, 0.010), // 0.3% – 1.0%
+            Self::Swing => (0.010, 0.030),    // 1.0% – 3.0%
         }
     }
 
@@ -132,9 +132,18 @@ mod tests {
         assert_eq!(TimeframeCategory::for_secs(1), TimeframeCategory::Scalp);
         assert_eq!(TimeframeCategory::for_secs(60), TimeframeCategory::Scalp);
         assert_eq!(TimeframeCategory::for_secs(299), TimeframeCategory::Scalp);
-        assert_eq!(TimeframeCategory::for_secs(300), TimeframeCategory::Intraday);
-        assert_eq!(TimeframeCategory::for_secs(1800), TimeframeCategory::Intraday);
-        assert_eq!(TimeframeCategory::for_secs(3599), TimeframeCategory::Intraday);
+        assert_eq!(
+            TimeframeCategory::for_secs(300),
+            TimeframeCategory::Intraday
+        );
+        assert_eq!(
+            TimeframeCategory::for_secs(1800),
+            TimeframeCategory::Intraday
+        );
+        assert_eq!(
+            TimeframeCategory::for_secs(3599),
+            TimeframeCategory::Intraday
+        );
         assert_eq!(TimeframeCategory::for_secs(3600), TimeframeCategory::Swing);
         assert_eq!(TimeframeCategory::for_secs(14400), TimeframeCategory::Swing);
         assert_eq!(TimeframeCategory::for_secs(86400), TimeframeCategory::Swing);
@@ -161,7 +170,11 @@ mod tests {
         .iter()
         .map(|c| c.default_aggregation_weight())
         .sum();
-        assert!((total - 1.0).abs() < 1e-9, "weights must sum to 1.0, got {}", total);
+        assert!(
+            (total - 1.0).abs() < 1e-9,
+            "weights must sum to 1.0, got {}",
+            total
+        );
     }
 
     #[test]

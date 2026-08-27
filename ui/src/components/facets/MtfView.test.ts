@@ -251,8 +251,12 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
 //    (non-Directional) indicators render 'N/A'.
 // 3. SIGNALS cells split each kind by direction (▲ bull / ▼ bear / — neutral)
 //    and the TOTAL column lights up the dominant side (data-lit="true").
-// 4. DIVERGENCES rows carry a BULL/BEAR/MIXED total direction badge.
-// 5. LEVELS cells show chips of the actual level names; totals carry the
+// 4. All four headings share the SAME chrome: title + gray count badge +
+//    colored summary badges with the dominant side lit (INDICATORS uses
+//    BULL / BEAR / MIXED agreement badges; DIVERGENCES uses ▲ / ▼ / —).
+// 5. DIVERGENCES rows keep the sub-type cells and the same ▲ / ▼ / —
+//    total badges as the other tables (no separate MIXED badge).
+// 6. LEVELS cells show chips of the actual level names; totals carry the
 //    direction split plus a support-vs-resistance (S/R) split.
 
 function makeSignalEx(
@@ -333,6 +337,121 @@ describe('MtfView — v6.14 standalone section headings', () => {
         ).toBeTruthy();
     });
 });
+
+describe('MtfView — unified heading chrome (count badge + colored badges, top lit)', () => {
+    it('Indicators heading shows "N indicators" plus BULL / BEAR / MIXED agreement badges', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+            fast: {
+                indicators: {
+                    macd: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const text = container.textContent ?? '';
+        expect(text).toContain('3 indicators');
+        expect(text).toContain('BULL 1');
+        expect(text).toContain('BEAR 1');
+        // Balanced 1:1 tie — neither agreement category is lit.
+        expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeFalsy();
+        expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
+    });
+
+    it('lights the dominant indicator agreement category', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+            fast: {
+                indicators: {
+                    macd: { raw_value: 60, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeTruthy();
+        expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
+    });
+
+    it('lights the MIXED badge when mixed agreement is the top category', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+            fast: {
+                indicators: {
+                    rsi: { raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+            slow: {
+                indicators: {
+                    macd: { raw_value: 20, normalized: -0.5, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+            macro: {
+                indicators: {
+                    macd: { raw_value: 80, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        expect(container.querySelector('[data-dir="mixed"][data-lit="true"]')).toBeTruthy();
+        expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeFalsy();
+    });
+
+    it('Divergences heading shows the ▲ / ▼ split with the dominant side lit (signals-style)', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
+                        signals: [
+                            makeSignalEx('Divergence', 'BULLISH_DIVERGENCE', { direction: 'Bullish' }),
+                            makeSignalEx('Divergence', 'BULLISH_DIVERGENCE', { direction: 'Bullish' }),
+                        ],
+                        confidence: 0.9,
+                    },
+                },
+            },
+            fast: {
+                indicators: {
+                    macd: {
+                        raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null,
+                        signals: [makeSignalEx('Divergence', 'BEARISH_DIVERGENCE', { direction: 'Bearish' })],
+                        confidence: 0.9,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const text = container.textContent ?? '';
+        expect(text).toContain('2 divergences');
+        expect(text).toContain('▲ 2');
+        expect(text).toContain('▼ 1');
+        // Scope to the Divergences heading row (row totals may carry their
+        // own lit sides inside the table body).
+        const divHeading = headingRow(container, 'Divergences');
+        expect(divHeading.querySelector('[data-dir="bull"][data-lit="true"]')).toBeTruthy();
+        expect(divHeading.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
+    });
+});
+
+/** Locate a section heading row by its title text. */
+function headingRow(container: HTMLElement, title: string): Element {
+    const row = Array.from(container.querySelectorAll('[class*="headingRow"]'))
+        .find((h) => h.textContent?.includes(title));
+    if (!row) throw new Error(`heading row not found: ${title}`);
+    return row;
+}
 
 describe('MtfView — v6.14 warming and gated cells never mislead', () => {
     it('renders WARMING entries as -- (never +0.00) and drops them from agreement', () => {
@@ -426,7 +545,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
 });
 
 describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
-    it('shows MIXED when bullish and bearish divergences balance', () => {
+    it('shows a balanced ▲ / ▼ split with neither side lit when bullish and bearish divergences balance', () => {
         const pair = makePair({
             micro: {
                 indicators: {
@@ -448,13 +567,17 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
             },
         });
         const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
-        expect(container.querySelector('[data-dir="mixed"]')).toBeTruthy();
-        // A balanced 1:1 split must not light up either side.
-        expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeFalsy();
-        expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
+        // A balanced 1:1 split must not light up either side — the same
+        // rule as the Signals totals (no MIXED badge of its own).
+        const divHeading = headingRow(container, 'Divergences');
+        expect(divHeading.querySelector('[data-dir="bull"][data-lit="true"]')).toBeFalsy();
+        expect(divHeading.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
+        expect(divHeading.querySelector('[data-dir="mixed"]')).toBeFalsy();
+        expect(container.textContent ?? '').toContain('▲ 1');
+        expect(container.textContent ?? '').toContain('▼ 1');
     });
 
-    it('shows BULL when bullish divergences dominate', () => {
+    it('shows BULL (▲ lit) when bullish divergences dominate', () => {
         const pair = makePair({
             micro: {
                 indicators: {
@@ -470,7 +593,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
             },
         });
         const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
-        expect(container.querySelector('[data-dir="bull"]')).toBeTruthy();
+        expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeTruthy();
     });
 });
 
@@ -507,5 +630,87 @@ describe('MtfView — v6.14 levels show actual level chips with S/R split totals
         expect(text).toContain('S 1');
         expect(text).toContain('R 2');
         expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeTruthy();
+    });
+});
+
+// ── Section collapse — one caret per title, hides the whole section ─────
+// The four section headings (Indicators / Signals / Divergences / Levels)
+// each carry a caret button at the left of the title. Clicking it hides
+// that section's body (summary bar, group containers, or stacked table)
+// while keeping the heading row visible; clicking again restores it.
+
+describe('MtfView — per-title section collapse', () => {
+    it('renders a caret button (expanded) on each of the four headings by default', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
+                        signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
+                        confidence: 0.9,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const carets = Array.from(container.querySelectorAll('button[aria-label^="Toggle"]'));
+        expect(carets).toHaveLength(4);
+        expect(carets.map((b) => b.getAttribute('aria-label'))).toEqual([
+            'Toggle Indicators section',
+            'Toggle Signals section',
+            'Toggle Divergences section',
+            'Toggle Levels section',
+        ]);
+        for (const b of carets) {
+            expect(b.getAttribute('aria-expanded')).toBe('true');
+        }
+    });
+
+    it('collapsing Signals hides the table body but keeps the heading', async () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
+                        signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
+                        confidence: 0.9,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const caret = Array.from(container.querySelectorAll('button[aria-label="Toggle Signals section"]'))[0] as HTMLButtonElement;
+        caret.click();
+        await Promise.resolve();
+        // Heading stays visible; the table body (KIND header + rows) is gone.
+        expect(container.textContent ?? '').toContain('Signals');
+        expect(container.textContent ?? '').toContain('1 signal');
+        expect(container.querySelector('[class*="tblSignals"]')).toBeNull();
+        // Other sections remain expanded.
+        expect(container.textContent ?? '').toContain('Indicators');
+        expect(container.querySelector('[class*="summary"]')).toBeTruthy();
+        expect(caret.getAttribute('aria-expanded')).toBe('false');
+        // Click again restores the table.
+        caret.click();
+        await Promise.resolve();
+        expect(container.querySelector('[class*="tblSignals"]')).toBeTruthy();
+        expect(caret.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('collapsing Indicators hides the TF summary bar and group containers', async () => {
+        const pair = makePair();
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const caret = Array.from(container.querySelectorAll('button[aria-label="Toggle Indicators section"]'))[0] as HTMLButtonElement;
+        caret.click();
+        await Promise.resolve();
+        const text = container.textContent ?? '';
+        expect(text).toContain('Indicators');
+        expect(text).toContain('3 indicators');
+        // The standalone TF summary bar (exact `.summary` class, not the
+        // per-table `summarySlot` cells) is gone.
+        expect(container.querySelector('[class^="_summary_"]')).toBeNull();
+        // Group containers are gone (their section titles no longer render).
+        expect(text).not.toContain('Momentum');
+        expect(caret.getAttribute('aria-expanded')).toBe('false');
     });
 });

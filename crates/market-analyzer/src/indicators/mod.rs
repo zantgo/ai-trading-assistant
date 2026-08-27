@@ -22,7 +22,7 @@
 //! data is not timeframe-derived, so `latest_oi` / `latest_funding` /
 //! `latest_mark_px` / `latest_index_px` are shared per-pair by design.
 //!
-//! Audit date: v6.11 — verified across all 50 indicators, both supported
+//! Audit date: v6.11 — verified across all 52 indicators, both supported
 //! exchanges (Hyperliquid + Bitget), and every timeframe (1s/3s/5s/15s and
 //! 60s/180s/300s/900s). Regression pins: `crates/market-analyzer/tests/
 //! sub_minute_indicator_cadence.rs`.
@@ -78,7 +78,6 @@ pub use adx::{Adx, AdxOutput, DiCrossoverDir, TrendRegime};
 pub use anchored_vwap::{AnchoredVwap, AvwapOutput};
 pub use aroon::{Aroon, AroonOutput};
 pub use atr::{Atr, AtrOutput, VolatilityRegime};
-pub use rma::WilderRma;
 pub use awesome_oscillator::{AoOutput, AwesomeOscillator};
 pub use bbwp::Bbwp;
 pub use bollinger::BollingerBands;
@@ -117,6 +116,7 @@ pub use pivot_points::{PivotLevels, PivotMethod, PivotPoints};
 pub use psar::{ParabolicSar, PsarOutput};
 pub use ratio::{annualization_factor, sharpe_ratio_annualized, SHARPE_WINDOW};
 pub use registry::{IndicatorClass, IndicatorGroup, IndicatorMeta, RenderKind, INDICATORS};
+pub use rma::WilderRma;
 pub use rsi::Rsi;
 pub use sma::Sma;
 pub use smart_money::{MarketStructure, SmartMoney, SmcOutput};

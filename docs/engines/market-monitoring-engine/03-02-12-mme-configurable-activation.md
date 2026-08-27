@@ -1,6 +1,6 @@
 # Configurable Data Activation — Architecture Spec
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** MME (Layer 1 pipeline)
 **Owner:** market-analyzer crate (docs/engines/market-monitoring-engine/)
@@ -38,11 +38,11 @@ Three layers must never be conflated:
 | CA-07 | Aggregation denominators: means/blend/breadth/agreement computed over **enabled ∧ available** members only; if denominator reaches 0 → NO_DATA values. |
 | CA-08 | Regime fall-through: a regime rule whose input indicator is disabled **cannot fire**; the decision tree falls through; likely outcome TRANSITION/RANGE. |
 | CA-09 | Strategy-tree skip: in L6 target/protection selection, a strategy whose required input is disabled is **skipped** and the tree continues. |
-| CA-10 | Policy guardrail: a TAE policy whose conditions reference a disabled indicator/signal is **rejected at save time** (`409`) listing references. On config change, already-active affected policies transition to **`AUTO_PAUSED`** (policy-scope state; see `../trade-automation-engine/03-03-04-tae-execution-policy-spec.md` §2.3) with an audit event and operator acknowledgment to resume. |
+| CA-10 | ~~Policy guardrail~~ (v7: policies erased) — no longer applicable; the setup executor consumes only enabled indicators/signals by construction (see [03-03-01-tae-overview-spec.md §1](../trade-automation-engine/03-03-01-tae-overview-spec.md)). |
 | CA-11 | Reload semantics: toggles apply at the **next candle boundary per pipeline**; `config_version` increments; effective within one candle period; no restart required. |
 | CA-12 | Wire block: `MarketSnapshot.metrics_config` — **omitted entirely when defaults apply** (all enabled) ⇒ current frames are byte-identical; backward compatible. `config_version` is a new AppConfig field (NOT the SQLite `user_version` PRAGMA). |
 | CA-13 | Attribution: `metrics_config.config_version` + the disabled lists persist with the snapshot (`market_snapshots.metrics_config_json`) and are copied onto decision/trade telemetry; PAE joins on `config_version`. |
-| CA-14 | Registry invariant: the **50-indicator / 12-SignalKind / 100-declaration** registry describes **capability** and never changes with config. Activation is a runtime config concern; the registry manifest is invariant. |
+| CA-14 | Registry invariant: the **52-indicator / 12-SignalKind / 101-declaration** registry describes **capability** and never changes with config. Activation is a runtime config concern; the registry manifest is invariant. |
 | CA-15 | Liquidity chain: `[liquidity]` master switch + sub-toggles `liquidation_feed`, `cluster_estimation`, `signals` (all default true). Master off ⇒ L1.5/L2.5/Phase-3 off ⇒ `liquidity`/`cluster`/`liquidity_signals` absent, `cascade_risk` NO_DATA (confidence 0), `LiquiditySqueeze` unavailable. Feed-off uses the `degraded`/`UNKNOWN` semantics recorded in §CA-15. |
 
 ---
@@ -105,7 +105,7 @@ disabled_signals    = ["macd:Divergence"]
 | L4 Opportunity | Preconditions referencing disabled indicators fail closed; `LiquiditySqueeze` unavailable when liquidity chain off. |
 | L5 Risk | `signal_risk` uses available signal evidence; `cascade_risk` NO_DATA + confidence 0 when liquidity off. |
 | L6 Decision | Strategy-tree skip; confluence components that are NO_DATA contribute per existing null rules; `confidence_assessment` already degrades via `state_confidence`. |
-| L7 Overview | Breadth over enabled subset; if fewer than 4 of 12 SignalKinds enabled → `market_breadth` publishes with `low_coverage: true` (additive field). |
+| L7 Overview | Breadth over enabled subset; when fewer than 3 active symbols contribute → `market_breadth` publishes with `low_coverage: true` (additive field — engine rule in `core-domain/src/overview.rs`; `active_symbols.len() < 3`). |
 | TAE | CA-10 rejection/AUTO_PAUSED guardrail. |
 | PAE | Attribution join on `config_version`; disabled-set changes visible in strategy-analytics slices. |
 
@@ -113,7 +113,7 @@ disabled_signals    = ["macd:Divergence"]
 
 ## §5 UI / API / DB integration
 
-**UI (07-02 new §8.3):** new "Indicators & Signals" settings panel with 8 category groups mirroring the registry, 50 toggles; expanding a toggle reveals its SignalKind sub-toggles; a "Liquidity Intelligence" card with the 4 `[liquidity]` switches. Indicator panes render three states distinctly: **enabled**, **disabled by config**, **warming up / no data**.
+**UI (07-02 new §8.3):** new "Indicators & Signals" settings panel with 8 category groups mirroring the registry, 52 toggles (one per registry entry); expanding a toggle reveals its SignalKind sub-toggles; a "Liquidity Intelligence" card with the 4 `[liquidity]` switches. Indicator panes render three states distinctly: **enabled**, **disabled by config**, **warming up / no data**.
 
 **API (06-01):** `GET /api/config` documents new fields; `POST /api/config` validation: `400` unknown keys, `409` schema-version, `200 + warnings + auto_paused_policies`. New endpoint `GET /api/instances/:id/activation`.
 

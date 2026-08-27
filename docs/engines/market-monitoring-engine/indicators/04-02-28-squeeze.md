@@ -1,6 +1,6 @@
 # Squeeze Momentum (John Carter / TTM Squeeze)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## Core Concepts
@@ -135,6 +135,8 @@ Squeeze Momentum Chart:
 | Threshold | BULLISH_MOMENTUM_EXHAUSTING / DECELERATING | Momentum decelerating (warning of stall) | Neutral |
 
 The Threshold signals for acceleration/deceleration are distinct from CompressionRelease — they capture momentum phase changes within an active trend, not the initial release from compression.
+
+> **Registry note.** The registry manifest (`signal_types`) currently declares `CompressionRelease` + `Divergence`; the three Threshold rows above are **runtime-derived** (deriver branch per AUDIT-AIU-035) — the registry declaration will catch up. `[activation] disabled_signal_kinds` gating therefore does not yet cover the Threshold kind for `squeeze`.
 
 ## Normalization
 

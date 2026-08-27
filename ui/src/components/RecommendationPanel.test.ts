@@ -14,6 +14,7 @@
 // mount the panel, assert the rendered text.
 
 import { cleanup, render, screen } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import RecommendationPanel from './RecommendationPanel.svelte';
 import { useAppStore } from '../state.svelte';
@@ -61,7 +62,6 @@ function makeDecisionContext(overrides: Partial<DecisionContext> = {}): Decision
     return {
         score: 0,
         bias: 'Neutral',
-        confidence: 0,
         score_confidence: 0,
         entry_danger: makeDanger(31),
         expected_reward_risk_ratio: 0.59,
@@ -77,7 +77,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
     // resolve to LONG. CounterTrend families (MeanReversion, Reversal) would
     // resolve to SHORT — but those don't appear in this fixture.
     const breakoutZones = {
-        direction_family: 'TrendRiding' as const,
+        direction_family: 'TREND_RIDING' as const,
         long_entry_zone: { low: 63520, high: 63800 },
         long_target_zone: { low: 64500, high: 65000 },
         long_invalidation_level: 63200,
@@ -88,7 +88,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
         short_expected_rr_internal: null,
     };
     const squeezeZones = {
-        direction_family: 'TrendRiding' as const,
+        direction_family: 'TREND_RIDING' as const,
         long_entry_zone: { low: 63600, high: 63900 },
         long_target_zone: { low: 64400, high: 64800 },
         long_invalidation_level: 63300,
@@ -99,7 +99,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
         short_expected_rr_internal: null,
     };
     const tcZones = {
-        direction_family: 'TrendRiding' as const,
+        direction_family: 'TREND_RIDING' as const,
         long_entry_zone: { low: 63000, high: 63200 },
         long_target_zone: { low: 65000, high: 65500 },
         long_invalidation_level: 62400,
@@ -174,7 +174,6 @@ function makeAnalysis(): AnalysisMatrix {
         structure_assessment: 'Strong' as AnalysisMatrix['structure_assessment'],
         volatility_assessment: 'Expanding' as AnalysisMatrix['volatility_assessment'],
         volume_assessment: 'Strong' as AnalysisMatrix['volume_assessment'],
-        opportunity_analysis: 'Breakout',
         market_quality: 'Good' as AnalysisMatrix['market_quality'],
         market_quality_score: 67.44,
         market_phase: 'Markup' as AnalysisMatrix['market_phase'],
@@ -288,6 +287,52 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         expect(screen.getByText('3.20')).toBeTruthy();
     });
 
+    it('colors the Risk-Adjusted R:R KPI from the displayed fallback value', () => {
+        // Audit regression (M3-UI): the KPI number reads
+        // `riskAdjRrDisplay.value` — which falls back to
+        // `topSetup.rr × (1 − overall_risk/100)` when the raw
+        // `expected_reward_risk_ratio` is zero — but the color previously
+        // read the raw value, so a good adjusted ratio rendered in red.
+        // Color must track the resolved number.
+        seedPair('BTC-USDT');
+        const entry = useAppStore().instancesMap['BTC-USDT'];
+        entry.decisionContext = makeDecisionContext({ expected_reward_risk_ratio: 0 });
+        entry.risk = {
+            ...(entry.risk ?? ({} as any)),
+            overall_risk: makeDanger(1),
+        };
+        entry.opportunity = makeOpportunity({
+            profiles: [{
+                opportunity_type: 'Breakout',
+                score: 65,
+                preconditions_met: 2,
+                preconditions_total: 2,
+                notes: 'synthetic-breakout',
+                direction_family: 'TREND_RIDING',
+                long_entry_zone: { low: 63520, high: 63800 },
+                long_target_zone: { low: 64500, high: 65000 },
+                long_invalidation_level: 63200,
+                long_expected_rr_internal: 3.0,
+                short_entry_zone: null,
+                short_target_zone: null,
+                short_invalidation_level: null,
+                short_expected_rr_internal: null,
+                trade_viability: 'ACTIONABLE',
+            }],
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        // Locate the KPI value span by its inline color style.
+        const kpiDiv = screen
+            .getAllByText(/Risk-Adjusted Reward-to-Risk/i)
+            .map((el) => el.closest('div'))
+            .find((d) => d && d.querySelector('[style*="color"]'));
+        const value = kpiDiv?.querySelector('[style*="color"]') as HTMLElement | null;
+        // 3.0 × (1 − 0.01) = 2.97 → green.
+        expect(value?.textContent).toBe('2.97');
+        expect(value?.style.color).toBe('rgb(34, 197, 94)');
+    });
+
     it('v6.11: Quality/Risk chip renders an em-dash when the ratio is absent', () => {
         seedPair('BTC-USDT');
         const entry = useAppStore().instancesMap['BTC-USDT'];
@@ -302,11 +347,11 @@ describe('RecommendationPanel — Top Setup card', () => {
     it('renders only the top-scored qualifying profile as the headline (Breakout, score 65)', () => {
         seedPair('BTC-USDT');
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // v6.10.19b (B1): the unified SETUP section shows ONE verdict-
+        // v6.10.19b (B1): the unified TOP SETUP section shows ONE verdict-
         // consistent headline. Breakout (65) is the top LONG-side
         // qualifying profile; the second (LiquiditySqueeze, 60) rides as
         // an informational alternate (it always appears on Opportunities).
-        expect(screen.getByText('SETUP')).toBeTruthy();
+        expect(screen.getByText('TOP SETUP')).toBeTruthy();
         // The headline card carries the 2/2 preconditions anchor.
         expect(screen.getByText('2/2')).toBeTruthy();
         // The 1/3 anchor for LiquiditySqueeze appears ONLY in the
@@ -339,8 +384,8 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_total: 3,
                     display_score: 33,
                     notes: 'synthetic-breakout',
-                    direction_family: 'TrendRiding',
-                    trade_viability: 'Actionable',
+                    direction_family: 'TREND_RIDING',
+                    trade_viability: 'ACTIONABLE',
                     long_entry_zone: { low: 63520, high: 63800 },
                     long_target_zone: { low: 64500, high: 65000 },
                     long_invalidation_level: 63200,
@@ -353,7 +398,7 @@ describe('RecommendationPanel — Top Setup card', () => {
             ],
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        expect(screen.getByText('SETUP')).toBeTruthy();
+        expect(screen.getByText('TOP SETUP')).toBeTruthy();
         // Card-face score + the section-meta "score 33 · INTRADAY" caption.
         expect(screen.getAllByText('33').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText(/score 33/)).toBeTruthy();
@@ -374,7 +419,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 3,
                     preconditions_total: 3,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: { low: 63000, high: 63200 },
                     long_target_zone: { low: 65000, high: 65500 },
                     long_invalidation_level: 62400,
@@ -390,7 +435,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 2,
                     preconditions_total: 2,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: { low: 63520, high: 63800 },
                     long_target_zone: { low: 64500, high: 65000 },
                     long_invalidation_level: 63200,
@@ -406,7 +451,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 1,
                     preconditions_total: 3,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: { low: 63600, high: 63900 },
                     long_target_zone: { low: 64400, high: 64800 },
                     long_invalidation_level: 63300,
@@ -441,7 +486,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 0,
                     preconditions_total: 1,
                     notes: '',
-                    direction_family: 'Neutral',
+                    direction_family: 'NEUTRAL',
                     long_entry_zone: null,
                     long_target_zone: null,
                     long_invalidation_level: null,
@@ -802,17 +847,17 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
         expect(screen.queryByText(/For reference — no active directional call/)).toBeNull();
     });
 
-    it('v6.10.28 + v6.17: the Verdict & Rationale card accent line is amber under a HOLD verdict', () => {
+    it('v6.10.28 + v6.17 + v7.2: the Verdict & Rationale card accent line is amber under a HOLD verdict', () => {
         const entry = seedPair('BTC-USDT');
         zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        const card = document.querySelector('[class*="verdictCard"]')!;
+        const card = document.querySelector('[aria-label="VERDICT & RATIONALE"]')!;
         const cls = card.className;
-        expect(cls).toMatch(/verdictCard/);
-        expect(cls).not.toMatch(/verdictCardLong|verdictCardShort/);
+        expect(cls).toMatch(/accentHold/);
+        expect(cls).not.toMatch(/accentLong|accentShort/);
     });
 
-    it('v6.10.28 + v6.17: the Verdict & Rationale card accent line is green under a LONG verdict', () => {
+    it('v6.10.28 + v6.17 + v7.2: the Verdict & Rationale card accent line is green under a LONG verdict', () => {
         const entry = seedPair('BTC-USDT');
         entry.decisionContext = makeDecisionContext({
             long_probability: 60,
@@ -821,12 +866,12 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
             net_bias_pct: 50,
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        const cls = document.querySelector('[class*="verdictCard"]')!.className;
-        expect(cls).toMatch(/verdictCardLong/);
-        expect(cls).not.toMatch(/verdictCardShort/);
+        const cls = document.querySelector('[aria-label="VERDICT & RATIONALE"]')!.className;
+        expect(cls).toMatch(/accentLong/);
+        expect(cls).not.toMatch(/accentShort/);
     });
 
-    it('v6.10.28 + v6.17: the Verdict & Rationale card accent line is red under a SHORT verdict', () => {
+    it('v6.10.28 + v6.17 + v7.2: the Verdict & Rationale card accent line is red under a SHORT verdict', () => {
         const entry = seedPair('BTC-USDT');
         entry.decisionContext = makeDecisionContext({
             long_probability: 10,
@@ -835,9 +880,9 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
             net_bias_pct: -50,
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        const cls = document.querySelector('[class*="verdictCard"]')!.className;
-        expect(cls).toMatch(/verdictCardShort/);
-        expect(cls).not.toMatch(/verdictCardLong/);
+        const cls = document.querySelector('[aria-label="VERDICT & RATIONALE"]')!.className;
+        expect(cls).toMatch(/accentShort/);
+        expect(cls).not.toMatch(/accentLong/);
     });
 
     it('v6.17: verdict, guidance and Why bullets share ONE card separated by a divider', () => {
@@ -997,5 +1042,74 @@ describe('RecommendationPanel — v7.0 Project Risk and Return drawer', () => {
         expect(drawer).toBeTruthy();
         // The drawer prefills the LONG setup geometry into its header line.
         expect(drawer.textContent).toContain('LONG');
+    });
+
+    it('v7.3: settles the recommendation geometry into editable fields', async () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        await screen.getByText('Project Risk and Return').click();
+        const drawer = screen.getByLabelText('Project Risk and Return');
+        // Direction / Entry / Stop Loss / Take Profit are editable fields
+        // seeded from the LONG recommendation (Breakout top profile:
+        // entry 63660, invalidation 63200, target mid 64750).
+        expect((screen.getByLabelText(/Direction/) as HTMLSelectElement).value).toBe('LONG');
+        expect((screen.getByLabelText(/Entry/) as HTMLInputElement).value).toBe('63660');
+        expect((screen.getByLabelText(/Stop Loss/) as HTMLInputElement).value).toBe('63200');
+        expect((screen.getByLabelText(/Take Profit/) as HTMLInputElement).value).toBe('64750');
+        // The old static string summary is gone.
+        expect(drawer.textContent).not.toContain('entry $');
+    });
+
+    it('v7.3: result values carry the cost/risk color language (liq amber, fees red, pnl green)', async () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        const app = useAppStore();
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        await screen.getByText('Project Risk and Return').click();
+        // Seed a resolved calculation so the results grid renders. A stale
+        // debounced calc from a previous test could still be in flight —
+        // force the calculating flag off so the grid is deterministic.
+        app.riskCalculation = {
+            position_size_units: '0.012345',
+            position_notional: '800',
+            margin_required: '80',
+            liquidation_price: '62100.5',
+            total_fees: '1.23',
+            net_pnl: '42.5',
+            risk_reward_ratio: '2.4',
+        } as any;
+        app.riskCalculating = false;
+        await tick();
+        const amber = document.querySelectorAll('[class*="resultValueAmber"]');
+        expect(amber.length).toBe(1);
+        expect(amber[0].closest('[class*="resultItem"]')!.textContent).toContain('Liquidation Price');
+        expect(document.querySelectorAll('[class*="resultValueRed"]').length).toBe(3);
+        expect(document.querySelectorAll('[class*="resultValuePos"]').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('v7.4: with no active setup the drawer opens as a blank manual what-if editor', async () => {
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry);
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        await screen.getByText('Project Risk and Return').click();
+        const drawer = screen.getByLabelText('Project Risk and Return');
+        expect(drawer).toBeTruthy();
+        expect(screen.getByText('Capital Allocation')).toBeTruthy();
+        expect(screen.getByText('Leverage')).toBeTruthy();
+        expect((screen.getByLabelText(/Direction/) as HTMLSelectElement).value).toBe('LONG');
+        expect((screen.getByLabelText(/Entry/) as HTMLInputElement).value).toBe('');
+        expect((screen.getByLabelText(/Stop Loss/) as HTMLInputElement).value).toBe('');
+        expect((screen.getByLabelText(/Take Profit/) as HTMLInputElement).value).toBe('');
     });
 });

@@ -112,6 +112,18 @@ export interface AnalysisPayload {
    *  snapshot did not carry them. */
   representative_bbwp: number | null;
   representative_adx: number | null;
+  /** KEY METRICS parity (audit C2): the panel's KEY METRICS row renders
+   *  Overall Score (`alignment.mtf_overall_score`), Timeframe Agreement
+   *  (`trend_agreement_pct` + `timeframes_present`), and Total Signals
+   *  (`signal_cross_tf_count`) — all three were missing from the export.
+   *  Sources mirror AnalysisPanel.svelte:36-42 (alignment-first with
+   *  analysis fallback for the TF count). */
+  key_metrics: {
+    mtf_overall_score: number | null;
+    trend_agreement_pct: number | null;
+    timeframes_present: number | null;
+    signal_cross_tf_count: number | null;
+  };
 }
 
 // Also surface the original analysis header for analysts who want it
@@ -394,7 +406,7 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
   const payload: AnalysisPayload = {
     source_tab: 'analysis',
     meta,
-    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'ANALYSIS SUMMARY' },
+    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     body: buildAnalysisBodyBlock(analysis),
     signal_lean_hero: buildSignalLeanHero(analysis),
     signals: buildSignalsBlock(analysis),
@@ -409,6 +421,16 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
     rationale: analysis?.rationale || '\u2014',
     representative_bbwp: args.representative?.bbwp ?? null,
     representative_adx: args.representative?.adx ?? null,
+    // KEY METRICS parity (audit C2): mirror the panel's derivation
+    // (AnalysisPanel.svelte:36-42) — alignment-first, analysis fallback
+    // for the timeframe count.
+    key_metrics: {
+      mtf_overall_score: args.alignment?.mtf_overall_score ?? null,
+      trend_agreement_pct: args.alignment?.trend_agreement_pct ?? null,
+      timeframes_present:
+        args.alignment?.timeframes_present ?? analysis?.timeframes_considered ?? null,
+      signal_cross_tf_count: args.alignment?.signal_cross_tf_count ?? null,
+    },
   };
   return JSON.stringify(payload, null, 2);
 }

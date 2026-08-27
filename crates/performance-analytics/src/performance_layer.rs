@@ -1,6 +1,6 @@
 use core_domain::performance::{
-    OverallRating, PerformanceMatrixRow, PerformanceMatrixSummary,
-    RegimeCompatibility, RegimeStrengthEntry, TradeAnalyticsRecord,
+    OverallRating, PerformanceMatrixRow, PerformanceMatrixSummary, RegimeCompatibility,
+    RegimeStrengthEntry, TradeAnalyticsRecord,
 };
 use sqlx::SqlitePool;
 
@@ -35,10 +35,7 @@ pub async fn compute_performance_matrix(
 
         for (regime, regime_trades) in &by_regime {
             let trade_count = regime_trades.len() as u32;
-            let wins = regime_trades
-                .iter()
-                .filter(|t| t.net_pnl > 0.0)
-                .count();
+            let wins = regime_trades.iter().filter(|t| t.net_pnl > 0.0).count();
             let win_rate = if trade_count > 0 {
                 wins as f64 / trade_count as f64
             } else {
@@ -90,7 +87,7 @@ pub async fn compute_performance_matrix(
                 classify_regime_compatibility(profit_factor, win_rate, trade_count);
 
             results.push(PerformanceMatrixRow {
-                policy_id: policy_id.clone(),
+                setup_type: policy_id.clone(),
                 regime: regime.clone(),
                 trade_count,
                 win_rate,
@@ -118,7 +115,7 @@ pub async fn compute_performance_matrix_summary(
         std::collections::HashMap::new();
     for row in &per_regime_rows {
         rows_by_policy
-            .entry(row.policy_id.clone())
+            .entry(row.setup_type.clone())
             .or_default()
             .push(row.clone());
     }
@@ -134,16 +131,13 @@ pub async fn compute_performance_matrix_summary(
 
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     let mut summaries = Vec::new();
 
     for (policy_id, policy_trades) in &by_policy {
-        let regime_rows = rows_by_policy
-            .get(policy_id)
-            .cloned()
-            .unwrap_or_default();
+        let regime_rows = rows_by_policy.get(policy_id).cloned().unwrap_or_default();
 
         let wins: Vec<_> = policy_trades.iter().filter(|t| t.net_pnl > 0.0).collect();
         let losses: Vec<_> = policy_trades.iter().filter(|t| t.net_pnl < 0.0).collect();
@@ -183,8 +177,7 @@ pub async fn compute_performance_matrix_summary(
         let overall_expectancy = (win_rate * avg_win) - ((1.0 - win_rate) * avg_loss);
 
         let daily_returns = compute_policy_daily_returns(policy_trades);
-        let (overall_sharpe, overall_sortino) =
-            compute_policy_risk_metrics(&daily_returns);
+        let (overall_sharpe, overall_sortino) = compute_policy_risk_metrics(&daily_returns);
 
         let max_drawdown_pct = compute_policy_drawdown(policy_trades);
 
@@ -199,7 +192,7 @@ pub async fn compute_performance_matrix_summary(
         );
 
         summaries.push(PerformanceMatrixSummary {
-            policy_id: policy_id.clone(),
+            setup_type: policy_id.clone(),
             total_trades: policy_trades.len() as u32,
             overall_profit_factor,
             overall_expectancy,
@@ -249,7 +242,11 @@ fn compute_policy_risk_metrics(daily_returns: &[f64]) -> (Option<f64>, Option<f6
     };
     let daily_vol = variance.sqrt();
 
-    let downside: Vec<f64> = daily_returns.iter().filter(|&&r| r < 0.0).copied().collect();
+    let downside: Vec<f64> = daily_returns
+        .iter()
+        .filter(|&&r| r < 0.0)
+        .copied()
+        .collect();
     let dn = downside.len() as f64;
     let down_mean = if dn > 0.0 {
         downside.iter().sum::<f64>() / dn
@@ -294,8 +291,8 @@ fn compute_policy_drawdown(trades: &[&TradeAnalyticsRecord]) -> f64 {
     let mut cumulative = 0.0f64;
     let mut max_dd_pct = 0.0f64;
 
-    let initial_capital = sorted[0].entry_price * sorted[0].size;
-    let base = if initial_capital > 0.0 { initial_capital } else { 1.0 };
+    let base_equity = sorted[0].entry_price * sorted[0].size;
+    let base = if base_equity > 0.0 { base_equity } else { 1.0 };
 
     for t in &sorted {
         cumulative += t.net_pnl;
@@ -339,14 +336,12 @@ fn build_regime_strength(rows: &[PerformanceMatrixRow]) -> Vec<RegimeStrengthEnt
     sorted.sort_by(|a, b| {
         let rank_a = regime_rank_score(&a.compatibility_label);
         let rank_b = regime_rank_score(&b.compatibility_label);
-        rank_b
-            .cmp(&rank_a)
-            .then_with(|| {
-                b.profit_factor
-                    .unwrap_or(0.0)
-                    .partial_cmp(&a.profit_factor.unwrap_or(0.0))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        rank_b.cmp(&rank_a).then_with(|| {
+            b.profit_factor
+                .unwrap_or(0.0)
+                .partial_cmp(&a.profit_factor.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     sorted
@@ -395,10 +390,7 @@ fn generate_recommendations(
     if let Some(strong) = strong_regimes.first() {
         let weak_alloc: Vec<_> = rows
             .iter()
-            .filter(|r| {
-                r.compatibility_label != RegimeCompatibility::Strong
-                    && r.trade_count >= 5
-            })
+            .filter(|r| r.compatibility_label != RegimeCompatibility::Strong && r.trade_count >= 5)
             .collect();
         if !weak_alloc.is_empty() {
             recs.push(format!(
@@ -413,9 +405,7 @@ fn generate_recommendations(
         let losing_trades = trades.iter().filter(|t| t.net_pnl < 0.0).count();
         let loss_rate = losing_trades as f64 / trades.len() as f64;
         if loss_rate > 0.6 {
-            recs.push(
-                "HIGH LOSS RATE: Review entry criteria and stop-loss placement".into(),
-            );
+            recs.push("HIGH LOSS RATE: Review entry criteria and stop-loss placement".into());
         }
     }
 
@@ -455,10 +445,7 @@ fn classify_overall_rating(
     }
 }
 
-async fn resolve_regime_for_trade(
-    pool: &SqlitePool,
-    trade: &TradeAnalyticsRecord,
-) -> String {
+async fn resolve_regime_for_trade(pool: &SqlitePool, trade: &TradeAnalyticsRecord) -> String {
     let row: Result<Option<String>, _> = sqlx::query_scalar(
         "SELECT market_regime FROM market_snapshots
          WHERE symbol = ?1 AND timestamp <= ?2
@@ -557,7 +544,7 @@ mod tests {
     fn test_regime_strength_sorting() {
         let rows = vec![
             PerformanceMatrixRow {
-                policy_id: "P1".into(),
+                setup_type: "P1".into(),
                 regime: "AVOID_ME".into(),
                 trade_count: 10,
                 win_rate: 0.3,
@@ -567,7 +554,7 @@ mod tests {
                 compatibility_label: RegimeCompatibility::Avoid,
             },
             PerformanceMatrixRow {
-                policy_id: "P1".into(),
+                setup_type: "P1".into(),
                 regime: "STRONG_ME".into(),
                 trade_count: 20,
                 win_rate: 0.65,
@@ -577,7 +564,7 @@ mod tests {
                 compatibility_label: RegimeCompatibility::Strong,
             },
             PerformanceMatrixRow {
-                policy_id: "P1".into(),
+                setup_type: "P1".into(),
                 regime: "FAVORABLE_ME".into(),
                 trade_count: 15,
                 win_rate: 0.50,
@@ -627,9 +614,7 @@ mod tests {
 
     #[test]
     fn test_policy_drawdown_no_loss() {
-        let trades: Vec<_> = (0..5)
-            .map(|_| make_trade(100.0, "P1"))
-            .collect();
+        let trades: Vec<_> = (0..5).map(|_| make_trade(100.0, "P1")).collect();
         let refs: Vec<&TradeAnalyticsRecord> = trades.iter().collect();
         let dd = compute_policy_drawdown(&refs);
         assert_eq!(dd, 0.0);
@@ -640,7 +625,7 @@ mod tests {
         let t1 = make_trade(200.0, "P1");
         let t2 = make_trade(-150.0, "P1");
         let t3 = make_trade(50.0, "P1");
-        let trades = vec![t1, t2, t3];
+        let trades = [t1, t2, t3];
         let refs: Vec<&TradeAnalyticsRecord> = trades.iter().collect();
         let dd = compute_policy_drawdown(&refs);
         assert!(dd > 0.0);
@@ -649,7 +634,7 @@ mod tests {
     #[test]
     fn test_generate_recommendations_avoid_regime() {
         let rows = vec![PerformanceMatrixRow {
-            policy_id: "P1".into(),
+            setup_type: "P1".into(),
             regime: "BAD_REGIME".into(),
             trade_count: 10,
             win_rate: 0.25,
@@ -668,7 +653,7 @@ mod tests {
     fn test_policy_daily_returns() {
         let t1 = make_trade(100.0, "P1");
         let t2 = make_trade(-50.0, "P1");
-        let trades = vec![t1, t2];
+        let trades = [t1, t2];
         let refs: Vec<_> = trades.iter().collect();
         let returns = compute_policy_daily_returns(&refs);
         assert!(!returns.is_empty());

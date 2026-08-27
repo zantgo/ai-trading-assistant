@@ -1,6 +1,6 @@
 # Liquidity Phase 0-4 — Architecture Spec
 
-**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
 ## Overview
@@ -102,7 +102,7 @@ The legacy `liquidity_risk` field was renamed to
 
 ## Decision integration
 
-The `LiquiditySqueeze` variant was added to the `OpportunityType` enum in L4 (the 7th ordered entry; one of 8 canonical variants — see `01-01-ontology.md §A.4`) ([02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). The L4 Opportunity Matrix now publishes `primary_opportunity = LIQUIDITY_SQUEEZE` when its preconditions are satisfied (cascade_state in `Detected`/`Sustained` plus `|cascade_asymmetry| > 0.3` plus `EXPANSION`/`TRANSITION` regime). The Decision Layer reads the value from L4's `primary_opportunity` directly — there is no separate `opportunity_type` field on the Decision Matrix (that field was removed in the institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) and [02-04-decision-matrix.md §2](../matrices/02-04-decision-matrix.md)). The TAE Policy Layer can therefore match on `opportunity.primary_opportunity` to dispatch `CLOSE_ONLY`-stance reduce-only orders (see [03-03-03-tae-layer2-execution.md §3.3](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
+The `LiquiditySqueeze` variant was added to the `OpportunityType` enum in L4 (the 7th ordered entry; one of 8 canonical variants — see `01-01-ontology.md §A.4`) ([02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). The L4 Opportunity Matrix now publishes `primary_opportunity = LIQUIDITY_SQUEEZE` when its preconditions are satisfied (cascade_state in `Detected`/`Sustained` plus `|cascade_asymmetry| > 0.3` plus `EXPANSION`/`TRANSITION` regime). The Decision Layer reads the value from L4's `primary_opportunity` directly — there is no separate `opportunity_type` field on the Decision Matrix (that field was removed in the institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) and [02-04-decision-matrix.md §2](../matrices/02-04-decision-matrix.md)). The TAE Policy Layer can therefore match on `opportunity.primary_opportunity` (e.g. `"LiquiditySqueeze"`) in user-authored policy conditions. Note: matching a squeeze does **not** automatically change the symbol stance — a `CLOSE_ONLY` stance is set by the operator or by a PME veto, and Gate 1 then blocks new entries while the [03-03-03-tae-layer2-execution.md §3.3](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) invariant forces `reduce_only = true` on every dispatched order.
 
 ## Backward compatibility
 

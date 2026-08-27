@@ -280,8 +280,9 @@
 /* ── Verdict & Rationale (unified card, v7.0) — the verdict quote, the
      verdict-consistent environment guidance, and the Why bullets share
      ONE card that lives inside the always-gray VERDICT & RATIONALE
-     SummaryCard. The card itself is transparent — only the left accent
-     line (green LONG, red SHORT, amber HOLD) survives. ── */
+     SummaryCard. The card itself is transparent — the left accent line
+     (green LONG, red SHORT, amber HOLD) rides the SummaryCard boundary
+     (v7.2), so no border or accent classes live here. ── */
 .verdictCard {
     display: flex;
     flex-direction: column;
@@ -289,11 +290,8 @@
     padding: 0 0 0 10px;
     background: transparent;
     border: 0;
-    border-left: 3px solid #f59e0b;
     border-radius: 0;
 }
-.verdictCardLong  { border-left-color: #22c55e; }
-.verdictCardShort { border-left-color: #ef4444; }
 .verdictDivider {
     height: 1px;
     margin: 4px 0 2px;
@@ -301,10 +299,7 @@
 }
 .verdictQuote {
     margin: 0;
-    font-size: 12.5px;
     font-style: italic;
-    color: #cbd5e1;
-    line-height: 1.6;
 }
 .verdictGuidance {
     margin-top: 0;

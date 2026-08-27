@@ -8,7 +8,22 @@
 
     const app = useAppStore();
 
+    // v7.2 parity: server-computed counts (single source, also rendered
+    // by the CLI monitor); local derivation is the warmup fallback.
     const counts = $derived.by(() => {
+        const server = app.overviewMatrix?.direction_distribution;
+        if (server) {
+            const total = server.long + server.short + server.neutral;
+            return {
+                long: server.long,
+                short: server.short,
+                neutral: server.neutral,
+                total,
+                longPct: total > 0 ? (server.long / total) * 100 : 0,
+                shortPct: total > 0 ? (server.short / total) * 100 : 0,
+                neutralPct: total > 0 ? (server.neutral / total) * 100 : 0,
+            };
+        }
         const instances = Object.values(app.instancesMap);
         const d = aggregateDirections(instances);
         const total = d.long + d.short + d.neutral;

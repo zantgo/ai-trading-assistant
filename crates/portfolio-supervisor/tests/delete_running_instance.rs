@@ -19,15 +19,13 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use config_models::{
-    CandleBufferConfig, HyperliquidConfig, InstanceEntry,
-    ReconnectConfig, WorkspaceConfig,
+    CandleBufferConfig, HyperliquidConfig, InstanceEntry, ReconnectConfig, WorkspaceConfig,
 };
-use portfolio_supervisor::session::ExchangeChoice;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::SymbolMapper;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
@@ -39,6 +37,7 @@ use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::{Instance, TimeframeBuffers};
 use portfolio_supervisor::registry::delete_instance;
 use portfolio_supervisor::registry_context::RegistryContext;
+use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::session::SessionState;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
@@ -61,7 +60,9 @@ fn unique_config_path() -> PathBuf {
     let mut p = std::env::temp_dir();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
-    p.push(format!("quant_trading_platform_delete_running_{pid}_{n}.toml"));
+    p.push(format!(
+        "quant_trading_platform_delete_running_{pid}_{n}.toml"
+    ));
     p
 }
 
@@ -70,12 +71,18 @@ fn unique_config_path() -> PathBuf {
 /// `Running` instance we can delete.
 #[derive(serde::Serialize)]
 struct TestOnDiskConfig {
-    #[serde(default)] hyperliquid: HyperliquidConfig,
-    #[serde(default)] bitget: config_models::BitgetConfig,
-    #[serde(default)] clock_monitor: Option<config_models::ClockMonitorTomlConfig>,
-    #[serde(default)] quality: Option<config_models::QualityConfig>,
-    #[serde(default)] reconnect: ReconnectConfig,
-    #[serde(default)] candle_buffer: CandleBufferConfig,
+    #[serde(default)]
+    hyperliquid: HyperliquidConfig,
+    #[serde(default)]
+    bitget: config_models::BitgetConfig,
+    #[serde(default)]
+    clock_monitor: Option<config_models::ClockMonitorTomlConfig>,
+    #[serde(default)]
+    quality: Option<config_models::QualityConfig>,
+    #[serde(default)]
+    reconnect: ReconnectConfig,
+    #[serde(default)]
+    candle_buffer: CandleBufferConfig,
     workspace: WorkspaceConfig,
 }
 
@@ -85,7 +92,6 @@ fn write_initial_config(path: &std::path::Path) {
         id: INSTANCE_ID.to_string(),
         symbol: PAIR.to_string(),
         quote: "USDC".to_string(),
-        initial_capital_usd: 1000.0,
         status: config_models::InstanceStatus::Running,
         micro_term: config_models::TimeframeConfig::new(60, Default::default()),
         fast_term: config_models::TimeframeConfig::new(180, Default::default()),
@@ -93,8 +99,10 @@ fn write_initial_config(path: &std::path::Path) {
         macro_term: None,
         automation: Default::default(),
         operational_mode: Default::default(),
+        mode: config_models::ExecutionMode::Paper,
+        strategy: None,
+        allocation_pct: None,
         weight_overrides: None,
-        position_scaling: None,
         activation: None,
         custom_pipelines: std::collections::HashMap::new(),
     });
@@ -147,10 +155,13 @@ fn build_stub_instance(
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            ClusterStatusSnapshot::pending("TEST-USD", &slot.as_str()),
+        cluster_status: Arc::new(RwLock::new(ClusterStatusSnapshot::pending(
+            "TEST-USD",
+            &slot.as_str(),
+        ))),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
         )),
-        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
         advisory: Arc::new(RwLock::new(None)),
         tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
@@ -171,8 +182,8 @@ fn build_stub_instance(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
@@ -245,10 +256,12 @@ async fn build_context() -> (Arc<RegistryContext>, PathBuf, Arc<ExchangeStatusTr
     // Seed the live map with the configured instance. `delete_instance`
     // walks the live map (not the config), so without this the
     // "not found" path always wins.
-    ctx.workspace.insert(
-        PAIR.to_string(),
-        build_stub_instance(pool, workspace_state, INSTANCE_ID, "BTC", "USDC"),
-    ).await;
+    ctx.workspace
+        .insert(
+            PAIR.to_string(),
+            build_stub_instance(pool, workspace_state, INSTANCE_ID, "BTC", "USDC"),
+        )
+        .await;
 
     (Arc::new(ctx), cfg_path, exchange_status)
 }
@@ -287,10 +300,16 @@ async fn delete_running_instance_succeeds_without_stop() {
     let (ctx, cfg_path, _exchange_status) = build_context().await;
 
     // Sanity: the live map + config both carry the entry before delete.
-    assert!(ctx.workspace.get(PAIR).await.is_some(), "live map must carry the entry");
+    assert!(
+        ctx.workspace.get(PAIR).await.is_some(),
+        "live map must carry the entry"
+    );
     let initial = ctx.workspace.config().await;
     assert_eq!(initial.instances.len(), 1, "fixture must seed 1 instance");
-    assert_eq!(initial.instances[0].status, config_models::InstanceStatus::Running);
+    assert_eq!(
+        initial.instances[0].status,
+        config_models::InstanceStatus::Running
+    );
 
     // DELETE works on a Running instance — no manual stop required.
     // This is the contract the right-panel button depends on; the
@@ -304,7 +323,10 @@ async fn delete_running_instance_succeeds_without_stop() {
     );
 
     // (a) In-memory: live map + workspace config both empty.
-    assert!(ctx.workspace.get(PAIR).await.is_none(), "live map must drop the entry");
+    assert!(
+        ctx.workspace.get(PAIR).await.is_none(),
+        "live map must drop the entry"
+    );
     let after_mem = ctx.workspace.config().await;
     assert!(
         after_mem.instances.is_empty(),
@@ -351,9 +373,16 @@ async fn delete_unknown_instance_id_returns_not_found() {
     );
 
     // The seeded entry is still there.
-    assert!(ctx.workspace.get(PAIR).await.is_some(), "failed delete must not touch other entries");
+    assert!(
+        ctx.workspace.get(PAIR).await.is_some(),
+        "failed delete must not touch other entries"
+    );
     let cfg = ctx.workspace.config().await;
-    assert_eq!(cfg.instances.len(), 1, "failed delete must not touch other entries");
+    assert_eq!(
+        cfg.instances.len(),
+        1,
+        "failed delete must not touch other entries"
+    );
 
     let _ = std::fs::remove_file(&cfg_path);
 }
@@ -385,7 +414,10 @@ async fn delete_already_stopped_instance_also_succeeds() {
     );
 
     let after = ctx.workspace.config().await;
-    assert!(after.instances.is_empty(), "post-delete config must be empty");
+    assert!(
+        after.instances.is_empty(),
+        "post-delete config must be empty"
+    );
 
     let _ = std::fs::remove_file(&cfg_path);
 }

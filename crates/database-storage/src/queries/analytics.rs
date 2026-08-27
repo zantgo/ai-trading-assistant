@@ -5,25 +5,22 @@ use core_domain::performance::{
     StrategyAnalyticsRow,
 };
 
-pub async fn insert_strategy_analytics(
-    pool: &SqlitePool,
-    row: &StrategyAnalyticsRow,
-) -> i64 {
+pub async fn insert_strategy_analytics(pool: &SqlitePool, row: &StrategyAnalyticsRow) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
         "INSERT INTO strategy_analytics_history
-         (timestamp, policy_id, total_trades, win_count, loss_count, win_rate,
+         (timestamp, setup_type, total_trades, win_count, loss_count, win_rate,
           gross_profit, gross_loss, profit_factor, average_win, average_loss,
           avg_win_loss_ratio, expectancy, slippage_overhead, t_statistic, p_value,
           p_mc, monte_carlo_runs, is_significant, classification)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
     )
     .bind(ts)
-    .bind(&row.policy_id)
+    .bind(&row.setup_type)
     .bind(row.total_trades as i64)
     .bind(row.win_count as i64)
     .bind(row.loss_count as i64)
@@ -60,12 +57,12 @@ pub async fn query_strategy_analytics_history(
 ) -> Vec<StrategyAnalyticsRow> {
     let rows: Result<Vec<_>, _> = if let Some(pid) = policy_id {
         sqlx::query_as::<_, StrategyAnalyticsQueryRow>(
-            "SELECT policy_id, total_trades, win_count, loss_count, win_rate,
+            "SELECT setup_type, total_trades, win_count, loss_count, win_rate,
                     gross_profit, gross_loss, profit_factor, average_win, average_loss,
                     avg_win_loss_ratio, expectancy, slippage_overhead, t_statistic, p_value,
                     p_mc, monte_carlo_runs, is_significant, classification
              FROM strategy_analytics_history
-             WHERE policy_id = ?1
+             WHERE setup_type = ?1
              ORDER BY timestamp DESC
              LIMIT ?2",
         )
@@ -75,7 +72,7 @@ pub async fn query_strategy_analytics_history(
         .await
     } else {
         sqlx::query_as::<_, StrategyAnalyticsQueryRow>(
-            "SELECT policy_id, total_trades, win_count, loss_count, win_rate,
+            "SELECT setup_type, total_trades, win_count, loss_count, win_rate,
                     gross_profit, gross_loss, profit_factor, average_win, average_loss,
                     avg_win_loss_ratio, expectancy, slippage_overhead, t_statistic, p_value,
                     p_mc, monte_carlo_runs, is_significant, classification
@@ -92,7 +89,8 @@ pub async fn query_strategy_analytics_history(
         Ok(r) => r
             .into_iter()
             .map(|r| StrategyAnalyticsRow {
-                policy_id: r.policy_id,
+                setup_type: r.setup_type,
+                alpha: 0.05,
                 total_trades: r.total_trades as u32,
                 win_count: r.win_count as u32,
                 loss_count: r.loss_count as u32,
@@ -126,17 +124,17 @@ pub async fn insert_performance_matrix_snapshot(
 ) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
         "INSERT INTO performance_matrix_snapshots
-         (timestamp, policy_id, regime, trade_count, win_rate, profit_factor,
+         (timestamp, setup_type, regime, trade_count, win_rate, profit_factor,
           avg_r_multiple, total_pnl, compatibility_label)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )
     .bind(ts)
-    .bind(&row.policy_id)
+    .bind(&row.setup_type)
     .bind(&row.regime)
     .bind(row.trade_count as i64)
     .bind(row.win_rate)
@@ -164,8 +162,8 @@ pub async fn query_performance_matrix_latest(
             "SELECT policy_id, regime, trade_count, win_rate, profit_factor,
                     avg_r_multiple, total_pnl, compatibility_label
              FROM performance_matrix_snapshots
-             WHERE policy_id = ?1
-             AND timestamp = (SELECT MAX(timestamp) FROM performance_matrix_snapshots WHERE policy_id = ?1)
+             WHERE setup_type = ?1
+             AND timestamp = (SELECT MAX(timestamp) FROM performance_matrix_snapshots WHERE setup_type = ?1)
              ORDER BY trade_count DESC",
         )
         .bind(pid)
@@ -187,7 +185,7 @@ pub async fn query_performance_matrix_latest(
         Ok(r) => r
             .into_iter()
             .map(|r| PerformanceMatrixRow {
-                policy_id: r.policy_id,
+                setup_type: r.setup_type,
                 regime: r.regime,
                 trade_count: r.trade_count as u32,
                 win_rate: r.win_rate,
@@ -223,13 +221,10 @@ fn parse_compatibility(s: &str) -> core_domain::performance::RegimeCompatibility
     }
 }
 
-pub async fn insert_risk_analytics(
-    pool: &SqlitePool,
-    row: &RiskAnalyticsRow,
-) -> i64 {
+pub async fn insert_risk_analytics(pool: &SqlitePool, row: &RiskAnalyticsRow) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
@@ -237,8 +232,8 @@ pub async fn insert_risk_analytics(
          (timestamp, maximum_drawdown_pct, max_drawdown_duration_days,
           average_drawdown_pct, drawdown_count, sharpe_ratio, sortino_ratio,
           ulcer_index, calmar_ratio, daily_volatility, downside_deviation,
-          value_at_risk_95, expected_shortfall_95)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+          value_at_risk_95, expected_shortfall_95, sharpe_ratio_log)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(ts)
     .bind(row.maximum_drawdown_pct)
@@ -253,6 +248,7 @@ pub async fn insert_risk_analytics(
     .bind(row.downside_deviation)
     .bind(row.value_at_risk_95)
     .bind(row.expected_shortfall_95)
+    .bind(row.sharpe_ratio_log)
     .execute(pool)
     .await
     {
@@ -268,7 +264,8 @@ pub async fn query_risk_analytics_latest(pool: &SqlitePool) -> Option<RiskAnalyt
     let row = sqlx::query_as::<_, RiskAnalyticsQueryRow>(
         "SELECT maximum_drawdown_pct, max_drawdown_duration_days, average_drawdown_pct,
                 drawdown_count, sharpe_ratio, sortino_ratio, ulcer_index, calmar_ratio,
-                daily_volatility, downside_deviation, value_at_risk_95, expected_shortfall_95
+                daily_volatility, downside_deviation, value_at_risk_95, expected_shortfall_95,
+                COALESCE(sharpe_ratio_log, NULL)
          FROM risk_analytics_history
          ORDER BY timestamp DESC LIMIT 1",
     )
@@ -289,6 +286,14 @@ pub async fn query_risk_analytics_latest(pool: &SqlitePool) -> Option<RiskAnalyt
             downside_deviation: r.downside_deviation,
             value_at_risk_95: r.value_at_risk_95,
             expected_shortfall_95: r.expected_shortfall_95,
+            sharpe_ratio_log: r.sharpe_ratio_log,
+            cagr_pct: None,
+            annualized_volatility_pct: None,
+            sterling_ratio: None,
+            burke_ratio: None,
+            omega_ratio: None,
+            gain_to_pain_ratio: None,
+            tail_ratio: None,
         }),
         _ => None,
     }
@@ -300,19 +305,19 @@ pub async fn insert_performance_summary(
 ) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
         "INSERT INTO performance_matrix_summaries
-         (timestamp, policy_id, total_trades, overall_profit_factor,
+         (timestamp, setup_type, total_trades, overall_profit_factor,
           overall_expectancy, overall_sharpe, overall_sortino,
           max_drawdown_pct, regime_strength_json, recommendations_json,
           overall_rating, last_evaluated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )
     .bind(ts)
-    .bind(&summary.policy_id)
+    .bind(&summary.setup_type)
     .bind(summary.total_trades as i64)
     .bind(summary.overall_profit_factor)
     .bind(summary.overall_expectancy)
@@ -334,10 +339,7 @@ pub async fn insert_performance_summary(
     }
 }
 
-pub async fn insert_optimization_report(
-    pool: &SqlitePool,
-    report: &OptimizationReport,
-) -> i64 {
+pub async fn insert_optimization_report(pool: &SqlitePool, report: &OptimizationReport) -> i64 {
     match sqlx::query(
         "INSERT INTO optimization_reports
          (timestamp, total_trades, regime_reports_json, recommendations_json)
@@ -358,10 +360,7 @@ pub async fn insert_optimization_report(
     }
 }
 
-pub async fn query_optimization_reports(
-    pool: &SqlitePool,
-    limit: u32,
-) -> Vec<OptimizationReport> {
+pub async fn query_optimization_reports(pool: &SqlitePool, limit: u32) -> Vec<OptimizationReport> {
     let rows: Result<Vec<OptimizationReportQueryRow>, _> = sqlx::query_as(
         "SELECT timestamp, total_trades, regime_reports_json, recommendations_json
          FROM optimization_reports
@@ -391,7 +390,7 @@ pub async fn query_optimization_reports(
 
 #[derive(Debug, sqlx::FromRow)]
 struct StrategyAnalyticsQueryRow {
-    policy_id: String,
+    setup_type: String,
     total_trades: i64,
     win_count: i64,
     loss_count: i64,
@@ -414,7 +413,7 @@ struct StrategyAnalyticsQueryRow {
 
 #[derive(Debug, sqlx::FromRow)]
 struct PerformanceMatrixQueryRow {
-    policy_id: String,
+    setup_type: String,
     regime: String,
     trade_count: i64,
     win_rate: f64,
@@ -438,6 +437,7 @@ struct RiskAnalyticsQueryRow {
     downside_deviation: f64,
     value_at_risk_95: f64,
     expected_shortfall_95: f64,
+    sharpe_ratio_log: Option<f64>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -446,4 +446,105 @@ struct OptimizationReportQueryRow {
     total_trades: i64,
     regime_reports_json: String,
     recommendations_json: String,
+}
+
+// ─── PAE L5: backtest_runs ───────────────────────────────────────────
+
+/// Persist a backtest run; returns the new row id.
+pub async fn insert_backtest_run(
+    pool: &SqlitePool,
+    params_json: &str,
+    summary_json: &str,
+    stats_json: &str,
+    trades_json: &str,
+    equity_curve_json: &str,
+) -> i64 {
+    insert_backtest_run_with_session(
+        pool,
+        params_json,
+        summary_json,
+        stats_json,
+        trades_json,
+        equity_curve_json,
+        None,
+    )
+    .await
+}
+
+/// v10: persist with an explicit session id (NULL = standalone headless run).
+pub async fn insert_backtest_run_with_session(
+    pool: &SqlitePool,
+    params_json: &str,
+    summary_json: &str,
+    stats_json: &str,
+    trades_json: &str,
+    equity_curve_json: &str,
+    session_id: Option<i64>,
+) -> i64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    match sqlx::query(
+        "INSERT INTO backtest_runs \
+         (params_json, summary_json, stats_json, trades_json, equity_curve_json, created_at, session_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(params_json)
+    .bind(summary_json)
+    .bind(stats_json)
+    .bind(trades_json)
+    .bind(equity_curve_json)
+    .bind(now)
+    .bind(session_id)
+    .execute(pool)
+    .await
+    {
+        Ok(r) => r.last_insert_rowid(),
+        Err(e) => {
+            eprintln!("DB: Failed to insert backtest run: {}", e);
+            0
+        }
+    }
+}
+
+/// Load a persisted backtest run: `(params, summary, stats, trades, equity_curve)`.
+pub async fn query_backtest_run(
+    pool: &SqlitePool,
+    id: i64,
+) -> Option<(String, String, String, String, String)> {
+    sqlx::query_as::<_, (String, String, String, String, String)>(
+        "SELECT params_json, summary_json, stats_json, trades_json, equity_curve_json \
+         FROM backtest_runs WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// One list row for the Backtest History tab: id, run timestamp, params and
+/// the headline summary. The summary JSON is carried as-is so the frontend
+/// renders the same numbers the run produced without re-querying each row.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BacktestRunRow {
+    pub id: i64,
+    pub created_at: i64,
+    pub params_json: String,
+    pub summary_json: String,
+    pub instance_id: Option<String>,
+    pub mode: Option<String>,
+}
+
+/// List persisted backtest runs, newest first — the History tab source.
+pub async fn query_backtest_runs_list(pool: &SqlitePool, limit: u32) -> Vec<BacktestRunRow> {
+    sqlx::query_as::<_, BacktestRunRow>(
+        "SELECT id, created_at, params_json, summary_json, instance_id, mode \
+         FROM backtest_runs ORDER BY created_at DESC LIMIT ?1",
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
 }

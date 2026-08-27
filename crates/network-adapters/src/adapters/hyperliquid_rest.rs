@@ -1,9 +1,9 @@
-use rust_decimal::Decimal;
-use serde::Deserialize;
 use core_domain::normalized::{
     Exchange, FundingRateEvent, MarkPriceEvent, NormalizedCandle, NormalizedEvent,
     OpenInterestEvent, ReconstructionMethod,
 };
+use rust_decimal::Decimal;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct CandleSnapshot {
@@ -66,12 +66,31 @@ pub async fn fetch_historical_candles(
         }
     });
 
-    let response = client
-        .post(rest_url)
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("REST request failed for {} {}: {}", symbol, interval, e))?;
+    // v9: transport-level retry — deep backfills page dozens of requests;
+    // a single transient send error must not abort the whole run.
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut last_err: Option<String> = None;
+    let mut response = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match client.post(rest_url).json(&request_body).send().await {
+            Ok(res) => {
+                response = Some(res);
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                last_err = Some(format!(
+                    "REST request failed for {} {}: {}",
+                    symbol, interval, e
+                ));
+                if attempt < MAX_ATTEMPTS {
+                    tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64))
+                        .await;
+                }
+            }
+        }
+    }
+    let response = response.ok_or_else(|| last_err.unwrap_or_default())?;
 
     let status = response.status();
     if !status.is_success() {
@@ -203,9 +222,7 @@ fn parse_ctx_decimal(v: &Option<serde_json::Value>) -> Option<Decimal> {
     match v {
         None => None,
         Some(serde_json::Value::String(s)) => s.parse::<Decimal>().ok(),
-        Some(serde_json::Value::Number(n)) => {
-            n.as_f64().and_then(|f| Decimal::from_f64_retain(f))
-        }
+        Some(serde_json::Value::Number(n)) => n.as_f64().and_then(Decimal::from_f64_retain),
         _ => None,
     }
 }
@@ -255,13 +272,18 @@ pub async fn fetch_meta_and_asset_ctxs(
     // positional; the i-th entry of each refers to the same coin. We
     // reuse the existing `HlMeta` struct (only `universe` is read) so the
     // JSON shape is forgiving: extra fields in `meta` are ignored.
-    let meta: HlMeta = serde_json::from_value(meta_json).map_err(|e| {
-        format!("Failed to parse Hyperliquid meta universe: {e}")
-    })?;
+    let meta: HlMeta = serde_json::from_value(meta_json)
+        .map_err(|e| format!("Failed to parse Hyperliquid meta universe: {e}"))?;
     let universe_index_to_name: Vec<Option<String>> = meta
         .universe
         .into_iter()
-        .map(|a| if a.name.is_empty() { None } else { Some(a.name) })
+        .map(|a| {
+            if a.name.is_empty() {
+                None
+            } else {
+                Some(a.name)
+            }
+        })
         .collect();
 
     let mut map = std::collections::HashMap::with_capacity(asset_ctxs.len());

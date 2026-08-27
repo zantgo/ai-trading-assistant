@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -7,19 +7,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-use core_domain::portfolio::{SafetyState, VetoTrigger};
+use core_domain::portfolio::SafetyState;
 
 pub struct SafetyManager {
     pub consecutive_losses: RwLock<HashMap<String, u32>>,
     pub safety_state: RwLock<SafetyState>,
     pub dropout_until: RwLock<Option<Instant>>,
     pub dropout_symbol: RwLock<Option<String>>,
-    pub initial_capital: RwLock<Decimal>,
+    pub portfolio_capital: RwLock<Decimal>,
     pub current_equity: RwLock<Decimal>,
     pub peak_equity: RwLock<Decimal>,
     pub starting_session_equity: RwLock<Decimal>,
     pub daily_pnl: RwLock<Decimal>,
-    pub manual_stance: RwLock<Option<(String, String)>>,
 
     pub caution_threshold: u32,
     pub dropout_threshold: u32,
@@ -44,12 +43,11 @@ impl SafetyManager {
             safety_state: RwLock::new(SafetyState::Normal),
             dropout_until: RwLock::new(None),
             dropout_symbol: RwLock::new(None),
-            initial_capital: RwLock::new(dec!(0)),
+            portfolio_capital: RwLock::new(dec!(0)),
             current_equity: RwLock::new(dec!(0)),
             peak_equity: RwLock::new(dec!(0)),
             starting_session_equity: RwLock::new(dec!(0)),
             daily_pnl: RwLock::new(dec!(0)),
-            manual_stance: RwLock::new(None),
             caution_threshold,
             dropout_threshold,
             dropout_duration: Duration::from_secs(dropout_duration_hours * 3600),
@@ -64,24 +62,17 @@ impl SafetyManager {
         *self.pool.write().await = Some(pool);
     }
 
-    pub async fn set_manual_stance(&self, symbol: &str, stance: &str) {
-        *self.manual_stance.write().await = Some((symbol.to_string(), stance.to_string()));
-    }
-
-    pub async fn clear_manual_stance(&self) {
-        *self.manual_stance.write().await = None;
-    }
-
     async fn persist_peak_equity(&self) {
         if let Some(ref pool) = *self.pool.read().await {
             let peak = *self.peak_equity.read().await;
             let peak_str = peak.to_string();
-            let _ = sqlx::query(
-                "UPDATE paper_balances SET peak_equity = ?1",
-            )
-            .bind(&peak_str)
-            .execute(pool.as_ref())
-            .await;
+            if let Err(e) = sqlx::query("UPDATE paper_balances SET peak_equity = ?1")
+                .bind(&peak_str)
+                .execute(pool.as_ref())
+                .await
+            {
+                eprintln!("persist peak equity failed: {e}");
+            }
         }
     }
 
@@ -89,7 +80,10 @@ impl SafetyManager {
         let mut losses = self.consecutive_losses.write().await;
 
         if is_loss {
-            let count = losses.entry(symbol.to_string()).and_modify(|c| *c += 1).or_insert(1);
+            let count = losses
+                .entry(symbol.to_string())
+                .and_modify(|c| *c += 1)
+                .or_insert(1);
             let current_count = *count;
 
             if current_count >= self.dropout_threshold {
@@ -129,37 +123,6 @@ impl SafetyManager {
         }
 
         *self.safety_state.read().await
-    }
-
-    pub async fn check_allow_trade(&self, symbol: &str) -> Result<(), String> {
-        let state = *self.safety_state.read().await;
-
-        match state {
-            SafetyState::DrawdownStop => {
-                return Err("Trading halted: capital drawdown limit exceeded".into());
-            }
-            SafetyState::Suspended => {
-                let drop_symbol = self.dropout_symbol.read().await.clone();
-                if drop_symbol.as_deref() == Some(symbol) {
-                    if let Some(until) = *self.dropout_until.read().await {
-                        if Instant::now() < until {
-                            let remaining = until.duration_since(Instant::now()).as_secs();
-                            return Err(format!(
-                                "Trading suspended for {}: {}s remaining in dropout",
-                                symbol, remaining
-                            ));
-                        }
-                    }
-                    *self.safety_state.write().await = SafetyState::Normal;
-                    *self.dropout_until.write().await = None;
-                    *self.dropout_symbol.write().await = None;
-                    let mut losses = self.consecutive_losses.write().await;
-                    losses.insert(symbol.to_string(), 0);
-                }
-            }
-            _ => {}
-        }
-        Ok(())
     }
 
     pub async fn evaluate_daily_drawdown_warn(&self) -> Option<SafetyState> {
@@ -235,109 +198,6 @@ impl SafetyManager {
         }
     }
 
-    pub async fn evaluate_all(
-        &self,
-        symbol: &str,
-        margin_usage_ratio: Decimal,
-        systemic_risk_score: f64,
-        exposure_breached: bool,
-    ) -> Vec<VetoTrigger> {
-        let mut triggers = Vec::new();
-
-        self.update_peak_equity(*self.current_equity.read().await).await;
-
-        // Priority 1: Drawdown breach (AVOID + Hard Exit)
-        if self.check_capital_drawdown().await.is_err() {
-            triggers.push(VetoTrigger {
-                condition: "drawdown_breach".into(),
-                target_stance: "AVOID".into(),
-                reason: "Capital drawdown exceeds limit".into(),
-                hard_exit: true,
-            });
-        }
-
-        // Priority 2: Margin exhaustion (AVOID + Hard Exit)
-        if margin_usage_ratio >= dec!(1) {
-            triggers.push(VetoTrigger {
-                condition: "margin_exhaustion".into(),
-                target_stance: "AVOID".into(),
-                reason: format!(
-                    "Margin usage ratio {:.2} exceeds 1.00",
-                    margin_usage_ratio
-                ),
-                hard_exit: true,
-            });
-        }
-
-        // Priority 3: Systemic risk (AVOID + Hard Exit)
-        if systemic_risk_score >= self.systemic_risk_threshold {
-            triggers.push(VetoTrigger {
-                condition: "systemic_risk".into(),
-                target_stance: "AVOID".into(),
-                reason: format!(
-                    "Systemic risk score {:.1} >= {:.1}",
-                    systemic_risk_score, self.systemic_risk_threshold
-                ),
-                hard_exit: true,
-            });
-        }
-
-        // Priority 4: Margin ceiling (CLOSE_ONLY, no Hard Exit)
-        if margin_usage_ratio >= dec!(0.95) && margin_usage_ratio < dec!(1) {
-            triggers.push(VetoTrigger {
-                condition: "margin_ceiling".into(),
-                target_stance: "CLOSE_ONLY".into(),
-                reason: format!(
-                    "Margin usage ratio {:.2} >= 0.95",
-                    margin_usage_ratio
-                ),
-                hard_exit: false,
-            });
-        }
-
-        // Priority 5: Exposure limit breach (CLOSE_ONLY, no Hard Exit)
-        if exposure_breached {
-            triggers.push(VetoTrigger {
-                condition: "exposure_limit_breach".into(),
-                target_stance: "CLOSE_ONLY".into(),
-                reason: "Portfolio exposure exceeds concentration limits".into(),
-                hard_exit: false,
-            });
-        }
-
-        // Priority 6: Loss streak (CLOSE_ONLY per-symbol, no Hard Exit)
-        let losses = self.consecutive_losses.read().await;
-        if let Some(&count) = losses.get(symbol) {
-            if count >= self.dropout_threshold {
-                triggers.push(VetoTrigger {
-                    condition: "loss_streak".into(),
-                    target_stance: "CLOSE_ONLY".into(),
-                    reason: format!(
-                        "Symbol {} has {} consecutive losses >= {}",
-                        symbol, count, self.dropout_threshold
-                    ),
-                    hard_exit: false,
-                });
-            }
-        }
-
-        // Priority 7: Manual override (operator-initiated)
-        let manual = self.manual_stance.read().await.clone();
-        if let Some((manual_symbol, stance)) = manual {
-            triggers.push(VetoTrigger {
-                condition: "manual_override".into(),
-                target_stance: stance.clone(),
-                reason: format!(
-                    "Operator-initiated override for {}: {}",
-                    manual_symbol, stance
-                ),
-                hard_exit: stance == "AVOID",
-            });
-        }
-
-        triggers
-    }
-
     pub async fn reset_consecutive_losses(&self, symbol: Option<&str>) {
         let mut losses = self.consecutive_losses.write().await;
         match symbol {
@@ -360,8 +220,8 @@ impl SafetyManager {
         println!("🔄 SAFETY: Loss counter reset");
     }
 
-    pub async fn set_initial_capital(&self, capital: Decimal) {
-        *self.initial_capital.write().await = capital;
+    pub async fn set_portfolio_capital(&self, capital: Decimal) {
+        *self.portfolio_capital.write().await = capital;
         self.update_peak_equity(capital).await;
         let ss_equity = self.starting_session_equity.read().await;
         if *ss_equity == dec!(0) {
@@ -376,19 +236,42 @@ impl SafetyManager {
         self.update_peak_equity(equity).await;
     }
 
+    /// v7 informational state update — called every executor tick.
+    /// Maintains current equity, peak equity, daily PnL (vs session start),
+    /// and the WARN / DRAWDOWN_STOP states. Pure state computation: no
+    /// triggers, no enforcement. Returns the resulting safety state.
+    pub async fn update(&self, equity: Decimal) -> SafetyState {
+        *self.current_equity.write().await = equity;
+        self.update_peak_equity(equity).await;
+        let start = *self.starting_session_equity.read().await;
+        *self.daily_pnl.write().await = equity - start;
+        if self.check_capital_drawdown().await.is_err() {
+            return SafetyState::DrawdownStop;
+        }
+        let warn = self.evaluate_daily_drawdown_warn().await;
+        if let Some(state) = warn {
+            state
+        } else {
+            *self.safety_state.read().await
+        }
+    }
+
     async fn persist_capital_state(&self, capital: Decimal) {
         if let Some(ref pool) = *self.pool.read().await {
             let capital_str = capital.to_string();
             let peak_str = self.peak_equity.read().await.to_string();
             let session_str = self.starting_session_equity.read().await.to_string();
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "UPDATE paper_balances SET initial_usd = ?1, current_cash = ?1, peak_equity = ?2, starting_session_equity = ?3",
             )
             .bind(&capital_str)
             .bind(&peak_str)
             .bind(&session_str)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist capital state failed: {e}");
+            }
         }
     }
 
@@ -412,7 +295,7 @@ impl SafetyManager {
             SafetyState::DrawdownStop => {
                 self.check_capital_drawdown().await?;
                 *self.safety_state.write().await = SafetyState::Normal;
-                println!("🔓 SAFETY: Drawdown veto released");
+                println!("🔓 SAFETY: Drawdown stop released");
             }
             SafetyState::Warn | SafetyState::Cautious | SafetyState::Suspended => {
                 *self.safety_state.write().await = SafetyState::Normal;
@@ -432,8 +315,6 @@ impl SafetyManager {
             println!("🔓 SAFETY: Peak equity reset to current equity");
         }
 
-        self.clear_manual_stance().await;
-
         Ok(())
     }
 
@@ -443,10 +324,13 @@ impl SafetyManager {
         let total_losses: u32 = losses.values().sum();
         match state {
             SafetyState::Normal => {
-                format!("Normal risk mode. {} total consecutive losses across symbols.", total_losses)
+                format!(
+                    "Normal risk mode. {} total consecutive losses across symbols.",
+                    total_losses
+                )
             }
             SafetyState::Warn => format!(
-                "WARN: Daily drawdown exceeds {}% limit. No stance change applied.",
+                "WARN: Daily drawdown exceeds {}% limit (informational).",
                 self.max_daily_drawdown_pct
             ),
             SafetyState::Cautious => format!(
@@ -458,21 +342,22 @@ impl SafetyManager {
                     .dropout_until
                     .read()
                     .await
-                    .map(|u| {
-                        u.duration_since(Instant::now())
-                            .as_secs()
-                    })
+                    .map(|u| u.duration_since(Instant::now()).as_secs())
                     .unwrap_or(0);
-                let sym = self.dropout_symbol.read().await.clone()
+                let sym = self
+                    .dropout_symbol
+                    .read()
+                    .await
+                    .clone()
                     .unwrap_or_else(|| "unknown".into());
                 format!(
                     "SUSPENDED: Symbol {} — {}s remaining in dropout.",
                     sym, remaining
                 )
             }
-            SafetyState::DrawdownStop => format!(
-                "HALTED: Capital drawdown limit exceeded. All stances set to AVOID."
-            ),
+            SafetyState::DrawdownStop => {
+                "HALTED: Capital drawdown limit exceeded. New entries blocked.".to_string()
+            }
         }
     }
 }
@@ -484,13 +369,16 @@ mod tests {
     #[tokio::test]
     async fn test_normal_to_cautious_transition() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
 
         mgr.record_trade_outcome("BTC-USDT", true).await;
         mgr.record_trade_outcome("BTC-USDT", true).await;
         let state = mgr.record_trade_outcome("BTC-USDT", true).await;
         assert_eq!(state, SafetyState::Cautious);
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&3));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&3)
+        );
     }
 
     #[tokio::test]
@@ -501,7 +389,10 @@ mod tests {
         }
         let state = *mgr.safety_state.read().await;
         assert_eq!(state, SafetyState::Suspended);
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&5));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&5)
+        );
     }
 
     #[tokio::test]
@@ -510,10 +401,16 @@ mod tests {
         for _ in 0..3 {
             mgr.record_trade_outcome("BTC-USDT", true).await;
         }
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&3));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&3)
+        );
 
         mgr.record_trade_outcome("BTC-USDT", false).await;
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&0));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&0)
+        );
         let state = *mgr.safety_state.read().await;
         assert_eq!(state, SafetyState::Normal);
     }
@@ -528,8 +425,14 @@ mod tests {
         mgr.record_trade_outcome("ETH-USDT", true).await;
         mgr.record_trade_outcome("ETH-USDT", true).await;
 
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&4));
-        assert_eq!(mgr.consecutive_losses.read().await.get("ETH-USDT"), Some(&2));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&4)
+        );
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("ETH-USDT"),
+            Some(&2)
+        );
     }
 
     #[tokio::test]
@@ -547,7 +450,7 @@ mod tests {
     #[tokio::test]
     async fn test_drawdown_stop_uses_peak_equity() {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(1200)).await;
 
         mgr.update_peak_equity(dec!(1200)).await;
@@ -562,7 +465,7 @@ mod tests {
     #[tokio::test]
     async fn test_drawdown_not_triggered_within_limit() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(800)).await;
 
         mgr.update_peak_equity(dec!(1000)).await;
@@ -574,7 +477,7 @@ mod tests {
     #[tokio::test]
     async fn test_peak_equity_trailing_high_water_mark() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
 
         assert_eq!(*mgr.peak_equity.read().await, dec!(1000));
 
@@ -588,7 +491,7 @@ mod tests {
     #[tokio::test]
     async fn test_warn_state_triggered_on_daily_drawdown() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(10000)).await;
+        mgr.set_portfolio_capital(dec!(10000)).await;
         mgr.set_current_equity(dec!(10000)).await;
 
         *mgr.starting_session_equity.write().await = dec!(10000);
@@ -602,7 +505,7 @@ mod tests {
     #[tokio::test]
     async fn test_warn_state_clears_when_recovered() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(10000)).await;
+        mgr.set_portfolio_capital(dec!(10000)).await;
         mgr.set_current_equity(dec!(10000)).await;
 
         *mgr.starting_session_equity.write().await = dec!(10000);
@@ -617,45 +520,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_trade_blocked_when_suspended() {
-        let mgr = SafetyManager::new(3, 3, 1, 30.0, 5.0, 80.0);
-        for _ in 0..3 {
-            mgr.record_trade_outcome("BTC-USDT", true).await;
-        }
-        let result = mgr.check_allow_trade("BTC-USDT").await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("suspended"));
-    }
-
-    #[tokio::test]
-    async fn test_other_symbol_unaffected_by_suspension() {
-        let mgr = SafetyManager::new(3, 3, 1, 30.0, 5.0, 80.0);
-        for _ in 0..3 {
-            mgr.record_trade_outcome("BTC-USDT", true).await;
-        }
-        let result = mgr.check_allow_trade("ETH-USDT").await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_all_returns_drawdown_first() {
+    async fn test_update_triggers_drawdown_stop() {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
-        mgr.set_current_equity(dec!(1200)).await;
-        mgr.update_peak_equity(dec!(1200)).await;
-        mgr.set_current_equity(dec!(500)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
+        mgr.update(dec!(1200)).await;
+        assert_eq!(*mgr.peak_equity.read().await, dec!(1200));
 
-        let triggers = mgr.evaluate_all("BTC-USDT", dec!(0.5), 10.0, false).await;
-        assert!(!triggers.is_empty());
-        assert_eq!(triggers[0].condition, "drawdown_breach");
-        assert_eq!(triggers[0].target_stance, "AVOID");
-        assert!(triggers[0].hard_exit);
+        // 500 / 1200 = 41.7% below peak → exceeds the 20% drawdown limit.
+        let state = mgr.update(dec!(500)).await;
+        assert_eq!(state, SafetyState::DrawdownStop);
+        assert_eq!(*mgr.safety_state.read().await, SafetyState::DrawdownStop);
+    }
+
+    #[tokio::test]
+    async fn test_update_triggers_warn_on_daily_drawdown() {
+        let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
+        mgr.set_portfolio_capital(dec!(10000)).await;
+        mgr.update(dec!(10000)).await;
+
+        // Daily PnL = 9400 - 10000 = -600 → 6% of session equity → WARN.
+        let state = mgr.update(dec!(9400)).await;
+        assert_eq!(state, SafetyState::Warn);
+        assert_eq!(*mgr.daily_pnl.read().await, dec!(-600));
+    }
+
+    #[tokio::test]
+    async fn test_update_normal_state_above_peak() {
+        let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
+        mgr.set_portfolio_capital(dec!(1000)).await;
+        mgr.update(dec!(1000)).await;
+
+        let state = mgr.update(dec!(1100)).await;
+        assert_eq!(state, SafetyState::Normal);
+        assert_eq!(*mgr.peak_equity.read().await, dec!(1100));
+        assert_eq!(*mgr.daily_pnl.read().await, dec!(100));
     }
 
     #[tokio::test]
     async fn test_session_reset_rebaselines_peak_equity() {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(1500)).await;
 
         assert_eq!(*mgr.peak_equity.read().await, dec!(1500));
@@ -665,4 +569,55 @@ mod tests {
         assert_eq!(*mgr.starting_session_equity.read().await, dec!(1500));
         assert_eq!(*mgr.daily_pnl.read().await, dec!(0));
     }
+}
+
+/// V4-046: deterministic reconstruction — replaying the same equity
+/// sequence must always reconstruct the identical safety state, peak,
+/// daily PnL, and drawdown (no wall-clock dependence).
+#[tokio::test]
+async fn test_deterministic_reconstruction_sequence() {
+    let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
+    mgr.set_portfolio_capital(dec!(1000)).await;
+
+    let sequence = [
+        1000.0, 1100.0, 1050.0, 980.0, 900.0, 870.0, 1200.0, 1150.0, 1100.0,
+    ];
+    let mut states = Vec::new();
+    for eq in sequence {
+        states.push(
+            mgr.update(Decimal::from_f64_retain(eq).unwrap_or_default())
+                .await,
+        );
+    }
+
+    // Re-run on a fresh manager — identical reconstruction expected.
+    let mgr2 = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
+    mgr2.set_portfolio_capital(dec!(1000)).await;
+    let mut states2 = Vec::new();
+    for eq in sequence {
+        states2.push(
+            mgr2.update(Decimal::from_f64_retain(eq).unwrap_or_default())
+                .await,
+        );
+    }
+
+    assert_eq!(
+        states, states2,
+        "state ladder must reconstruct deterministically"
+    );
+    assert_eq!(
+        *mgr.peak_equity.read().await,
+        *mgr2.peak_equity.read().await
+    );
+    assert_eq!(*mgr.daily_pnl.read().await, *mgr2.daily_pnl.read().await);
+    assert_eq!(
+        *mgr.safety_state.read().await,
+        *mgr2.safety_state.read().await
+    );
+
+    // Sanity on the sequence itself: peak 1200, daily +100, and the
+    // 870/1200 drawdown (27.5%) breaches the 20% limit → DRAWDOWN_STOP.
+    assert_eq!(*mgr.peak_equity.read().await, dec!(1200));
+    assert_eq!(*mgr.daily_pnl.read().await, dec!(100));
+    assert_eq!(*mgr.safety_state.read().await, SafetyState::DrawdownStop);
 }
