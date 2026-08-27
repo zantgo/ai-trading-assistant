@@ -20,8 +20,16 @@ const WS_MAX_DELAY_MS = 30000;
 
 let _globalMsgCount = 0;
 function logWsActivity(symbol: string, slot: string, msgCount: number): void {
+    // Opt-in only — default OFF so Console stays clean (Option A).
+    // Enable via `window.__CANDLE_DEBUG_ENABLED__ = true` or `localStorage.setItem('candleDebug','1')`
+    try {
+        const enabled =
+            (typeof window !== 'undefined' && (window as unknown as { __CANDLE_DEBUG_ENABLED__?: boolean }).__CANDLE_DEBUG_ENABLED__ === true) ||
+            (typeof localStorage !== 'undefined' && (localStorage.getItem('candleDebug') === '1' || localStorage.getItem('candleDebug') === 'true'));
+        if (!enabled) return;
+    } catch {}
     if (msgCount % 100 === 0) {
-        console.log(`[WS-DIAG] ${symbol}/${slot}: message #${msgCount} at ${new Date().toISOString()}`);
+        console.debug(`[WS-DIAG] ${symbol}/${slot}: message #${msgCount} at ${new Date().toISOString()}`);
     }
 }
 

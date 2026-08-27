@@ -7,10 +7,10 @@
  * cross-section of warmup + rolling buffer state.
  *
  * Intended usage:
- *   - Default ENABLED (user requested "fire on every completed candle").
- *   - Toggle at runtime: `window.__CANDLE_DEBUG_ENABLED__ = false` or
- *     `localStorage.setItem('candleDebug','0')`
- *   - Opt-out via `window.__CANDLE_DEBUG_ENABLED__ = false`
+ *   - Default DISABLED (opt-in only — Console stays clean per user request).
+ *   - Enable at runtime: `window.__CANDLE_DEBUG_ENABLED__ = true` or
+ *     `localStorage.setItem('candleDebug','1')` (then reload)
+ *   - Disable via `window.__CANDLE_DEBUG_ENABLED__ = false` or `localStorage.setItem('candleDebug','0')`
  *
  * Log format is JSON so it can be copied/piped to jq/pandas.
  * One `console.log` per completed candle: `[CANDLE_DEBUG] <json>`
@@ -25,13 +25,19 @@ declare global {
 }
 
 function isDebugEnabled(): boolean {
-    if (typeof window !== 'undefined' && window.__CANDLE_DEBUG_ENABLED__ === false) return false;
-    // Explicit localStorage opt-out overrides default ON — lets operator silence without reload.
+    // Option A: opt-in only — default OFF so Console stays clean.
+    // Enable via `window.__CANDLE_DEBUG_ENABLED__ = true` or `localStorage.setItem('candleDebug','1')` (then reload).
+    // Explicit opt-in required; no logs unless operator asks.
+    if (typeof window !== 'undefined' && window.__CANDLE_DEBUG_ENABLED__ === true) return true;
     try {
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('candleDebug') === '1') return true;
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('candleDebug') === 'true') return true;
+        // Legacy support: window flag set, but localStorage '0' still wins as explicit off
+        if (typeof window !== 'undefined' && window.__CANDLE_DEBUG_ENABLED__ === false) return false;
         if (typeof localStorage !== 'undefined' && localStorage.getItem('candleDebug') === '0') return false;
         if (typeof localStorage !== 'undefined' && localStorage.getItem('candleDebug') === 'false') return false;
     } catch {}
-    return true;
+    return false;
 }
 
 export interface CandleDebugOverlayDump {
